@@ -14,8 +14,11 @@ class AuthService {
    * Sign up a new user
    */
   async signUp(formData: SignUpFormData): Promise<void> {
+    let userCreated = false;
+    let userCredential: any = null;
+
     try {
-      // Check if username already exists
+      // Step 1: Check if username already exists (public read required)
       const usernameRef = ref(database, `usernames/${formData.username.toLowerCase()}`);
       const usernameSnapshot = await get(usernameRef);
       
@@ -23,17 +26,18 @@ class AuthService {
         throw new Error('Username already taken');
       }
 
-      // Create user in Firebase Authentication
-      const userCredential = await createUserWithEmailAndPassword(
+      // Step 2: Create user in Firebase Authentication
+      userCredential = await createUserWithEmailAndPassword(
         auth,
         formData.email,
         formData.password
       );
+      userCreated = true;
 
       const user = userCredential.user;
       const timestamp = Date.now();
 
-      // Create user data object
+      // Step 3: Create user data object
       const userData: UserData = {
         uid: user.uid,
         username: formData.username,
@@ -43,24 +47,49 @@ class AuthService {
         updatedAt: timestamp,
       };
 
-      // Store user data in Realtime Database
+      // Step 4: Store user data (authenticated write)
       await set(ref(database, `users/${user.uid}`), userData);
 
-      // Store username to email mapping for login
+      // Step 5: Store username mapping with email (needed for login)
       await set(ref(database, `usernames/${formData.username.toLowerCase()}`), {
-        email: formData.email,
+        uid: user.uid,
+        email: formData.email, // ✅ Store email here for login
       });
 
-      // Sign out after registration (user will be redirected to login)
+      // Step 6: Sign out after registration
       await firebaseSignOut(auth);
+      
+      console.log('✅ User registered successfully');
+      
     } catch (error: any) {
+      // If database write failed but user was created, clean up
+      if (userCreated && userCredential?.user) {
+        try {
+          await userCredential.user.delete();
+          console.log('🧹 Cleaned up orphaned auth user');
+        } catch (deleteError) {
+          console.error('❌ Failed to clean up auth user:', deleteError);
+        }
+      }
+
+      // Handle specific Firebase errors
       if (error.code === 'auth/email-already-in-use') {
         throw new Error('Email already in use');
       } else if (error.code === 'auth/weak-password') {
         throw new Error('Password should be at least 6 characters');
       } else if (error.code === 'auth/invalid-email') {
         throw new Error('Invalid email address');
+      } else if (error.code === 'PERMISSION_DENIED') {
+        throw new Error('Database permission denied. Please check Firebase rules.');
       }
+      
+      // Log the full error for debugging
+      console.error('❌ Sign-up error:', {
+        code: error.code,
+        message: error.message,
+        stack: error.stack
+      });
+      
       throw error;
     }
   }
@@ -70,7 +99,7 @@ class AuthService {
    */
   async login(formData: LoginFormData): Promise<User> {
     try {
-      // Get email from username
+      // Get email directly from username mapping (public read)
       const usernameRef = ref(database, `usernames/${formData.username.toLowerCase()}`);
       const usernameSnapshot = await get(usernameRef);
 
@@ -78,7 +107,11 @@ class AuthService {
         throw new Error('Invalid username or password');
       }
 
-      const email = usernameSnapshot.val().email;
+      const { email } = usernameSnapshot.val();
+
+      if (!email) {
+        throw new Error('User data incomplete');
+      }
 
       // Sign in with email and password
       const userCredential = await signInWithEmailAndPassword(
@@ -87,13 +120,23 @@ class AuthService {
         formData.password
       );
 
+      console.log('✅ Login successful');
       return userCredential.user;
+      
     } catch (error: any) {
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
         throw new Error('Invalid username or password');
       } else if (error.code === 'auth/too-many-requests') {
         throw new Error('Too many failed attempts. Please try again later');
+      } else if (error.code === 'PERMISSION_DENIED') {
+        throw new Error('Database permission denied. Please check Firebase rules.');
       }
+      
+      console.error('❌ Login error:', {
+        code: error.code,
+        message: error.message
+      });
+      
       throw error;
     }
   }
@@ -103,6 +146,7 @@ class AuthService {
    */
   async signOut(): Promise<void> {
     await firebaseSignOut(auth);
+    console.log('✅ User signed out');
   }
 
   /**
@@ -118,8 +162,23 @@ class AuthService {
       }
       return null;
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      console.error('❌ Error fetching user data:', error);
       return null;
+    }
+  }
+
+  /**
+   * Check if username is available
+   * Useful for real-time validation during sign-up
+   */
+  async isUsernameAvailable(username: string): Promise<boolean> {
+    try {
+      const usernameRef = ref(database, `usernames/${username.toLowerCase()}`);
+      const snapshot = await get(usernameRef);
+      return !snapshot.exists();
+    } catch (error) {
+      console.error('❌ Error checking username:', error);
+      return false;
     }
   }
 }
