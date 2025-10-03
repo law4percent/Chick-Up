@@ -1,9 +1,10 @@
 // src/config/firebase.config.ts
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getDatabase } from 'firebase/database';
+import { initializeApp } from "firebase/app";
+import { initializeAuth } from "firebase/auth";
+import { getDatabase } from "firebase/database";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getReactNativePersistence } from "../lib/reactNativeAsyncStorage";
 
-// Firebase configuration from environment variables
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -14,26 +15,12 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Validate configuration
-const requiredEnvVars = [
-  'EXPO_PUBLIC_FIREBASE_API_KEY',
-  'EXPO_PUBLIC_FIREBASE_PROJECT_ID',
-  'EXPO_PUBLIC_FIREBASE_DATABASE_URL',
-];
-
-for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    throw new Error(`Missing required environment variable: ${envVar}`);
-  }
-}
-
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Auth (persistence is handled automatically in React Native)
-const auth = getAuth(app);
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage),
+});
 
-// Initialize Realtime Database
 const database = getDatabase(app);
 
 export { auth, database };
