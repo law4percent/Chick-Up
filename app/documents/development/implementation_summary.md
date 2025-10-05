@@ -102,6 +102,7 @@ chick-up-1c2df-default-rtdb/
 └── usernames/
     └── {username_lowercase}/
         └── email
+        └── uid
 ```
 
 ### **Navigation Flow**
