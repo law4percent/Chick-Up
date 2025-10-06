@@ -17,13 +17,8 @@ export interface UsernameMapping {
 
 // Navigation types
 export type RootStackParamList = {
-  Auth: undefined;
+  Auth: undefined;  // Direct auth screen (no nested stack)
   Main: undefined;
-};
-
-export type AuthStackParamList = {
-  Login: undefined;
-  SignUp: undefined;
 };
 
 export type MainDrawerParamList = {

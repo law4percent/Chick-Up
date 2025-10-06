@@ -7,32 +7,16 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
 import { auth } from '../config/firebase.config';
-import { RootStackParamList, AuthStackParamList, MainDrawerParamList } from '../types/types';
+import { RootStackParamList, MainDrawerParamList } from '../types/types';
 import { theme } from '../config/theme';
 
 // Screens
-import LoginScreen from '../screens/LoginScreen';
-import SignUpScreen from '../screens/SignUpScreen';
+import AuthScreen from '../screens/AuthScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import CustomDrawer from '../components/CustomDrawer';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
-const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const MainDrawer = createDrawerNavigator<MainDrawerParamList>();
-
-// Auth Navigator
-const AuthNavigator = () => {
-  return (
-    <AuthStack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <AuthStack.Screen name="Login" component={LoginScreen} />
-      <AuthStack.Screen name="SignUp" component={SignUpScreen} />
-    </AuthStack.Navigator>
-  );
-};
 
 // Placeholder screen component for Profile and Settings
 const PlaceholderScreen = () => (
@@ -48,18 +32,17 @@ const MainNavigator = () => {
       drawerContent={(props) => <CustomDrawer {...props} />}
       screenOptions={{
         headerShown: false,
-        drawerPosition: 'left', // Left-side drawer
+        drawerPosition: 'left',
         drawerType: 'slide',
         drawerStyle: {
           width: 280,
           backgroundColor: theme.colors.background,
         },
-        swipeEnabled: true, // Enable swipe gestures
-        swipeEdgeWidth: 50, // Swipe from edge to open
+        swipeEnabled: true,
+        swipeEdgeWidth: 50,
       }}
     >
       <MainDrawer.Screen name="Dashboard" component={DashboardScreen} />
-      {/* Add more screens here as you build them */}
       <MainDrawer.Screen 
         name="Profile" 
         component={PlaceholderScreen} 
@@ -102,7 +85,7 @@ const Navigation = () => {
         {user ? (
           <RootStack.Screen name="Main" component={MainNavigator} />
         ) : (
-          <RootStack.Screen name="Auth" component={AuthNavigator} />
+          <RootStack.Screen name="Auth" component={AuthScreen} />
         )}
       </RootStack.Navigator>
     </NavigationContainer>
