@@ -11,6 +11,7 @@ import {
   DrawerContentScrollView,
   DrawerContentComponentProps,
 } from '@react-navigation/drawer';
+import { LinearGradient } from 'expo-linear-gradient';
 import authService from '../services/authService';
 import { theme } from '../config/theme';
 
@@ -36,39 +37,69 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
     );
   };
 
+  const currentRoute = props.state.routes[props.state.index]?.name;
+
+  const MenuItem = ({ icon, label, route }: { icon: string; label: string; route: string }) => {
+    const isActive = currentRoute === route;
+    
+    if (isActive) {
+      return (
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => props.navigation.navigate(route)}
+        >
+          <LinearGradient
+            colors={['#FFD54F', '#4CAF50']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.menuItemGradient}
+          >
+            <Text style={[styles.menuIcon, styles.menuIconActive]}>{icon}</Text>
+            <Text style={[styles.menuText, styles.menuTextActive]}>{label}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      );
+    }
+    
+    return (
+      <TouchableOpacity
+        style={styles.menuItem}
+        onPress={() => props.navigation.navigate(route)}
+      >
+        <Text style={styles.menuIcon}>{icon}</Text>
+        <Text style={styles.menuText}>{label}</Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <DrawerContentScrollView {...props} contentContainerStyle={styles.scrollView}>
         <View style={styles.header}>
-          <Text style={styles.appName}>Chick-Up</Text>
-          <Text style={styles.tagline}>Stay organized!</Text>
+          <View style={styles.logoContainer}>
+            <LinearGradient
+                colors={['#FFD54F', '#4CAF50']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.logo}
+              >
+              <Text style={styles.logoEmoji}>🐣</Text>
+            </LinearGradient>
+            <TouchableOpacity style={styles.closeButton} onPress={() => props.navigation.closeDrawer()}>
+              <Text style={styles.closeIcon}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.appName}>CHICK-UP</Text>
+          <Text style={styles.tagline}>IoT Poultry System</Text>
         </View>
-
+        
         <View style={styles.menuItems}>
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => props.navigation.navigate('Dashboard')}
-          >
-            <Text style={styles.menuIcon}>🏠</Text>
-            <Text style={styles.menuText}>Dashboard</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => props.navigation.navigate('Profile')}
-          >
-            <Text style={styles.menuIcon}>👤</Text>
-            <Text style={styles.menuText}>Profile</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => props.navigation.navigate('Settings')}
-          >
-            <Text style={styles.menuIcon}>⚙️</Text>
-            <Text style={styles.menuText}>Settings</Text>
-          </TouchableOpacity>
+          <MenuItem icon="📊" label="Dashboard" route="Dashboard" />
+          <MenuItem icon="📝" label="Data Logging" route="DataLogging" />
+          <MenuItem icon="👤" label="Profile" route="Profile" />
+          <MenuItem icon="⚙️" label="Settings" route="Settings" />
         </View>
+        
       </DrawerContentScrollView>
 
       <View style={styles.footer}>
@@ -84,51 +115,100 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: '#FFFFFF',
   },
   scrollView: {
     flexGrow: 1,
   },
   header: {
     padding: theme.spacing.lg,
-    backgroundColor: theme.colors.primary,
-    borderBottomWidth: 2,
-    borderBottomColor: theme.colors.secondary,
+    paddingTop: theme.spacing.xl,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E5',
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  logo: {
+    width: 50,
+    height: 50,
+    backgroundColor: '#8BC34A',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoEmoji: {
+    fontSize: 28,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeIcon: {
+    fontSize: 20,
+    color: '#666',
   },
   appName: {
-    ...theme.typography.h1,
-    color: '#FFF',
-    marginBottom: theme.spacing.xs,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 2,
   },
   tagline: {
-    ...theme.typography.caption,
-    color: '#FFF',
-    opacity: 0.9,
+    fontSize: 12,
+    color: '#999',
   },
   menuItems: {
     flex: 1,
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.sm,
+    gap: theme.spacing.sm
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginVertical: 2,
+    borderRadius: theme.borderRadius.lg,
+    overflow: 'hidden',
+    marginBottom: theme.spacing.sm
+  },
+  menuItemGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: theme.spacing.md,
-    marginHorizontal: theme.spacing.sm,
-    marginVertical: theme.spacing.xs,
-    borderRadius: theme.borderRadius.md,
+    paddingVertical: 14,
+    width: '100%',
+  },
+  menuItemActive: {
+    backgroundColor: '#8BC34A',
   },
   menuIcon: {
-    fontSize: 24,
+    fontSize: 20,
     marginRight: theme.spacing.md,
+    width: 24,
+    marginLeft: theme.spacing.md,
+  },
+  menuIconActive: {
+    opacity: 1,
   },
   menuText: {
-    ...theme.typography.body,
-    color: theme.colors.text,
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
+  menuTextActive: {
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: '#E5E5E5',
     padding: theme.spacing.md,
   },
   logoutButton: {
