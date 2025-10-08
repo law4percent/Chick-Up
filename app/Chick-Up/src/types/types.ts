@@ -25,6 +25,7 @@ export type MainDrawerParamList = {
   Dashboard: undefined;
   Profile: undefined;
   Settings: undefined;
+  DataLogging: undefined;
 };
 
 // Form data types

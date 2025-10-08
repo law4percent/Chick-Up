@@ -23,6 +23,7 @@ const MainDrawer = createDrawerNavigator<MainDrawerParamList>();
 const PlaceholderScreen = () => (
   <View style={styles.placeholder}>
     <ActivityIndicator size="large" color={theme.colors.primary} />
+    
   </View>
 );
 
@@ -43,16 +44,23 @@ const MainNavigator = () => {
         swipeEdgeWidth: 50,
       }}
     >
-      <MainDrawer.Screen name="Dashboard" component={DashboardScreen} />
-      <MainDrawer.Screen
-        name="Profile"
-        component={PlaceholderScreen}
-        options={{ title: 'Profile' }}
+      <MainDrawer.Screen 
+        name="Dashboard" 
+        component={DashboardScreen} 
+      />
+      <MainDrawer.Screen 
+        name="DataLogging" 
+        component={PlaceholderScreen} 
       />
       <MainDrawer.Screen
         name="Settings"
         component={SettingsScreen}
         options={{ title: 'Settings' }}
+      />
+      <MainDrawer.Screen
+        name="Profile"
+        component={PlaceholderScreen}
+        options={{ title: 'Profile' }}
       />
     </MainDrawer.Navigator>
   );
