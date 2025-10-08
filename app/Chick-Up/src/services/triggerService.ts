@@ -1,3 +1,4 @@
+// This is not final, we will fix this later
 // src/services/triggerService.ts
 import { ref, set, push } from 'firebase/database';
 import { database } from '../config/firebase.config';
@@ -24,8 +25,8 @@ class TriggerService {
       };
 
       // Use timestamp as the key for uniqueness
-      const triggerRef = ref(database, `triggers/${timestamp}`);
-      await set(triggerRef, triggerData);
+      const triggerRef = ref(database, `triggers/${userId}/${timestamp}`);
+      await set(triggerRef, triggerData); // This is not final, we will fix this later
 
       console.log(`✅ ${type} trigger created with timestamp: ${timestamp}`);
       return timestamp.toString();

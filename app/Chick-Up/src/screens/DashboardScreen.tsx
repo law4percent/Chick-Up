@@ -145,7 +145,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       await triggerService.createWaterTrigger(userId, waterVolume);
       await sensorService.updateDispenseTimestamp(userId, 'water');
 
-      Alert.alert('Success', 'Water dispense triggered!');
     } catch (error: any) {
       console.error('Error dispensing water:', error);
       Alert.alert('Error', error.message || 'Failed to dispense water');
@@ -168,7 +167,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       await triggerService.createFeedTrigger(userId, feedVolume);
       await sensorService.updateDispenseTimestamp(userId, 'feed');
 
-      Alert.alert('Success', 'Feed dispense triggered!');
     } catch (error: any) {
       console.error('Error dispensing feed:', error);
       Alert.alert('Error', error.message || 'Failed to dispense feed');
