@@ -1,9 +1,13 @@
 // src/screens/DashboardScreen.tsx
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MainDrawerParamList } from '../types/types';
+import { MainDrawerParamList, SensorData, UserSettings } from '../types/types';
+import sensorService from '../services/sensorService';
+import settingsService from '../services/settingsService';
+import triggerService from '../services/triggerService';
+import { auth } from '../config/firebase.config';
 
 type DashboardScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, 'Dashboard'>;
 
@@ -12,16 +16,175 @@ interface Props {
 }
 
 const DashboardScreen: React.FC<Props> = ({ navigation }) => {
-  // Sample data - replace with real data from Firebase later
-  const [waterLevel, setWaterLevel] = useState(17);
-  const [feedLevel, setFeedLevel] = useState(48);
-  const [lastWaterDate, setLastWaterDate] = useState('10/08/2025');
-  const [lastWaterTime, setLastWaterTime] = useState('09:34:29');
-  const [lastFeedDate, setLastFeedDate] = useState('10/08/2025');
-  const [lastFeedTime, setLastFeedTime] = useState('09:34:21');
+  const [loading, setLoading] = useState(true);
+  const [waterLevel, setWaterLevel] = useState(0);
+  const [feedLevel, setFeedLevel] = useState(0);
+  const [lastWaterDate, setLastWaterDate] = useState('--/--/----');
+  const [lastWaterTime, setLastWaterTime] = useState('--:--:--');
+  const [lastFeedDate, setLastFeedDate] = useState('--/--/----');
+  const [lastFeedTime, setLastFeedTime] = useState('--:--:--');
 
-  const isWaterLow = waterLevel < 20;
-  const isFeedLow = feedLevel < 20;
+  // Settings for dynamic thresholds
+  const [waterThreshold, setWaterThreshold] = useState(20);
+  const [feedThreshold, setFeedThreshold] = useState(20);
+  const [waterVolume, setWaterVolume] = useState(15);
+  const [feedVolume, setFeedVolume] = useState(10);
+
+  // Dispense button states
+  const [waterButtonDisabled, setWaterButtonDisabled] = useState(false);
+  const [feedButtonDisabled, setFeedButtonDisabled] = useState(false);
+  const [waterCountdown, setWaterCountdown] = useState(0);
+  const [feedCountdown, setFeedCountdown] = useState(0);
+
+  const isWaterLow = waterLevel < waterThreshold;
+  const isFeedLow = feedLevel < feedThreshold;
+
+  // Load sensor data and settings on mount
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) {
+      Alert.alert('Error', 'User not authenticated');
+      setLoading(false);
+      return;
+    }
+
+    // Initialize sensor data and settings if they don't exist
+    const initializeData = async () => {
+      try {
+        const existingSensorData = await sensorService.getSensorData(userId);
+        if (!existingSensorData) {
+          await sensorService.initializeSensorData(userId);
+        }
+
+        const existingSettings = await settingsService.getSettings(userId);
+        if (!existingSettings) {
+          await settingsService.initializeSettings(userId);
+        }
+      } catch (error) {
+        console.error('Error initializing data:', error);
+      }
+    };
+
+    initializeData();
+
+    // Subscribe to real-time sensor data
+    const unsubscribeSensor = sensorService.subscribeSensorData(
+      userId,
+      (data) => {
+        if (data) {
+          setWaterLevel(data.waterLevel);
+          setFeedLevel(data.feedLevel);
+          setLastWaterDate(data.lastWaterDispense.date);
+          setLastWaterTime(data.lastWaterDispense.time);
+          setLastFeedDate(data.lastFeedDispense.date);
+          setLastFeedTime(data.lastFeedDispense.time);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Sensor subscription error:', error);
+        Alert.alert('Error', 'Failed to load sensor data');
+        setLoading(false);
+      }
+    );
+
+    // Subscribe to real-time settings for dynamic thresholds
+    const unsubscribeSettings = settingsService.subscribeSettings(
+      userId,
+      (settings) => {
+        if (settings) {
+          setWaterThreshold(settings.water.thresholdPercent);
+          setFeedThreshold(settings.feed.thresholdPercent);
+          setWaterVolume(settings.water.dispenseVolumePercent);
+          setFeedVolume(settings.feed.dispenseVolumePercent);
+        }
+      },
+      (error) => {
+        console.error('Settings subscription error:', error);
+      }
+    );
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      unsubscribeSensor();
+      unsubscribeSettings();
+    };
+  }, []);
+
+  // Water button countdown effect
+  useEffect(() => {
+    if (waterCountdown > 0) {
+      const timer = setTimeout(() => setWaterCountdown(waterCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (waterCountdown === 0 && waterButtonDisabled) {
+      setWaterButtonDisabled(false);
+    }
+  }, [waterCountdown, waterButtonDisabled]);
+
+  // Feed button countdown effect
+  useEffect(() => {
+    if (feedCountdown > 0) {
+      const timer = setTimeout(() => setFeedCountdown(feedCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (feedCountdown === 0 && feedButtonDisabled) {
+      setFeedButtonDisabled(false);
+    }
+  }, [feedCountdown, feedButtonDisabled]);
+
+  const handleWaterDispense = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      setWaterButtonDisabled(true);
+      setWaterCountdown(3);
+
+      await triggerService.createWaterTrigger(userId, waterVolume);
+      await sensorService.updateDispenseTimestamp(userId, 'water');
+
+      Alert.alert('Success', 'Water dispense triggered!');
+    } catch (error: any) {
+      console.error('Error dispensing water:', error);
+      Alert.alert('Error', error.message || 'Failed to dispense water');
+      setWaterButtonDisabled(false);
+      setWaterCountdown(0);
+    }
+  };
+
+  const handleFeedDispense = async () => {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      setFeedButtonDisabled(true);
+      setFeedCountdown(3);
+
+      await triggerService.createFeedTrigger(userId, feedVolume);
+      await sensorService.updateDispenseTimestamp(userId, 'feed');
+
+      Alert.alert('Success', 'Feed dispense triggered!');
+    } catch (error: any) {
+      console.error('Error dispensing feed:', error);
+      Alert.alert('Error', error.message || 'Failed to dispense feed');
+      setFeedButtonDisabled(false);
+      setFeedCountdown(0);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+        <Text style={styles.loadingText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
 
   return (
     <LinearGradient
@@ -133,26 +296,50 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Critical Alert Banner */}
-        {isWaterLow && (
+        {/* Critical Alert Banner - Shows when either water or feed is low */}
+        {(isWaterLow || isFeedLow) && (
           <View style={styles.criticalAlert}>
             <Text style={styles.criticalAlertIcon}>⚠️</Text>
             <Text style={styles.criticalAlertText}>
-              Water level is critically low! Please refill the water container.
+              {isWaterLow && isFeedLow
+                ? 'Water and feed levels are critically low! Please refill both containers.'
+                : isWaterLow
+                ? 'Water level is critically low! Please refill the water container.'
+                : 'Feed level is critically low! Please refill the feed container.'}
             </Text>
           </View>
         )}
 
         {/* Action Buttons */}
         <View style={styles.actionButtonsContainer}>
-          <TouchableOpacity style={[styles.actionButton, styles.waterButton]}>
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.waterButton,
+              waterButtonDisabled && styles.actionButtonDisabled
+            ]}
+            onPress={handleWaterDispense}
+            disabled={waterButtonDisabled}
+          >
             <Text style={styles.actionButtonIcon}>💧</Text>
-            <Text style={styles.actionButtonText}>Dispense Water</Text>
+            <Text style={styles.actionButtonText}>
+              {waterButtonDisabled ? `Wait ${waterCountdown}s` : 'Dispense Water'}
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.actionButton, styles.feedButton]}>
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              styles.feedButton,
+              feedButtonDisabled && styles.actionButtonDisabled
+            ]}
+            onPress={handleFeedDispense}
+            disabled={feedButtonDisabled}
+          >
             <Text style={styles.actionButtonIcon}>🌾</Text>
-            <Text style={styles.actionButtonText}>Dispense Feed</Text>
+            <Text style={styles.actionButtonText}>
+              {feedButtonDisabled ? `Wait ${feedCountdown}s` : 'Dispense Feed'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -185,6 +372,17 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFEF0',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#666',
   },
   header: {
     flexDirection: 'row',
@@ -367,6 +565,10 @@ const styles = StyleSheet.create({
   },
   feedButton: {
     backgroundColor: '#FF9500',
+  },
+  actionButtonDisabled: {
+    backgroundColor: '#BDBDBD',
+    opacity: 0.6,
   },
   actionButtonIcon: {
     fontSize: 32,

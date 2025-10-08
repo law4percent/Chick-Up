@@ -13,6 +13,7 @@ import { theme } from '../config/theme';
 // Screens
 import AuthScreen from '../screens/AuthScreen';
 import DashboardScreen from '../screens/DashboardScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import CustomDrawer from '../components/CustomDrawer';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -43,14 +44,14 @@ const MainNavigator = () => {
       }}
     >
       <MainDrawer.Screen name="Dashboard" component={DashboardScreen} />
-      <MainDrawer.Screen 
-        name="Profile" 
-        component={PlaceholderScreen} 
+      <MainDrawer.Screen
+        name="Profile"
+        component={PlaceholderScreen}
         options={{ title: 'Profile' }}
       />
-      <MainDrawer.Screen 
-        name="Settings" 
-        component={PlaceholderScreen} 
+      <MainDrawer.Screen
+        name="Settings"
+        component={SettingsScreen}
         options={{ title: 'Settings' }}
       />
     </MainDrawer.Navigator>

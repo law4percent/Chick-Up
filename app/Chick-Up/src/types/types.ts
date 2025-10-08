@@ -39,3 +39,44 @@ export interface LoginFormData {
   username: string;
   password: string;
 }
+
+// Sensor data structure
+export interface DispenseData {
+  date: string;
+  time: string;
+  timestamp: number;
+}
+
+export interface SensorData {
+  waterLevel: number;
+  feedLevel: number;
+  lastWaterDispense: DispenseData;
+  lastFeedDispense: DispenseData;
+  updatedAt: number;
+}
+
+// Settings structures
+export interface NotificationSettings {
+  smsEnabled: boolean;
+}
+
+export interface DispenseSettings {
+  thresholdPercent: number;
+  dispenseVolumePercent: number;
+}
+
+export interface UserSettings {
+  notifications: NotificationSettings;
+  feed: DispenseSettings;
+  water: DispenseSettings;
+  updatedAt: number;
+}
+
+// Trigger data structure
+export interface TriggerData {
+  type: 'water' | 'feed';
+  userId: string;
+  timestamp: number;
+  volumePercent: number;
+  processed: boolean;
+}
