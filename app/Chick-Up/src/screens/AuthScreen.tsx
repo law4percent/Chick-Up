@@ -195,7 +195,7 @@ const AuthScreen: React.FC<Props> = ({ navigation }) => {
                   <Text style={styles.inputIcon}>👤</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="Username or email"
+                    placeholder="Username"
                     placeholderTextColor="#999"
                     value={loginData.username}
                     onChangeText={(value) => handleLoginChange('username', value)}
