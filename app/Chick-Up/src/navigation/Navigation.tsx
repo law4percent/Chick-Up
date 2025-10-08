@@ -13,6 +13,7 @@ import { theme } from '../config/theme';
 // Screens
 import AuthScreen from '../screens/AuthScreen';
 import DashboardScreen from '../screens/DashboardScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import CustomDrawer from '../components/CustomDrawer';
 
@@ -59,7 +60,7 @@ const MainNavigator = () => {
       />
       <MainDrawer.Screen
         name="Profile"
-        component={PlaceholderScreen}
+        component={ProfileScreen}
         options={{ title: 'Profile' }}
       />
     </MainDrawer.Navigator>
