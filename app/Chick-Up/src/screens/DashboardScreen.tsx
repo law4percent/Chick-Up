@@ -342,13 +342,8 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         {/* Quick Stats Card */}
-        <LinearGradient
-          colors={['#FFD54F', '#4CAF50']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.statsCard}
-        >
-          <Text style={styles.statsTitle}>Quick Stats</Text>
+        <View style={styles.statsCard}>
+          <Text style={styles.statsTitle}>Quick Stats (Found)</Text>
           <View style={styles.statsRow}>
             <View style={styles.statColumn}>
               <Text style={styles.statLabel}>Last Water</Text>
@@ -361,7 +356,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.statValue}>{lastFeedTime}</Text>
             </View>
           </View>
-        </LinearGradient>
+        </View>
       </ScrollView>
     </LinearGradient>
   );
@@ -586,11 +581,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
+    backgroundColor: '#FFF9C4',
   },
   statsTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000ff',
     marginBottom: 20,
   },
   statsRow: {
@@ -602,20 +598,20 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 14,
-    color: '#FFFFFF',
+    color: '#000000ff',
     opacity: 0.9,
     marginBottom: 8,
   },
   statDate: {
     fontSize: 16,
-    color: '#FFFFFF',
+    color: '#000000ff',
     fontWeight: '600',
     marginBottom: 4,
   },
   statValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000ff',
   },
 });
 
