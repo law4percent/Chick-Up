@@ -25,7 +25,9 @@ export type MainDrawerParamList = {
   Dashboard: undefined;
   Profile: undefined;
   Settings: undefined;
+  Schedule: undefined;
   DataLogging: undefined;
+  Analytics: undefined;
 };
 
 // Form data types
@@ -66,18 +68,51 @@ export interface DispenseSettings {
   dispenseVolumePercent: number;
 }
 
+export interface WaterSettings {
+  thresholdPercent: number;
+  autoRefillEnabled: boolean;
+  autoRefillThreshold: number;
+}
+
 export interface UserSettings {
   notifications: NotificationSettings;
   feed: DispenseSettings;
-  water: DispenseSettings;
+  water: WaterSettings;
   updatedAt: number;
 }
 
-// Trigger data structure
-export interface TriggerData {
-  type: 'water' | 'feed';
+// Schedule data structure for feeding
+export interface FeedSchedule {
+  id: string;
   userId: string;
-  timestamp: number;
+  enabled: boolean;
+  time: string; // HH:MM format
+  days: number[]; // 0=Sunday, 1=Monday, etc.
   volumePercent: number;
-  processed: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// Analytics data structure
+export interface DispenseLog {
+  id: string;
+  userId: string;
+  type: 'water' | 'feed';
+  action: 'dispense' | 'refill';
+  volumePercent: number;
+  timestamp: number;
+  date: string;
+  time: string;
+  dayOfWeek: number;
+}
+
+export interface DailyAnalytics {
+  date: string;
+  dayOfWeek: number;
+  feedDispensed: number;
+  waterRefilled: number;
+  feedDispenseCount: number;
+  waterRefillCount: number;
+  avgFeedingTime: number;
+  avgRefillTime: number;
 }

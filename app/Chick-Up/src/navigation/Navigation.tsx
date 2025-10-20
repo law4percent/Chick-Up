@@ -15,18 +15,13 @@ import AuthScreen from '../screens/AuthScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import ScheduleScreen from '../screens/ScheduleScreen';
+import AnalyticsScreen from '../screens/AnalyticsScreen';
 import CustomDrawer from '../components/CustomDrawer';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const MainDrawer = createDrawerNavigator<MainDrawerParamList>();
 
-// Placeholder screen component for Profile and Settings
-const PlaceholderScreen = () => (
-  <View style={styles.placeholder}>
-    <ActivityIndicator size="large" color={theme.colors.primary} />
-    
-  </View>
-);
 
 // Main Drawer Navigator with left-side drawer
 const MainNavigator = () => {
@@ -45,13 +40,19 @@ const MainNavigator = () => {
         swipeEdgeWidth: 50,
       }}
     >
-      <MainDrawer.Screen 
-        name="Dashboard" 
-        component={DashboardScreen} 
+      <MainDrawer.Screen
+        name="Dashboard"
+        component={DashboardScreen}
       />
-      <MainDrawer.Screen 
-        name="DataLogging" 
-        component={PlaceholderScreen} 
+      <MainDrawer.Screen
+        name="Schedule"
+        component={ScheduleScreen}
+        options={{ title: 'Feed Schedule' }}
+      />
+      <MainDrawer.Screen
+        name="Analytics"
+        component={AnalyticsScreen}
+        options={{ title: 'Analytics' }}
       />
       <MainDrawer.Screen
         name="Settings"

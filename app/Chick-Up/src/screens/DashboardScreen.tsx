@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MainDrawerParamList, SensorData, UserSettings } from '../types/types';
 import sensorService from '../services/sensorService';
 import settingsService from '../services/settingsService';
-import triggerService from '../services/triggerService';
+import analyticsService from '../services/analyticsService';
 import { auth } from '../config/firebase.config';
 
 type DashboardScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, 'Dashboard'>;
@@ -27,7 +27,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   // Settings for dynamic thresholds
   const [waterThreshold, setWaterThreshold] = useState(20);
   const [feedThreshold, setFeedThreshold] = useState(20);
-  const [waterVolume, setWaterVolume] = useState(15);
   const [feedVolume, setFeedVolume] = useState(10);
 
   // Dispense button states
@@ -95,7 +94,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         if (settings) {
           setWaterThreshold(settings.water.thresholdPercent);
           setFeedThreshold(settings.feed.thresholdPercent);
-          setWaterVolume(settings.water.dispenseVolumePercent);
           setFeedVolume(settings.feed.dispenseVolumePercent);
         }
       },
@@ -131,7 +129,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [feedCountdown, feedButtonDisabled]);
 
-  const handleWaterDispense = async () => {
+  const handleWaterRefill = async () => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -142,12 +140,14 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setWaterButtonDisabled(true);
       setWaterCountdown(3);
 
-      await triggerService.createWaterTrigger(userId, waterVolume);
+      // Water refill doesn't use volume - it refills to target level set in settings
+      // Log action for analytics (volume will be calculated by IoT device)
+      await analyticsService.logAction(userId, 'water', 'refill', 0);
       await sensorService.updateDispenseTimestamp(userId, 'water');
 
     } catch (error: any) {
-      console.error('Error dispensing water:', error);
-      Alert.alert('Error', error.message || 'Failed to dispense water');
+      console.error('Error refilling water:', error);
+      Alert.alert('Error', error.message || 'Failed to refill water');
       setWaterButtonDisabled(false);
       setWaterCountdown(0);
     }
@@ -164,7 +164,8 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setFeedButtonDisabled(true);
       setFeedCountdown(3);
 
-      await triggerService.createFeedTrigger(userId, feedVolume);
+      // Log action for analytics only
+      await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
       await sensorService.updateDispenseTimestamp(userId, 'feed');
 
     } catch (error: any) {
@@ -316,12 +317,12 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               styles.waterButton,
               waterButtonDisabled && styles.actionButtonDisabled
             ]}
-            onPress={handleWaterDispense}
+            onPress={handleWaterRefill}
             disabled={waterButtonDisabled}
           >
             <Text style={styles.actionButtonIcon}>💧</Text>
             <Text style={styles.actionButtonText}>
-              {waterButtonDisabled ? `Wait ${waterCountdown}s` : 'Dispense Water'}
+              {waterButtonDisabled ? `Wait ${waterCountdown}s` : 'Refill Water'}
             </Text>
           </TouchableOpacity>
 
@@ -342,13 +343,8 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         {/* Quick Stats Card */}
-        <LinearGradient
-          colors={['#FFD54F', '#4CAF50']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.statsCard}
-        >
-          <Text style={styles.statsTitle}>Quick Stats</Text>
+        <View style={styles.statsCard}>
+          <Text style={styles.statsTitle}>Quick Stats (Found)</Text>
           <View style={styles.statsRow}>
             <View style={styles.statColumn}>
               <Text style={styles.statLabel}>Last Water</Text>
@@ -361,7 +357,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.statValue}>{lastFeedTime}</Text>
             </View>
           </View>
-        </LinearGradient>
+        </View>
       </ScrollView>
     </LinearGradient>
   );
@@ -586,11 +582,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
+    backgroundColor: '#FFF9C4',
   },
   statsTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000ff',
     marginBottom: 20,
   },
   statsRow: {
@@ -602,20 +599,20 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 14,
-    color: '#FFFFFF',
+    color: '#000000ff',
     opacity: 0.9,
     marginBottom: 8,
   },
   statDate: {
     fontSize: 16,
-    color: '#FFFFFF',
+    color: '#000000ff',
     fontWeight: '600',
     marginBottom: 4,
   },
   statValue: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#000000ff',
   },
 });
 

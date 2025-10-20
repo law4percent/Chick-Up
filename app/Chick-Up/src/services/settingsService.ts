@@ -1,7 +1,7 @@
 // src/services/settingsService.ts
 import { ref, onValue, off, set, get } from 'firebase/database';
 import { database } from '../config/firebase.config';
-import { UserSettings, DispenseSettings, NotificationSettings } from '../types/types';
+import { UserSettings, DispenseSettings, NotificationSettings, WaterSettings } from '../types/types';
 
 class SettingsService {
   /**
@@ -62,9 +62,20 @@ class SettingsService {
       const settingsRef = ref(database, `settings/${userId}`);
       const existingSettings = await this.getSettings(userId);
 
+      // Deep merge to ensure nested water settings are properly preserved
       const updatedSettings: UserSettings = {
-        ...existingSettings,
-        ...settings,
+        notifications: {
+          ...existingSettings?.notifications,
+          ...settings.notifications,
+        },
+        feed: {
+          ...existingSettings?.feed,
+          ...settings.feed,
+        },
+        water: {
+          ...existingSettings?.water,
+          ...settings.water,
+        },
         updatedAt: Date.now(),
       } as UserSettings;
 
@@ -118,14 +129,14 @@ class SettingsService {
   /**
    * Update water settings
    */
-  async updateWaterSettings(userId: string, waterSettings: DispenseSettings): Promise<void> {
+  async updateWaterSettings(userId: string, waterSettings: WaterSettings): Promise<void> {
     try {
       // Validate inputs
       if (waterSettings.thresholdPercent < 0 || waterSettings.thresholdPercent > 100) {
         throw new Error('Threshold must be between 0 and 100');
       }
-      if (waterSettings.dispenseVolumePercent < 0 || waterSettings.dispenseVolumePercent > 100) {
-        throw new Error('Dispense volume must be between 0 and 100');
+      if (waterSettings.autoRefillThreshold < 0 || waterSettings.autoRefillThreshold > 100) {
+        throw new Error('Auto refill threshold must be between 0 and 100');
       }
 
       await set(ref(database, `settings/${userId}/water`), waterSettings);
@@ -152,7 +163,8 @@ class SettingsService {
         },
         water: {
           thresholdPercent: 20,
-          dispenseVolumePercent: 15,
+          autoRefillEnabled: false,
+          autoRefillThreshold: 80,
         },
         updatedAt: Date.now(),
       };
@@ -186,18 +198,16 @@ class SettingsService {
   /**
    * Get dispense volume for a specific type
    */
-  async getDispenseVolume(userId: string, type: 'water' | 'feed'): Promise<number> {
+  async getDispenseVolume(userId: string, type: 'feed'): Promise<number> {
     try {
       const settings = await this.getSettings(userId);
       if (!settings) {
-        return type === 'water' ? 15 : 10; // Default volumes
+        return 10; // Default feed volume
       }
-      return type === 'water'
-        ? settings.water.dispenseVolumePercent
-        : settings.feed.dispenseVolumePercent;
+      return settings.feed.dispenseVolumePercent;
     } catch (error) {
       console.error(`❌ Error getting ${type} dispense volume:`, error);
-      return type === 'water' ? 15 : 10; // Fallback to defaults
+      return 10; // Fallback to default
     }
   }
 }
