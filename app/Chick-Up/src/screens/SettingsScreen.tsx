@@ -36,7 +36,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   // Water settings
   const [waterThreshold, setWaterThreshold] = useState(20);
-  const [waterVolume, setWaterVolume] = useState(15);
+  const [autoRefillEnabled, setAutoRefillEnabled] = useState(false);
+  const [autoRefillThreshold, setAutoRefillThreshold] = useState(80);
 
   // Load settings on mount
   useEffect(() => {
@@ -57,7 +58,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         setFeedThreshold(settings.feed.thresholdPercent);
         setFeedVolume(settings.feed.dispenseVolumePercent);
         setWaterThreshold(settings.water.thresholdPercent);
-        setWaterVolume(settings.water.dispenseVolumePercent);
+        setAutoRefillEnabled(settings.water.autoRefillEnabled || false);
+        setAutoRefillThreshold(settings.water.autoRefillThreshold || 80);
       } else {
         // Initialize default settings if none exist
         await settingsService.initializeSettings(userId);
@@ -90,7 +92,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         },
         water: {
           thresholdPercent: waterThreshold,
-          dispenseVolumePercent: waterVolume,
+          autoRefillEnabled,
+          autoRefillThreshold,
         },
         updatedAt: Date.now(),
       };
@@ -251,27 +254,40 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
             </Text>
           </View>
 
-          {/* Water Dispense Volume */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={styles.sliderLabel}>Dispense Volume</Text>
-              <Text style={styles.sliderValue}>{waterVolume}%</Text>
-            </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={100}
-              step={1}
-              value={waterVolume}
-              onValueChange={setWaterVolume}
-              minimumTrackTintColor="#2196F3"
-              maximumTrackTintColor="#E0E0E0"
-              thumbTintColor="#2196F3"
+          {/* Auto Refill Toggle */}
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Enable Auto Refill</Text>
+            <Switch
+              value={autoRefillEnabled}
+              onValueChange={setAutoRefillEnabled}
+              trackColor={{ false: '#D1D1D1', true: '#2196F3' }}
+              thumbColor={autoRefillEnabled ? '#FFFFFF' : '#F4F3F4'}
             />
-            <Text style={styles.sliderDescription}>
-              Amount of water dispensed per trigger
-            </Text>
           </View>
+
+          {/* Auto Refill Threshold */}
+          {autoRefillEnabled && (
+            <View style={styles.sliderContainer}>
+              <View style={styles.sliderHeader}>
+                <Text style={styles.sliderLabel}>Auto Refill Target Level</Text>
+                <Text style={styles.sliderValue}>{autoRefillThreshold}%</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={100}
+                step={1}
+                value={autoRefillThreshold}
+                onValueChange={setAutoRefillThreshold}
+                minimumTrackTintColor="#2196F3"
+                maximumTrackTintColor="#E0E0E0"
+                thumbTintColor="#2196F3"
+              />
+              <Text style={styles.sliderDescription}>
+                System will automatically refill water up to this level (e.g., if level is 20% and target is 80%, it refills 60%)
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Save Button */}

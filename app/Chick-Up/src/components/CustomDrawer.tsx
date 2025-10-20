@@ -95,9 +95,10 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
         
         <View style={styles.menuItems}>
           <MenuItem icon="📊" label="Dashboard" route="Dashboard" />
-          <MenuItem icon="📝" label="Data Logging" route="DataLogging" />
-          <MenuItem icon="👤" label="Profile" route="Profile" />
+          <MenuItem icon="📅" label="Schedule" route="Schedule" />
+          <MenuItem icon="📈" label="Analytics" route="Analytics" />
           <MenuItem icon="⚙️" label="Settings" route="Settings" />
+          <MenuItem icon="👤" label="Profile" route="Profile" />
         </View>
         
       </DrawerContentScrollView>
