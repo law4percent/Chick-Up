@@ -3,6 +3,7 @@
 ## Repo layout
 ```
 raspi_code/
+├─ README.md
 ├─ main.py                      # Entry point: orchestrates services
 ├─ venv/                        # Python virtual environment
 └─ lib/
