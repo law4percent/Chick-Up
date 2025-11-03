@@ -1,5 +1,20 @@
 """
     Sample code demonstrating inter-process communication using multiprocessing
+
+    ----------------
+    from multiprocessing import Event
+
+    stop_event = Event()
+
+    print(stop_event.is_set())  # False
+
+    stop_event.set()            # Set it to True
+    print(stop_event.is_set())  # True
+
+    stop_event.clear()          # Reset to False
+    print(stop_event.is_set())  # False
+    ----------------
+
 """
 
 from multiprocessing import Process, Event
