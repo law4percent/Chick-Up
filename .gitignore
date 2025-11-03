@@ -1,3 +1,5 @@
 # app/test-app
 google-services.json
 .idea
+raspi_code/video/
+raspi_code/YOLO/best.pt
