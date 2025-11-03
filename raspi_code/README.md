@@ -1,6 +1,7 @@
 # Raspberry Pi AI Integration — Project Outline
 
 ## Repo layout
+```
 raspi_code/
 ├─ main.py                      # Entry point: orchestrates services
 ├─ venv/                        # Python virtual environment
@@ -10,6 +11,7 @@ raspi_code/
       ├─ detection.py            # Model loading + inference + annotation helpers
       ├─ live_stream.py          # Streaming server / RTSP or WebRTC wrapper + trigger logic
       └─ alert.py                # Intruder detection + alert sending logic
+```
 
 ## Phases & Tasks
 
