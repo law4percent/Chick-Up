@@ -1,47 +1,23 @@
-"""
-    Sample code demonstrating inter-process communication using multiprocessing
-
-    ----------------
-    from multiprocessing import Event
-
-    stop_event = Event()
-
-    print(stop_event.is_set())  # False
-
-    stop_event.set()            # Set it to True
-    print(stop_event.is_set())  # True
-
-    stop_event.clear()          # Reset to False
-    print(stop_event.is_set())  # False
-    ----------------
-
-"""
-
 from multiprocessing import Process, Event
 import time
 
-def task(name, stop_event):
-    count = 0
+def button_task(name, stop_event):
     print(f"{name} started")
-    
-    while not stop_event.is_set():  # Check the shared event
-        print(count)
-        time.sleep(1)
-        count += 1
-        
-    print(f"{name} done")
+    while True:
+        print("Click button now!")
+        time.sleep(1) # delay(1000);
 
-def task2(name, stop_event):
+def detection_task(name, stop_event):
     print(f"{name} started")
-    time.sleep(5)  # Simulate some work
-    print(f"{name} done")
-    stop_event.set()  # Signal the other process to stop
+    while True:
+        print("Detecting...")
+        time.sleep(5) # delay(1000);
 
 if __name__ == "__main__":
     stop_event = Event()  # Shared event between processes
     
-    p1 = Process(target=task, args=("Task 1", stop_event))
-    p2 = Process(target=task2, args=("Task 2", stop_event))
+    p1 = Process(target=button_task, args=("Button Task", stop_event))
+    p2 = Process(target=detection_task, args=("Detection Task", stop_event))
 
     p1.start()
     p2.start()
