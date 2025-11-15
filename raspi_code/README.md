@@ -13,8 +13,9 @@ raspi_code/
       ├─ firebase_credentials.py  # Firebase Realtime DB helpers (auth, read/write)
       ├─ detection.py            # Model loading + inference + annotation helpers
       ├─ live_stream.py          # Streaming server / RTSP or WebRTC wrapper + trigger logic
-      └─ alert.py                # Intruder detection + alert sending logic
-      └─ rtdb.py
+      ├─ alert.py                # Intruder detection + alert sending logic
+      ├─ rtdb.py
+      └─ handle_hardware.py
 ```
 
 ## Phases & Tasks
