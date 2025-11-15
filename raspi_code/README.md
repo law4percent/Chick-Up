@@ -9,13 +9,16 @@ raspi_code/
 ├─ main.py                      # Entry point: orchestrates services
 ├─ venv/                        # Python virtual environment
 └─ lib/
-   └─ services/
-      ├─ firebase_credentials.py  # Firebase Realtime DB helpers (auth, read/write)
-      ├─ detection.py            # Model loading + inference + annotation helpers
-      ├─ live_stream.py          # Streaming server / RTSP or WebRTC wrapper + trigger logic
-      ├─ alert.py                # Intruder detection + alert sending logic
-      ├─ rtdb.py
-      └─ handle_hardware.py
+   ├─ services/
+   |  ├─ detection.py            # Model loading + inference + annotation helpers
+   |  ├─ live_stream.py          # Streaming server / RTSP or WebRTC wrapper + trigger logic
+   |  ├─ alert_notification.py   # Intruder detection + alert sending logic
+   |  ├─ firebase_rtdb.py
+   |  └─ handle_hardware.py
+   └─ processes/
+      ├─ process_a.py
+      ├─ process_b.py
+      └─ process_c.py
 ```
 
 ## Phases & Tasks
