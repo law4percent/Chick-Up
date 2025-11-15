@@ -14,7 +14,7 @@ raspi_code/
       ├─ detection.py            # Model loading + inference + annotation helpers
       ├─ live_stream.py          # Streaming server / RTSP or WebRTC wrapper + trigger logic
       └─ alert.py                # Intruder detection + alert sending logic
-      └─ firebase_service.py
+      └─ rtdb.py
 ```
 
 ## Phases & Tasks
