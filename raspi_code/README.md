@@ -4,6 +4,7 @@
 ```
 raspi_code/
 ├─ YOLO/
+├─ logs/
 ├─ video/
 ├─ README.md
 ├─ main.py                      # Entry point: orchestrates services
@@ -14,6 +15,7 @@ raspi_code/
    |  ├─ live_stream.py          # Streaming server / RTSP or WebRTC wrapper + trigger logic
    |  ├─ alert_notification.py   # Intruder detection + alert sending logic
    |  ├─ firebase_rtdb.py
+   |  ├─ handle_pairing.py
    |  └─ handle_hardware.py
    └─ processes/
       ├─ process_a.py

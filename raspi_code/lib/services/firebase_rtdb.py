@@ -1,32 +1,49 @@
 import firebase_admin
 from firebase_admin import credentials, db
+import logging
 
-def initialize_firebase(status: str):
+# Configure logging
+logging.basicConfig(
+    filename='logs/keypad.log',     # log file name
+    filemode='a',              # 'a' to append, 'w' to overwrite
+    level=logging.INFO,        # minimum level to log
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+# Example usage
+# logging.info("Program started")
+# logging.warning("This is a warning")
+# logging.error("An error occurred")
+
+
+def initialize_firebase(
+        service_acc_key_path: str = "credentials/serviceAccountKey.json",
+        testing_mode: bool = False, 
+        show_logs: bool = False
+    ) -> None:
     """
-    Initializes Firebase Realtime Database based on the given status..
+        Initializes Firebase Realtime Database
     """
-    status = status.lower()
 
-    if status == "on":
-        try:
-            service_acc_key_path = "credentials/serviceAccountKey.json"
+    if testing_mode:
+        print(
+"""Testing mode enabled: Skipping Firebase initialization."""
+)
+        return
 
-            cred = credentials.Certificate(service_acc_key_path)
+    try:
+        service_acc_key_path = "credentials/serviceAccountKey.json"
+        cred = credentials.Certificate(service_acc_key_path)
+        firebase_admin.initialize_app(
+            cred,
+            {
+                'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
+            }
+        )
 
-            firebase_admin.initialize_app(
-                cred,
-                {
-                    'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
-                }
-            )
+        if ()
+        logging.info("Program started")
+        print("Firebase initialized successfully.")
 
-            print("Firebase initialized successfully.")
-
-        except Exception as e:
-            print(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
-
-    elif status == "off":
-        print("Firebase initialization skipped. Status is off.")
-
-    else:
-        print(f"Invalid status provided: {status}. Please use 'on' or 'off'.")
+    except Exception as e:
+        print(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
