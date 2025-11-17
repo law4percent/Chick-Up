@@ -1,8 +1,18 @@
 from lib.services import detection
+"""from lib.services import handle_hardware"""
+from lib.services import firebase_rtdb
 import cv2
 
 
+
 def main():
+    firebase_rtdb.initialize_firebase("on")
+
+    device_id = "-3GSRmf356dy6GFQSTGIF"   
+    linked_id = handle_hardware.require_valid_pairing(device_id)
+
+    print("Pairing success:", linked_id)
+
     cap = cv2.VideoCapture("video/chicken3.mp4")
     yolo_model = detection.model
     class_list = detection.class_list
