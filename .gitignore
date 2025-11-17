@@ -4,3 +4,4 @@ google-services.json
 raspi_code/video/
 raspi_code/YOLO/best.pt
 raspi_code/venv
+raspi_code/logs/debug.log
