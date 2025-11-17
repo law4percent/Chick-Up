@@ -1,6 +1,3 @@
-'''
-    Phase 3 
-'''
 from ultralytics import YOLO
 import cv2
 import numpy as np
@@ -10,7 +7,7 @@ model = YOLO("YOLO/best.pt")
 class_list = ["cat", "chicken", "rat", "dog", "snake"]
 
 
-def get_prediction_boxes(frame, yolo_model, confidence):
+def get_prediction_boxes(frame: any, confidence: float, yolo_model: any):
     """Get prediction boxes from the YOLO model."""
     pred = yolo_model.predict(source=[frame], save=False, conf=confidence)
     results = pred[0]
@@ -30,11 +27,12 @@ def detect_object(frame, boxes, class_list):
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, f"{class_name} {conf_score}", (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-    return frame
 
-'''
-    Phase 4 
-'''
+    chicken_count   = count_all_chickens(boxes, class_list)
+    display_chicken_count(frame, chicken_count)
+    return [frame, chicken_count]
+
+
 def count_all_chickens(boxes, class_list):
     """Count all chickens detected in the frame."""
     count = 0
@@ -54,3 +52,12 @@ def display_chicken_count(frame, count):
     cv2.putText(frame, f"Chickens Detected: {count}",
                 (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                 (128, 0, 128), 2)
+
+def run(
+        raw_frame: any,
+        yolo_model: any,
+        confidence: float = 0.25,
+    ):
+    boxes                                   = get_prediction_boxes(raw_frame, yolo_model, confidence=confidence)
+    annotated_frame, number_of_chickens     = detect_object(raw_frame, boxes, class_list)
+    return [annotated_frame, number_of_chickens]
