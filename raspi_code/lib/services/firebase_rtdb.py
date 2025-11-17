@@ -10,26 +10,14 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# Example usage
-# logging.info("Program started")
-# logging.warning("This is a warning")
-# logging.error("An error occurred")
-
-
 def initialize_firebase(
-        service_acc_key_path: str = "credentials/serviceAccountKey.json",
-        testing_mode: bool = False, 
-        show_logs: bool = False
+        service_acc_key_path: str   = "credentials/serviceAccountKey.json",
+        testing_mode: bool          = False, 
+        show_logs: bool             = False
     ) -> None:
     """
         Initializes Firebase Realtime Database
     """
-
-    if testing_mode:
-        print(
-"""Testing mode enabled: Skipping Firebase initialization."""
-)
-        return
 
     try:
         service_acc_key_path = "credentials/serviceAccountKey.json"
@@ -41,9 +29,11 @@ def initialize_firebase(
             }
         )
 
-        if ()
-        logging.info("Program started")
+        if show_logs:
+            logging.info("Firebase initialized successfully.")
         print("Firebase initialized successfully.")
 
     except Exception as e:
         print(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
+        if show_logs:
+            logging.error(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
