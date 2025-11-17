@@ -9,7 +9,7 @@ def initialize_firebase(status: str):
 
     if status == "on":
         try:
-            service_acc_key_path = "src/private_api/serviceAccountKey.json"
+            service_acc_key_path = "credentials/serviceAccountKey.json"
 
             cred = credentials.Certificate(service_acc_key_path)
 
