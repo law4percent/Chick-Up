@@ -152,172 +152,173 @@ const AuthScreen: React.FC<Props> = ({ navigation }) => {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-        {/* Logo Section */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../assets/icon.png')} // Make this path easy to replace
-            style={styles.logo}
-            resizeMode="contain"
-          />
-          <Text style={styles.appName}>CHICK-UP</Text>
-          <Text style={styles.tagline}>SMART POULTRY AUTOMATION</Text>
-        </View>
-
-        {/* Card Container */}
-        <View style={styles.card}>
-          {/* Tab Buttons */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'login' && styles.activeTab]}
-              onPress={() => setActiveTab('login')}
-              disabled={loading}
-            >
-              <Text style={[styles.tabText, activeTab === 'login' && styles.activeTabText]}>
-                LOGIN
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, activeTab === 'register' && styles.activeTab]}
-              onPress={() => setActiveTab('register')}
-              disabled={loading}
-            >
-              <Text style={[styles.tabText, activeTab === 'register' && styles.activeTabText]}>
-                REGISTER
-              </Text>
-            </TouchableOpacity>
+          {/* Logo Section */}
+          <View style={styles.logoContainer}>
+            <Image
+              source={require('../../assets/icon.png')} // Make this path easy to replace
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.appName}>CHICK-UP</Text>
+            <Text style={styles.tagline}>SMART POULTRY AUTOMATION</Text>
           </View>
 
-          {/* Login Form */}
-          {activeTab === 'login' && (
-            <View style={styles.formContainer}>
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>👤</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Username"
-                    placeholderTextColor="#999"
-                    value={loginData.username}
-                    onChangeText={(value) => handleLoginChange('username', value)}
-                    autoCapitalize="none"
-                    editable={!loading}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>🔒</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    placeholderTextColor="#999"
-                    value={loginData.password}
-                    onChangeText={(value) => handleLoginChange('password', value)}
-                    secureTextEntry
-                    editable={!loading}
-                  />
-                </View>
-              </View>
-
+          {/* Card Container */}
+          <View style={styles.card}>
+            {/* Tab Buttons */}
+            <View style={styles.tabContainer}>
               <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleLogin}
+                style={[styles.tab, activeTab === 'login' && styles.activeTab]}
+                onPress={() => setActiveTab('login')}
                 disabled={loading}
               >
-                {loading ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.buttonText}>LOGIN</Text>
-                )}
+                <Text style={[styles.tabText, activeTab === 'login' && styles.activeTabText]}>
+                  LOGIN
+                </Text>
               </TouchableOpacity>
-
-              <TouchableOpacity style={styles.forgotPassword}>
-                <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Register Form */}
-          {activeTab === 'register' && (
-            <View style={styles.formContainer}>
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>👤</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Username"
-                    placeholderTextColor="#999"
-                    value={signUpData.username}
-                    onChangeText={(value) => handleSignUpChange('username', value)}
-                    autoCapitalize="none"
-                    editable={!loading}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>📱</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Phone number"
-                    placeholderTextColor="#999"
-                    value={signUpData.phoneNumber}
-                    onChangeText={(value) => handleSignUpChange('phoneNumber', value)}
-                    keyboardType="phone-pad"
-                    editable={!loading}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>✉️</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Email"
-                    placeholderTextColor="#999"
-                    value={signUpData.email}
-                    onChangeText={(value) => handleSignUpChange('email', value)}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    editable={!loading}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <View style={styles.inputWrapper}>
-                  <Text style={styles.inputIcon}>🔒</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    placeholderTextColor="#999"
-                    value={signUpData.password}
-                    onChangeText={(value) => handleSignUpChange('password', value)}
-                    secureTextEntry
-                    editable={!loading}
-                  />
-                </View>
-              </View>
 
               <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleSignUp}
+                style={[styles.tab, activeTab === 'register' && styles.activeTab]}
+                onPress={() => setActiveTab('register')}
                 disabled={loading}
               >
-                {loading ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.buttonText}>REGISTER</Text>
-                )}
+                <Text style={[styles.tabText, activeTab === 'register' && styles.activeTabText]}>
+                  REGISTER
+                </Text>
               </TouchableOpacity>
             </View>
-          )}
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+            {/* Login Form */}
+            {activeTab === 'login' && (
+              <View style={styles.formContainer}>
+                <View style={styles.inputContainer}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputIcon}>👤</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Username"
+                      placeholderTextColor="#999"
+                      value={loginData.username}
+                      onChangeText={(value) => handleLoginChange('username', value)}
+                      autoCapitalize="none"
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputIcon}>🔒</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Password"
+                      placeholderTextColor="#999"
+                      value={loginData.password}
+                      onChangeText={(value) => handleLoginChange('password', value)}
+                      secureTextEntry
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.button, loading && styles.buttonDisabled]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={styles.buttonText}>LOGIN</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.forgotPassword}>
+                  <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Register Form */}
+            {activeTab === 'register' && (
+              <View style={styles.formContainer}>
+                <View style={styles.inputContainer}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputIcon}>👤</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Username"
+                      placeholderTextColor="#999"
+                      value={signUpData.username}
+                      onChangeText={(value) => handleSignUpChange('username', value)}
+                      autoCapitalize="none"
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputIcon}>📱</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Phone number"
+                      placeholderTextColor="#999"
+                      value={signUpData.phoneNumber}
+                      onChangeText={(value) => handleSignUpChange('phoneNumber', value)}
+                      keyboardType="phone-pad"
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputIcon}>✉️</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Email"
+                      placeholderTextColor="#999"
+                      value={signUpData.email}
+                      onChangeText={(value) => handleSignUpChange('email', value)}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <View style={styles.inputWrapper}>
+                    <Text style={styles.inputIcon}>🔒</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Password"
+                      placeholderTextColor="#999"
+                      value={signUpData.password}
+                      onChangeText={(value) => handleSignUpChange('password', value)}
+                      secureTextEntry
+                      editable={!loading}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.button, loading && styles.buttonDisabled]}
+                  onPress={handleSignUp}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={styles.buttonText}>REGISTER</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </LinearGradient>
   );
 };
