@@ -1,6 +1,22 @@
 import cv2
 from lib.services import detection
 from multiprocessing import Process, Queue, Event
+import base64
+
+"""
+    For Reference
+    
+    def send_frame_to_firebase(frame):
+        # Encode frame to JPEG
+        ret, buffer = cv2.imencode('.jpg', frame)
+
+        # Convert to Base64 string
+        jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+
+        # Upload to RTDB
+        db.reference("live_frame").set(jpg_as_text)
+"""
+
 
 def process_A(
         task_name: str,
