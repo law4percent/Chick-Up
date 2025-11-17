@@ -3,7 +3,7 @@ from firebase_admin import credentials, db
 
 def initialize_firebase(status: str):
     """
-    Initializes Firebase Realtime Database based on the given status.
+    Initializes Firebase Realtime Database based on the given status...
     """
     status = status.lower()
 
