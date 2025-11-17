@@ -1,5 +1,5 @@
 from lib.services import detection
-"""from lib.services import handle_hardware"""
+from lib.services import handle_hardware
 from lib.services import firebase_rtdb
 import cv2
 
