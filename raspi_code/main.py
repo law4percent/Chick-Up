@@ -21,12 +21,13 @@ def main(
     # -----------------
     # Multi-processing
     #------------------
-    queue_frame = Queue(maxsize = 1)
-    live_status = Event()
-    annotated_option = Event()
+    queue_frame                 = Queue(maxsize = 1)
+    live_status                 = Event()
+    annotated_option            = Event()
+    number_of_class_instances   = Queue(maxsize = 1)
 
-    task_A = Process(target=process_a.process_A, args=("Process A", queue_frame, live_status, annotated_option))
-    task_B = Process(target=process_b.process_B, args=("Process B", queue_frame, live_status))
+    task_A = Process(target=process_a.process_A, args=("Process A", queue_frame, live_status, annotated_option, number_of_class_instances))
+    task_B = Process(target=process_b.process_B, args=("Process B", queue_frame, live_status, number_of_class_instances))
     task_C = Process(target=process_c.process_C, args=("Process C", live_status, annotated_option))
 
     task_A.start()

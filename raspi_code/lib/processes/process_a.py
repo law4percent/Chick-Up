@@ -33,7 +33,8 @@ def process_A(
         task_name: str,
         queue_frame: Queue,
         live_status: any,
-        annotated_option: any
+        annotated_option: any,
+        number_of_class_instances: Queue
     ) -> None:
     print(f"{task_name} is starting...")
     
@@ -63,6 +64,16 @@ def process_A(
                 queue_frame.put(annotated_frame)
             else:
                 queue_frame.put(raw_frame)
+
+        if number_of_class_instances.full():
+            number_of_class_instances.get()
+            
+            number_of_class_instances.put(
+                {
+                    "chickens": number_of_chickens,
+                    "intruders": number_of_intruders
+                }
+            )
         
         cv2.imshow("Chicken-Detection", annotated_frame) # diplay the frame or show frame
         if cv2.waitKey(1) & 0xFF == ord('q'):
