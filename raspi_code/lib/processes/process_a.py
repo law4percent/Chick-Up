@@ -54,19 +54,15 @@ def process_A(
             break
 
         annotated_frame, number_of_chickens, number_of_intruders = detection.run(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence, class_list=class_list, frame_dimensions=frame_dimensions)
-
-        
-        if live_status.is_set():
-            if annotated_option.is_set():
-                frame_array = annotated_frame.tolist()
-            else:
-                frame_array = raw_frame.tolist()
                 
         if live_status.is_set():
             if queue_frame.full():
                 queue_frame.get()
 
-            queue_frame.put(frame_array)
+            if annotated_option.is_set():
+                queue_frame.put(annotated_frame)
+            else:
+                queue_frame.put(raw_frame)
         
         cv2.imshow("Chicken-Detection", annotated_frame) # diplay the frame or show frame
         if cv2.waitKey(1) & 0xFF == ord('q'):
