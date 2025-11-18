@@ -2,6 +2,14 @@ from lib.processes import process_a, process_b, process_c
 from multiprocessing import Process, Queue, Event
 from lib.services import firebase_rtdb, handle_pairing
 import os
+import logging
+
+logging.basicConfig(
+    filename='logs/debug.log',     # log file name
+    filemode='a',              # 'a' to append, 'w' to overwrite
+    level=logging.INFO,        # minimum level to log
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 def main(
         process_a_args: dict,
@@ -13,6 +21,12 @@ def main(
         logs_path: str          = "logs",
         yolo_path: str          = "YOLO",
     ) -> None:
+    
+    
+    if is_pc_device:
+        print("====== PC MODE ======")
+        if save_logs:
+            logging.info("====== PC MODE ======")
     
     if save_logs and not os.path.exists(logs_path):
         os.makedirs(logs_path)

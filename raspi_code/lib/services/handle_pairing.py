@@ -3,14 +3,21 @@ import os
 import logging
 from datetime import datetime
 
+logging.basicConfig(
+    filename='logs/debug.log',     # log file name
+    filemode='a',              # 'a' to append, 'w' to overwrite
+    level=logging.INFO,        # minimum level to log
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 def pair_it(
         device_uid: str, 
         is_pc_device: bool           = False, 
         save_logs: bool              = False,
-        user_credentials_path: str   = "credentials", # Changed backslash to forward slash for better cross-platform compatibility
+        user_credentials_path: str   = "credentials",
         file_name: str               = "user_credentials.txt",
-        required_keys: str           = {"deviceUid", "linkedUid", "username", "userUid"}
-    ) -> dict:
+        required_keys: str           = {"deviceUid", "linkedUid", "username", "userUid", "createdAt"}
+    ) -> dict | None:
     
     # Use forward slash for path segments. os.path.join handles conversion for the OS.
     cred_full_path = os.path.join(user_credentials_path, file_name) 
@@ -23,18 +30,13 @@ def pair_it(
             "device_uid"        : device_uid
         }
         print("Skipping Device Pairing...")
-        print("--------------------------------")
-        print("PC mode user credentials Info:")
-        print(f"- Username   : {testing_credentials["test_username"]}")
-        print(f"- Link UID   : {testing_credentials["test_linked_uid"]}")
-        print(f"- User UID   : {testing_credentials["test_user_uid"]}")
-        print(f"- Device UID : {testing_credentials["device_uid"]}")
-        print("--------------------------------")
-
+        if save_logs:
+            logging.info("Skipping Device Pairing...")
+        
         if not os.path.exists(cred_full_path):
             print(f"The path '{cred_full_path}' does not exist.")
             if save_logs:
-                logging.error(f"The path '{cred_full_path}' does not exist.")
+                logging.warning(f"The path '{cred_full_path}' does not exist.")
             
             test_cred = {
                 "deviceUid" : device_uid,
@@ -43,11 +45,9 @@ def pair_it(
                 "userUid"   : testing_credentials["test_user_uid"]
             }
             
-            print(f"Not found pairing info file. Creating one with testing credentials at '{cred_full_path}'...")
-            print(f"Writing testing credentials pairing info to '{cred_full_path}'...")
+            print(f"Warning: Not found pairing info file. Writing one with testing credentials at '{cred_full_path}'...")
             if save_logs:
-                logging.info(f"Not found pairing info file. Creating one with testing credentials at '{cred_full_path}'...")
-                logging.info(f"Writing testing credentials pairing info to '{cred_full_path}'...")
+                logging.warning(f"Not found pairing info file. Writing one with testing credentials at '{cred_full_path}'...")
             
             _write_user_info_in_txt_file(
                 credentials=test_cred, 
@@ -56,30 +56,78 @@ def pair_it(
             )
             
             # Wait for the file to be created before reading
-            return _read_txt_to_dict(cred_full_path)
+            user_credentials = _read_txt_to_dict(cred_full_path)
+            print("--------------------------------")
+            print("PC mode user credentials Info:")
+            print(f"- Username   : {user_credentials["username"]}")
+            print(f"- Link UID   : {user_credentials["linkedUid"]}")
+            print(f"- User UID   : {user_credentials["userUid"]}")
+            print(f"- Device UID : {user_credentials["deviceUid"]}")
+            print("--------------------------------")
+            if save_logs:
+                logging.info("--------------------------------")
+                logging.info("PC mode user credentials Info:")
+                logging.info(f"- Username   : {user_credentials["username"]}")
+                logging.info(f"- Link UID   : {user_credentials["linkedUid"]}")
+                logging.info(f"- User UID   : {user_credentials["userUid"]}")
+                logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
+                logging.info("--------------------------------")
+            return user_credentials
+        else:
+            print(f"The'{file_name}' is found at {cred_full_path}.")
+            if save_logs:
+                logging.info(f"The'{file_name}' is found at {cred_full_path}.")
+                
+            user_credentials = _read_txt_to_dict(cred_full_path)
+            _validate_credentials_keys(required_keys=required_keys, save_logs=save_logs, user_credentials=user_credentials)
+            
+            print("--------------------------------")
+            print("PC mode user credentials Info:")
+            print(f"- Username   : {user_credentials["username"]}")
+            print(f"- Link UID   : {user_credentials["linkedUid"]}")
+            print(f"- User UID   : {user_credentials["userUid"]}")
+            print(f"- Device UID : {user_credentials["deviceUid"]}")
+            print(f"This was created at {user_credentials["createdAt"]}.")
+            print("--------------------------------")
+            if save_logs:
+                logging.info("--------------------------------")
+                logging.info("PC mode user credentials Info:")
+                logging.info(f"- Username   : {user_credentials["username"]}")
+                logging.info(f"- Link UID   : {user_credentials["linkedUid"]}")
+                logging.info(f"- User UID   : {user_credentials["userUid"]}")
+                logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
+                logging.info(f"This was created at {user_credentials["createdAt"]}.")
+                logging.info("--------------------------------")
+                
+            return user_credentials
         
         
     # ... (Rest of the logic for non-PC devices) ...
     
     # If the file exists, read and validate it
-    user_credentials = _read_txt_to_dict(cred_full_path)
-    if user_credentials:
-        _validate_credentials_keys(required_keys=required_keys, save_logs=save_logs, user_credentials=user_credentials)
+    # user_credentials = _read_txt_to_dict(cred_full_path)
+    # if user_credentials:
+    #     _validate_credentials_keys(required_keys=required_keys, save_logs=save_logs, user_credentials=user_credentials)
     
-    return user_credentials
+    # return user_credentials
 
 
 def _validate_credentials_keys(required_keys: set, save_logs: bool, user_credentials: dict) -> None:
+    print("Validating credential keys...")
+    if save_logs:
+        logging.info("Validating credential keys...")
+    
     if user_credentials.keys() >= required_keys:
         print("Pairing info file contains all required keys.")
         if save_logs:
             logging.info("Pairing info file contains all required keys.")
-        return user_credentials
-    else:
-        print("Error: Pairing info file is missing some required keys.")
-        if save_logs:
-            logging.error("Pairing info file is missing some required keys.")
-        exit()
+        return
+    
+    print("Error: Pairing info file is missing some required keys.")
+    if save_logs:
+        logging.error("Pairing info file is missing some required keys.")
+    exit()
+
 
 def _write_user_info_in_txt_file(credentials: dict, save_logs: bool, user_credentials_full_path: str) -> None:
     """Writes credentials to a file, ensuring the directory exists."""
@@ -113,23 +161,18 @@ def _write_user_info_in_txt_file(credentials: dict, save_logs: bool, user_creden
 
 
 def _read_txt_to_dict(user_credentials_path: str) -> dict:
-    result = {}
-    try:
-        with open(user_credentials_path, "r") as f:
-            for line in f:
-                line = line.strip()
+    user_credentials = {}
+    with open(user_credentials_path, "r") as f:
+        for line in f:
+            line = line.strip()
 
-                if not line:
-                    continue  # skip empty lines
+            if not line:
+                continue  # skip empty lines
 
-                # Split only on the first colon to handle potential colons in the value
-                key, value = line.split(":", 1)
-                result[key.strip()] = value.strip()
-        return result
-    except FileNotFoundError:
-        print(f"Error: Credentials file not found at {user_credentials_path}")
-        # Consider logging this error if appropriate
-        return {} # Return empty dict if file is not found
+            # Split only on the first colon to handle potential colons in the value
+            key, value = line.split(":", 1)
+            user_credentials[key.strip()] = value.strip()
+    return user_credentials
 
 
 def _is_available_for_resetting() -> bool:
