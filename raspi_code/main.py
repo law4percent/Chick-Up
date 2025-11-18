@@ -20,7 +20,7 @@ def main(
     if not os.path.exists(yolo_path):
         os.makedirs(yolo_path)
         
-    firebase_rtdb.initialize_firebase(show_logs=save_logs)
+    firebase_rtdb.initialize_firebase(save_logs=save_logs)
     user_credentials = handle_pairing.pair_it(device_uid=device_uid, is_pc_device=is_pc_device, save_logs=save_logs)
 
     # -----------------
