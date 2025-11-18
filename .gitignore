@@ -9,3 +9,4 @@ raspi_code/__pycache__/
 .DS_Store
 .vscode
 __pycache__/
+raspi_code/pairing_info.txt

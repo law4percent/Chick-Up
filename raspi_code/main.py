@@ -4,19 +4,21 @@ from lib.services import firebase_rtdb, handle_pairing
 import os
 
 def main(
+        device_uid: str      = "-3GSRmf356dy6GFQSTGIF",
         testing_mode: bool  = False,
-        show_logs: bool     = False,
+        save_logs: bool     = False,
         logs_path: str      = "logs",
         yolo_path: str      = "YOLO"
     ) -> None:
-    if show_logs and not os.path.exists(logs_path):
+    
+    if save_logs and not os.path.exists(logs_path):
         os.makedirs(logs_path)
         
     if not os.path.exists(yolo_path):
         os.makedirs(yolo_path)
         
-    firebase_rtdb.initialize_firebase(show_logs=show_logs)
-    handle_pairing.pair_it(testing_mode=testing_mode, show_logs=show_logs)
+    firebase_rtdb.initialize_firebase(show_logs=save_logs)
+    user_credentials = handle_pairing.pair_it(device_uid=device_uid, testing_mode=testing_mode, save_logs=save_logs)
 
     # -----------------
     # Multi-processing
@@ -26,9 +28,9 @@ def main(
     annotated_option            = Event()
     number_of_class_instances   = Queue(maxsize = 1)
 
-    task_A = Process(target=process_a.process_A, args=("Process A", queue_frame, live_status, annotated_option, number_of_class_instances))
-    task_B = Process(target=process_b.process_B, args=("Process B", queue_frame, live_status, number_of_class_instances))
-    task_C = Process(target=process_c.process_C, args=("Process C", live_status, annotated_option))
+    task_A = Process(target=process_a.process_A, args=("Process A", queue_frame, live_status, annotated_option, number_of_class_instances, testing_mode, save_logs))
+    task_B = Process(target=process_b.process_B, args=("Process B", queue_frame, live_status, number_of_class_instances, user_credentials, testing_mode, save_logs))
+    task_C = Process(target=process_c.process_C, args=("Process C", live_status, annotated_option, user_credentials, testing_mode, save_logs))
 
     task_A.start()
     task_B.start()
@@ -41,6 +43,7 @@ def main(
 
 if __name__ == "__main__":
     main(
-        testing_mode = True,
-        show_logs = False
+        device_uid      = "-3GSRmf356dy6GFQSTGIF",
+        testing_mode    = True,
+        save_logs       = False
     )

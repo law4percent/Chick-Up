@@ -2,7 +2,6 @@ import firebase_admin
 from firebase_admin import credentials, db
 import logging
 
-# Configure logging
 logging.basicConfig(
     filename='logs/debug.log',     # log file name
     filemode='a',              # 'a' to append, 'w' to overwrite
@@ -12,7 +11,7 @@ logging.basicConfig(
 
 def initialize_firebase(
         service_acc_key_path: str   = "credentials/serviceAccountKey.json",
-        show_logs: bool             = False
+        save_logs: bool             = False
     ) -> None:
 
     try:
@@ -25,12 +24,12 @@ def initialize_firebase(
             }
         )
 
-        if show_logs:
+        if save_logs:
             logging.info("Firebase initialized successfully.")
         print("Firebase initialized successfully.")
 
     except Exception as e:
         print(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
-        if show_logs:
+        if save_logs:
             logging.error(f"Error in initializing Firebase: {e} - Check service account file and database URL.\nTerminating program...")
         exit()

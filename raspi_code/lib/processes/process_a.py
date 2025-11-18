@@ -45,7 +45,7 @@ def process_A(
     frame_dimensions    = {"width": 640, "height": 480}
     test_mode           = True
     camera_index        = 0
-    class_list, yolo_model, capture = checkpoints(test_mode = test_mode, yolo_model_path = yolo_model_path, class_list_path = class_list_path, camera_index = camera_index)
+    class_list, yolo_model, capture = checkpoints(test_mode=test_mode, yolo_model_path=yolo_model_path, class_list_path=class_list_path, camera_index=camera_index)
 
     while True:
         ret, raw_frame = capture.read()
