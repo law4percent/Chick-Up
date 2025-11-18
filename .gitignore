@@ -9,4 +9,5 @@ raspi_code/__pycache__/
 .DS_Store
 .vscode
 __pycache__/
-raspi_code/credentials/*
+raspi_code/credentials/*.txt
+raspi_code/credentials/*.json
