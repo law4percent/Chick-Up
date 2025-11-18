@@ -70,6 +70,7 @@ if __name__ == "__main__":
         "class_list_path": "YOLO/class_list.txt",
         "frame_dimensions": {"width": 640, "height": 480},
         "camera_index": 0,
+        "video_path": "video/chicken.mp4",
         "is_pc_device": is_pc_device,
         "save_logs": save_logs
     }

@@ -4,6 +4,7 @@ from multiprocessing import Queue, Event
 from ultralytics import YOLO
 import os
 import logging
+import time
 
 logging.basicConfig(
     filename='logs/debug.log',     # log file name
@@ -46,15 +47,28 @@ def process_A(
     is_pc_device        = process_a_args["is_pc_device"]
     camera_index        = process_a_args["camera_index"]
     save_logs           = process_a_args["save_logs"]
-    class_list, yolo_model, capture = checkpoints(test_mode=is_pc_device, yolo_model_path=yolo_model_path, class_list_path=class_list_path, camera_index=camera_index)
+    video_path          = process_a_args["video_path"]
+    class_list, yolo_model, capture = checkpoints(test_mode=is_pc_device, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index)
 
     while True:
         ret, raw_frame = capture.read()
-        raw_frame = cv2.resize(raw_frame, (frame_dimensions["width"], frame_dimensions["height"]))
 
         if not ret:
-            break
-
+            if is_pc_device:
+                print(f"Process A - Error: Video ended or video is a corrupt file.\nProcess A - Error: Check video here: {video_path}.\nProcess A - Error: Ctrl + C to end the program.")
+                if save_logs:
+                    logging.error(f"Process A - Video ended or video is a corrupt file.")
+                    logging.error(f"Process A - Check video here: {video_path}.")
+                    logging.error(f"Process A - Ctrl + C to end the program.")
+            else:
+                print(f"Process A - Error: Check the hardware camera.")
+                if save_logs:
+                    logging.error(f"Process A - Error: Check the hardware camera.")
+                    
+            time.sleep(2)
+            continue
+        
+        raw_frame = cv2.resize(raw_frame, (frame_dimensions["width"], frame_dimensions["height"]))
         annotated_frame, number_of_chickens, number_of_intruders = detection.run(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence, class_list=class_list, frame_dimensions=frame_dimensions)
                 
         if live_status.is_set():
