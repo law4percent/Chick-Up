@@ -43,7 +43,6 @@ def main(
 
 if __name__ == "__main__":
     main(
-        device_uid      = "-3GSRmf356dy6GFQSTGIF",
         testing_mode    = True,
         save_logs       = False
     )

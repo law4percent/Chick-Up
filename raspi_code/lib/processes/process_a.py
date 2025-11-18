@@ -1,7 +1,6 @@
 import cv2
 from lib.services import detection
-from multiprocessing import Process, Queue, Event
-import base64
+from multiprocessing import Queue, Event
 from ultralytics import YOLO
 import os
 import logging
@@ -81,6 +80,7 @@ def process_A(
 
     capture.release()
     cv2.destroyAllWindows()
+
 
 def checkpoints(test_mode: bool, yolo_model_path: str, class_list_path: str, video_path: str = "video/chicken.mp4", camera_index: int = 0) -> list:
     class_list = []
