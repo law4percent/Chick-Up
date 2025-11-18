@@ -49,7 +49,7 @@ def process_A(
 
     while True:
         ret, raw_frame = capture.read()
-        frame = cv2.resize(frame, (frame_dimensions["width"], frame_dimensions["height"]))
+        raw_frame = cv2.resize(raw_frame, (frame_dimensions["width"], frame_dimensions["height"]))
 
         if not ret:
             break
