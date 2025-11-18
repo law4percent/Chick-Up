@@ -19,11 +19,11 @@ def initialize_firebase(
         service_acc_key_path = "credentials/serviceAccountKey.json"
         cred = credentials.Certificate(service_acc_key_path)
         firebase_admin.initialize_app(
-        cred,
-        {
-            'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
-        }
-    )
+            cred,
+            {
+                'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
+            }
+        )
 
         if show_logs:
             logging.info("Firebase initialized successfully.")
@@ -32,5 +32,5 @@ def initialize_firebase(
     except Exception as e:
         print(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
         if show_logs:
-            logging.error(f"Error in initializing Firebase: {e} - Check service account file and database URL.")
+            logging.error(f"Error in initializing Firebase: {e} - Check service account file and database URL.\nTerminating program...")
         exit()
