@@ -29,15 +29,10 @@ def pair_it(
             "test_user_uid"     : "kP718rjyRXWlDUupBhiQTRAaWKt2",
             "device_uid"        : device_uid
         }
-        print("Skipping device pairing in PC mode.")
-        print(f"Checking if {file_name} file is existing at {cred_full_path}...")
-        if save_logs:
-            logging.info("Skipping device pairing in PC mode.")
-            logging.info(f"Checking if {file_name} file is existing at {cred_full_path}...")
         
         if not os.path.exists(cred_full_path):
             print(f"Warning: The '{file_name}' file does not exist.")
-            print(f"Writing {file_name} file at '{cred_full_path}'...")
+            print(f"Info: Writing {file_name} file at '{cred_full_path}'...")
             if save_logs:
                 logging.warning(f"The '{file_name}' file does not exist.")
                 logging.info(f"Writing {file_name} file at '{cred_full_path}'...")
@@ -57,14 +52,13 @@ def pair_it(
             
             # Wait for the file to be created before reading
             user_credentials = _read_txt_to_dict(cred_full_path)
-            print("--------------------------------")
-            print("PC mode user credentials info:")
-            print(f"- Username   : {user_credentials["username"]}")
-            print(f"- Link UID   : {user_credentials["linkedUid"]}")
-            print(f"- User UID   : {user_credentials["userUid"]}")
-            print(f"- Device UID : {user_credentials["deviceUid"]}")
-            print("--------------------------------")
-            print("Writing done.✅")
+            print("Info: --------------------------------")
+            print("Info: PC mode user credentials info:")
+            print(f"Info: - Username   : {user_credentials["username"]}")
+            print(f"Info: - Link UID   : {user_credentials["linkedUid"]}")
+            print(f"Info: - User UID   : {user_credentials["userUid"]}")
+            print(f"Info: - Device UID : {user_credentials["deviceUid"]}")
+            print("Info: --------------------------------")
             if save_logs:
                 logging.info("--------------------------------")
                 logging.info("PC mode user credentials info:")
@@ -73,24 +67,19 @@ def pair_it(
                 logging.info(f"- User UID   : {user_credentials["userUid"]}")
                 logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
                 logging.info("--------------------------------")
-                logging.info("Writing done.✅")
             return user_credentials
-        else:
-            print(f"{file_name} file found.✅")
-            if save_logs:
-                logging.info(f"{file_name} file found.✅")
-                
+        else:   
             user_credentials = _read_txt_to_dict(cred_full_path)
             _validate_credentials_keys(required_keys=required_keys, save_logs=save_logs, user_credentials=user_credentials, file_name=file_name)
             
-            print("--------------------------------")
-            print("PC mode user credentials Info:")
-            print(f"- Username   : {user_credentials["username"]}")
-            print(f"- Link UID   : {user_credentials["linkedUid"]}")
-            print(f"- User UID   : {user_credentials["userUid"]}")
-            print(f"- Device UID : {user_credentials["deviceUid"]}")
-            print(f"This file was created on {user_credentials["createdAt"]}.")
-            print("--------------------------------")
+            print("Info: --------------------------------")
+            print("Info: PC mode user credentials Info:")
+            print(f"Info: - Username   : {user_credentials["username"]}")
+            print(f"Info: - Link UID   : {user_credentials["linkedUid"]}")
+            print(f"Info: - User UID   : {user_credentials["userUid"]}")
+            print(f"Info: - Device UID : {user_credentials["deviceUid"]}")
+            print(f"Info: This file was created on {user_credentials["createdAt"]}.")
+            print("Info: --------------------------------")
             if save_logs:
                 logging.info("--------------------------------")
                 logging.info("PC mode user credentials Info:")
@@ -114,14 +103,7 @@ def pair_it(
 
 
 def _validate_credentials_keys(required_keys: set, save_logs: bool, user_credentials: dict, file_name: str) -> None:
-    print("Validating credential keys...")
-    if save_logs:
-        logging.info("Validating credential keys...")
-    
     if user_credentials.keys() >= required_keys:
-        print(f"{file_name} contains all required keys. ✅")
-        if save_logs:
-            logging.info(f"{file_name} contains all required keys. ✅")
         return
     
     print("Error: Pairing info file is missing some required keys.")
