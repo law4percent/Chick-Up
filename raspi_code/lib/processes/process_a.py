@@ -33,18 +33,20 @@ def process_A(
         queue_frame: Queue,
         live_status: any,
         annotated_option: any,
-        number_of_class_instances: Queue
+        number_of_class_instances: Queue,
+        process_a_args: dict
     ) -> None:
     print(f"{task_name} is starting...")
     
     # Configuration
-    confidence          = 0.25
-    yolo_model_path     = "YOLO/best.pt"
-    class_list_path     = "YOLO/class_list.txt"
-    frame_dimensions    = {"width": 640, "height": 480}
-    test_mode           = True
-    camera_index        = 0
-    class_list, yolo_model, capture = checkpoints(test_mode=test_mode, yolo_model_path=yolo_model_path, class_list_path=class_list_path, camera_index=camera_index)
+    confidence          = process_a_args["confidence"]
+    yolo_model_path     = process_a_args["yolo_model_path"]
+    class_list_path     = process_a_args["class_list_path"]
+    frame_dimensions    = process_a_args["frame_dimensions"]
+    is_pc_device        = process_a_args["is_pc_device"]
+    camera_index        = process_a_args["camera_index"]
+    save_logs           = process_a_args["save_logs"]
+    class_list, yolo_model, capture = checkpoints(test_mode=is_pc_device, yolo_model_path=yolo_model_path, class_list_path=class_list_path, camera_index=camera_index)
 
     while True:
         ret, raw_frame = capture.read()
