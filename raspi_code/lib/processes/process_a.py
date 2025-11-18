@@ -57,7 +57,7 @@ def process_A(
 
         if not ret:
             if is_pc_device:
-                print(f"{task_name}Error: Video ended or video is a corrupt file.")
+                print(f"{task_name}Error: Video has ended or video is a corrupted file.")
                 print(f"{task_name}Error: Check video here: {video_path}.")
                 print(f"{task_name}Error: Ctrl + C to end the program.")
                 if save_logs:
