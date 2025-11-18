@@ -5,3 +5,7 @@ raspi_code/video/
 raspi_code/YOLO/best.pt
 raspi_code/venv
 raspi_code/logs/debug.log
+raspi_code/__pycache__/
+.DS_Store
+.vscode
+__pycache__/
