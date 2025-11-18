@@ -87,7 +87,7 @@ def pair_it(
             print(f"- Link UID   : {user_credentials["linkedUid"]}")
             print(f"- User UID   : {user_credentials["userUid"]}")
             print(f"- Device UID : {user_credentials["deviceUid"]}")
-            print(f"This was created at {user_credentials["createdAt"]}.")
+            print(f"This file was created on {user_credentials["createdAt"]}.")
             print("--------------------------------")
             if save_logs:
                 logging.info("--------------------------------")
@@ -96,7 +96,7 @@ def pair_it(
                 logging.info(f"- Link UID   : {user_credentials["linkedUid"]}")
                 logging.info(f"- User UID   : {user_credentials["userUid"]}")
                 logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
-                logging.info(f"This was created at {user_credentials["createdAt"]}.")
+                logging.info(f"This file was created on {user_credentials["createdAt"]}.")
                 logging.info("--------------------------------")
                 
             return user_credentials
