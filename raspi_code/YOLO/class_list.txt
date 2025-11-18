@@ -1,0 +1,5 @@
+cat
+chicken
+rat
+dog
+snake
