@@ -61,13 +61,13 @@ if __name__ == "__main__":
     }
     
     process_b_args = {
-        "user_credentials": {},
+        "user_credentials": {str: dict},
         "is_pc_device": is_pc_device,
         "save_logs": save_logs
     }
     
     process_c_args = {
-        "user_credentials": {},
+        "user_credentials": {str: dict},
         "is_pc_device": is_pc_device,
         "save_logs": save_logs
     }
