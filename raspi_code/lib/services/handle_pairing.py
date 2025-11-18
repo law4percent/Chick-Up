@@ -9,7 +9,7 @@ def pair_it(
         device_uid: str, 
         is_pc_device: bool      = False, 
         save_logs: bool         = False,
-        user_credentials_path   = "raspi_code/user_credentials.txt",
+        user_credentials_path   = "raspi_code/credentials/user_credentials.txt",
         required_keys           = {"deviceUid", "linkedUid", "username", "userUid"}
     ) -> dict:
 
@@ -43,7 +43,7 @@ def pair_it(
             "username"  : testing_credentials["test_username"],
             "userUid"   : testing_credentials["test_user_uid"]
         }
-        _write_user_info_in_txt_file(credentials=test_cred, save_logs=save_logs, pairing_info_path=user_credentials_path)
+        _write_user_info_in_txt_file(credentials=test_cred, save_logs=save_logs, user_credentials_path=user_credentials_path)
         print(f"Not found pairing info file. Creating one with testing credentials at '{user_credentials_path}'...")
         print(f"Writing testing credentials pairing info to '{user_credentials_path}'...")
         if save_logs:
@@ -81,7 +81,7 @@ def _validate_credentials_keys(required_keys: set, save_logs: bool, user_credent
         exit()
 
 
-def _write_user_info_in_txt_file(credentials: dict, save_logs: bool, user_credentials_path: str = "raspi_code/user_credentials") -> None:
+def _write_user_info_in_txt_file(credentials: dict, save_logs: bool, user_credentials_path: str = "raspi_code/credentials/user_credentials.txt") -> None:
     now = datetime.now()
     created_at = now.strftime('%m/%d/%Y at %H:%M:%S')
     data = (
@@ -105,7 +105,7 @@ def _collect_device_info_from_db() -> dict:
 
 def _read_txt_to_dict(user_credentials_path: str) -> dict:
     result = {}
-    with open(pairing_info_path, "r") as f:
+    with open(user_credentials_path, "r") as f:
         for line in f:
             line = line.strip()
 
