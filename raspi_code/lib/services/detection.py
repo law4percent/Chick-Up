@@ -6,6 +6,12 @@ model = YOLO("YOLO/best.pt")
 class_list = ["cat", "chicken", "rat", "dog", "snake"]
 
 
+def run(raw_frame: any, yolo_model: any, confidence: float = 0.25) -> list:
+    boxes                                   = get_prediction_boxes(raw_frame, yolo_model, confidence=confidence)
+    annotated_frame, number_of_chickens     = detect_object(raw_frame, boxes, class_list)
+    return [annotated_frame, number_of_chickens]
+
+
 def get_prediction_boxes(frame: any, confidence: float, yolo_model: any) -> any:
     """Get prediction boxes from the YOLO model."""
     pred = yolo_model.predict(source=[frame], save=False, conf=confidence)
@@ -50,9 +56,3 @@ def display_chicken_count(frame, count) -> None:
     cv2.putText(frame, f"Chickens Detected: {count}",
                 (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                 (128, 0, 128), 2)
-
-
-def run(raw_frame: any, yolo_model: any, confidence: float = 0.25) -> list:
-    boxes                                   = get_prediction_boxes(raw_frame, yolo_model, confidence=confidence)
-    annotated_frame, number_of_chickens     = detect_object(raw_frame, boxes, class_list)
-    return [annotated_frame, number_of_chickens]
