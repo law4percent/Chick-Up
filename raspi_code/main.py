@@ -1,6 +1,6 @@
 from lib.processes import process_a, process_b, process_c
 from multiprocessing import Process, Queue, Event
-from lib.services import firebase_rtdb, handle_pairing
+from lib.services import firebase_rtdb, handle_pairing, handle_internet
 import os
 import logging
 
@@ -15,11 +15,11 @@ def main(
         process_a_args: dict,
         process_b_args: dict,
         process_c_args: dict,
-        device_uid: str         = "-3GSRmf356dy6GFQSTGIF",
-        is_pc_device: bool      = False,
-        save_logs: bool         = False,
-        logs_path: str          = "logs",
-        yolo_path: str          = "YOLO",
+        device_uid: str     = "-3GSRmf356dy6GFQSTGIF",
+        is_pc_device: bool  = False,
+        save_logs: bool     = False,
+        logs_path: str      = "logs",
+        yolo_path: str      = "YOLO",
     ) -> None:
     
     
@@ -34,6 +34,10 @@ def main(
     if not os.path.exists(yolo_path):
         os.makedirs(yolo_path)
         
+    # Initial code for checking the internet
+    # if not handle_internet.check_external_connection(TARGET_HOST, TARGET_PORT, TIMEOUT_SECONDS):
+    #     pass
+        
     firebase_rtdb.initialize_firebase(save_logs=save_logs)
     user_credentials = handle_pairing.pair_it(device_uid=device_uid, is_pc_device=is_pc_device, save_logs=save_logs)
 
@@ -47,9 +51,9 @@ def main(
     process_b_args["user_credentials"] = user_credentials
     process_c_args["user_credentials"] = user_credentials
 
-    task_A = Process(target=process_a.process_A, args=("Process A", queue_frame, live_status, annotated_option, number_of_class_instances, process_a_args))
-    task_B = Process(target=process_b.process_B, args=("Process B", queue_frame, live_status, number_of_class_instances, process_b_args))
-    task_C = Process(target=process_c.process_C, args=("Process C", live_status, annotated_option, process_c_args))
+    task_A = Process(target=process_a.process_A, args=("Process A: ", queue_frame, live_status, annotated_option, number_of_class_instances, process_a_args))
+    task_B = Process(target=process_b.process_B, args=("Process B: ", queue_frame, live_status, number_of_class_instances, process_b_args))
+    task_C = Process(target=process_c.process_C, args=("Process C: ", live_status, annotated_option, process_c_args))
 
     task_A.start()
     task_B.start()
@@ -65,26 +69,27 @@ if __name__ == "__main__":
     save_logs       = False
     
     process_a_args = {
-        "confidence": 0.25,
-        "yolo_model_path": "YOLO/best.pt",
-        "class_list_path": "YOLO/class_list.txt",
-        "frame_dimensions": {"width": 640, "height": 480},
-        "camera_index": 0,
-        "video_path": "video/chicken.mp4",
-        "is_pc_device": is_pc_device,
-        "save_logs": save_logs
+        "confidence"        : 0.25,
+        "yolo_model_path"   : "YOLO/best.pt",
+        "class_list_path"   : "YOLO/class_list.txt",
+        "frame_dimensions"  : {"width": 640, "height": 480},
+        "use_web_cam"       : False,
+        "camera_index"      : 0,
+        "video_path"        : "video/chicken.mp4",
+        "is_pc_device"      : is_pc_device,
+        "save_logs"         : save_logs
     }
     
     process_b_args = {
-        "user_credentials": {},
-        "is_pc_device": is_pc_device,
-        "save_logs": save_logs
+        "user_credentials"  : {},
+        "is_pc_device"      : is_pc_device,
+        "save_logs"         : save_logs
     }
     
     process_c_args = {
-        "user_credentials": {},
-        "is_pc_device": is_pc_device,
-        "save_logs": save_logs
+        "user_credentials"  : {},
+        "is_pc_device"      : is_pc_device,
+        "save_logs"         : save_logs
     }
     
     main(

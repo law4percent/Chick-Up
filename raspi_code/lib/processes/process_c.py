@@ -8,7 +8,7 @@ def process_C(
         annotated_option: any,
         process_c_args: dict
     ):
-    print(f"{task_name} is starting...")
+    print(f"{task_name} Running✅")
 
     while True:
         print(f"{task_name}...")

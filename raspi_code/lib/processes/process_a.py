@@ -37,7 +37,7 @@ def process_A(
         number_of_class_instances: Queue,
         process_a_args: dict
     ) -> None:
-    print(f"{task_name} is starting...")
+    print(f"{task_name} Running✅")
     
     # Configuration
     confidence          = process_a_args["confidence"]
@@ -48,22 +48,26 @@ def process_A(
     camera_index        = process_a_args["camera_index"]
     save_logs           = process_a_args["save_logs"]
     video_path          = process_a_args["video_path"]
-    class_list, yolo_model, capture = checkpoints(test_mode=is_pc_device, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index)
+    use_web_cam         = process_a_args["use_web_cam"]
+    
+    class_list, yolo_model, capture = checkpoints(task_name=task_name, is_pc_device=is_pc_device, save_logs=save_logs, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index, use_web_cam=use_web_cam)
 
     while True:
         ret, raw_frame = capture.read()
 
         if not ret:
             if is_pc_device:
-                print(f"Process A - Error: Video ended or video is a corrupt file.\nProcess A - Error: Check video here: {video_path}.\nProcess A - Error: Ctrl + C to end the program.")
+                print(f"{task_name}Error: Video ended or video is a corrupt file.")
+                print(f"{task_name}Error: Check video here: {video_path}.")
+                print(f"{task_name}Error: Ctrl + C to end the program.")
                 if save_logs:
-                    logging.error(f"Process A - Video ended or video is a corrupt file.")
-                    logging.error(f"Process A - Check video here: {video_path}.")
-                    logging.error(f"Process A - Ctrl + C to end the program.")
+                    logging.error(f"{task_name}Video ended or video is a corrupt file.")
+                    logging.error(f"{task_name}Check video here: {video_path}.")
+                    logging.error(f"{task_name}Ctrl + C to end the program.")
             else:
-                print(f"Process A - Error: Check the hardware camera.")
+                print(f"{task_name}Error: Check the hardware camera.")
                 if save_logs:
-                    logging.error(f"Process A - Error: Check the hardware camera.")
+                    logging.error(f"{task_name}Error: Check the hardware camera.")
                     
             time.sleep(2)
             continue
@@ -98,36 +102,51 @@ def process_A(
     cv2.destroyAllWindows()
 
 
-def checkpoints(test_mode: bool, yolo_model_path: str, class_list_path: str, video_path: str = "video/chicken.mp4", camera_index: int = 0) -> list:
+def checkpoints(task_name:str, is_pc_device: bool, save_logs: bool, yolo_model_path: str, class_list_path: str, use_web_cam: bool, video_path: str = "video/chicken.mp4", camera_index: int = 0) -> list:
     class_list = []
 
-    if test_mode:
+    if is_pc_device and not use_web_cam:
         if not os.path.exists(video_path):
-            print(f"Error: Test video not found at path: {video_path}")
-            logging.error(f"Test video not found at path: {video_path}")
+            print(f"{task_name}Error: Video file not found at path: {video_path}")
+            if save_logs:
+                logging.error(f"{task_name}Video file not found at path: {video_path}")
             exit()
-        print("Test mode enabled. Using test video.")
-        logging.info("Test mode enabled. Using test video.")
-        capture = cv2.VideoCapture("video/chicken.mp4")
+            
+        capture = cv2.VideoCapture(video_path)
         if not capture.isOpened():
-            print(f"Error: Could not open video. Try to play the video file separately to check if it's corrupted.\nVideo file location: {video_path}")
-            logging.error(f"Could not open video. Try to play the video file separately to check if it's corrupted.\nVideo file location: {video_path}")
+            print(f"{task_name}Error: Could not open video.")
+            print(f"{task_name}Error: Try to play the video file separately to check if it's corrupted.")
+            print(f"{task_name}Error: Video file location: {video_path}")
+            if save_logs:
+                logging.error(f"{task_name}Could not open video.")
+                logging.error(f"{task_name}Try to play the video file separately to check if it's corrupted.")
+                logging.error(f"{task_name}Video file location: {video_path}")
+            exit()
+    elif is_pc_device and use_web_cam:
+        capture = cv2.VideoCapture(camera_index)
+        if not capture.isOpened():
+            print(f"{task_name}Error: Could not open the camera index {camera_index}.")
+            if save_logs:
+                logging.error(f"{task_name}Could not open the camera index {camera_index}.")
             exit()
     else:
         capture = cv2.VideoCapture(camera_index)
         if not capture.isOpened():
-            print(f"Error: Could not open the camera index {camera_index}.")
-            logging.error(f"Could not open the camera index {camera_index}.")
+            print(f"{task_name}Error: Could not open the camera index {camera_index}.")
+            if save_logs:
+                logging.error(f"{task_name}Could not open the camera index {camera_index}.")
             exit()
     
     if not os.path.exists(yolo_model_path):
-        print(f"Error: YOLO model not found at path: {yolo_model_path}")
-        logging.error(f"YOLO model not found at path: {yolo_model_path}")
+        print(f"{task_name}Error: YOLO model not found at path: {yolo_model_path}")
+        if save_logs:
+            logging.error(f"{task_name}YOLO model not found at path: {yolo_model_path}")
         exit()
 
     if not os.path.exists(class_list_path):
-        print(f"Error: Class list file not found at path: {class_list_path}")
-        logging.error(f"Class list file not found at path: {class_list_path}")
+        print(f"{task_name}Error: Class list file not found at path: {class_list_path}")
+        if save_logs:
+            logging.error(f"{task_name}Class list file not found at path: {class_list_path}")
         exit()
 
     with open(class_list_path, 'r') as f:
