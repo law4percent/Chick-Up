@@ -8,7 +8,7 @@ def main(
         process_b_args: dict,
         process_c_args: dict,
         device_uid: str         = "-3GSRmf356dy6GFQSTGIF",
-        testing_mode: bool      = False,
+        is_pc_device: bool      = False,
         save_logs: bool         = False,
         logs_path: str          = "logs",
         yolo_path: str          = "YOLO",
@@ -21,7 +21,7 @@ def main(
         os.makedirs(yolo_path)
         
     firebase_rtdb.initialize_firebase(show_logs=save_logs)
-    user_credentials = handle_pairing.pair_it(device_uid=device_uid, testing_mode=testing_mode, save_logs=save_logs)
+    user_credentials = handle_pairing.pair_it(device_uid=device_uid, is_pc_device=is_pc_device, save_logs=save_logs)
 
     # -----------------
     # Multi-processing
