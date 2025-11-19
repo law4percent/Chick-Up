@@ -77,7 +77,8 @@ if __name__ == "__main__":
         "camera_index"      : 0,
         "video_path"        : "video/chicken.mp4",
         "is_pc_device"      : is_pc_device,
-        "save_logs"         : save_logs
+        "save_logs"         : save_logs,
+        "show_window"       : True
     }
     
     process_b_args = {

@@ -50,6 +50,7 @@ def process_A(
     save_logs           = process_a_args["save_logs"]
     video_path          = process_a_args["video_path"]
     use_web_cam         = process_a_args["use_web_cam"]
+    show_window         = process_a_args["show_window"]
     
     class_list, yolo_model, capture = checkpoints(task_name=task_name, is_pc_device=is_pc_device, save_logs=save_logs, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index, use_web_cam=use_web_cam)
 
@@ -103,10 +104,12 @@ def process_A(
             })
         except queue.Full:
             pass  # queue is still full, skip this update
-        
-        cv2.imshow("Chicken-Detection", annotated_frame) # diplay the frame or show frame
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+
+        if is_pc_device and show_window:
+            cv2.imshow("Chick-Up Streaming", annotated_frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     capture.release()
     cv2.destroyAllWindows()
