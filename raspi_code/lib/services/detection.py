@@ -37,40 +37,36 @@ def _detect_object(frame: any, boxes: any, class_list: list, frame_dimensions: d
         
         if class_name in class_list:
             if class_name == "chicken":
-                color = (0, 255, 0)
+                color = (50, 255, 50)
                 number_of_chickens += 1
             else:
                 color = (0, 0, 255)
                 number_of_intruders += 1
 
-            frame = _annotate_all_objects(frame, class_name, conf_score, (x1, y1), (x2, y2), color)
+            _annotate_all_objects(frame, class_name, conf_score, (x1, y1), (x2, y2), color)
 
-    # chicken_count   = count_all_chickens(boxes, class_list)
-    frame = _display_chicken_count(frame, number_of_chickens, frame_dimensions)
-    frame = _display_intruder_count(frame, number_of_intruders, frame_dimensions)
+    cv2.rectangle(frame, (15, 30), (250, 15+40+40+15), (0, 0, 0), -1)
+    alpha = 0.5
+    _display_chicken_count(frame, number_of_chickens, font_size=0.6)
+    _display_intruder_count(frame, number_of_intruders, font_size=0.6)
+    frame = cv2.addWeighted(frame, alpha, frame, 1 - alpha, 0)
     return [frame, number_of_chickens, number_of_intruders]
 
 
-def _annotate_all_objects(frame, class_name, conf_score, top_left, bottom_right, color) -> any:
+def _annotate_all_objects(frame, class_name, conf_score, top_left, bottom_right, color) -> None:
     """Annotate detected objects on the frame."""
     cv2.rectangle(frame, top_left, bottom_right, color, 2)
     cv2.putText(frame, f"{class_name} {conf_score}", (top_left[0], top_left[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-    return frame
 
 
-def _display_intruder_count(frame: any, number_of_intruders: int, frame_dimensions: dict) -> any:
+def _display_intruder_count(frame: any, number_of_intruders: int, font_size: float) -> None:
     """Display the intruder count in the upper-right corner of the frame."""
-    overlay = frame.copy()
-    width = frame_dimensions['width']
-    cv2.rectangle(overlay, (width - 230, 10), (width - 10, 60), (0, 0, 0), -1)
-    cv2.putText(frame, f"Intruders Detected: {number_of_intruders}", (width - 220, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(frame, f"Intruders Detected:", (30, 45+40), cv2.FONT_HERSHEY_SIMPLEX, font_size, (250, 250, 250), 2)
+    cv2.putText(frame, f"                    {number_of_intruders}", (20, 45+40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     return frame
 
 
-def _display_chicken_count(frame: any, number_of_chicken: int, frame_dimensions: dict) -> any:
+def _display_chicken_count(frame: any, number_of_chicken: int, font_size: float) -> None:
     """Display the chicken count in the upper-left corner of the frame."""
-    overlay = frame.copy()
-    width = frame_dimensions['width']
-    cv2.rectangle(overlay, (width - 430, 10), (width - 240, 60), (0, 0, 0), -1)
-    cv2.putText(frame, f"Chickens Detected: {number_of_chicken}", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (128, 0, 128), 2)
-    return frame
+    cv2.putText(frame, f"Chickens Detected:", (30, 45), cv2.FONT_HERSHEY_SIMPLEX, font_size, (250, 250, 250), 2)
+    cv2.putText(frame, f"                    {number_of_chicken}", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (50, 255, 50), 2)

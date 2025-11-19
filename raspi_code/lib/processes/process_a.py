@@ -90,8 +90,6 @@ def process_A(
             except queue.Full:
                 pass  # skip frame if queue is full
 
-
-        # Safely update number_of_class_instances queue
         try:
             if number_of_class_instances.full():
                 number_of_class_instances.get_nowait()  # remove old data
@@ -105,7 +103,6 @@ def process_A(
             })
         except queue.Full:
             pass  # queue is still full, skip this update
-        # print(f"{task_name} Repeat✅ - Chickens: {number_of_chickens} | Intruders: {number_of_intruders}")
         
         cv2.imshow("Chicken-Detection", annotated_frame) # diplay the frame or show frame
         if cv2.waitKey(1) & 0xFF == ord('q'):
