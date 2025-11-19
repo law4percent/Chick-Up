@@ -11,3 +11,5 @@ raspi_code/__pycache__/
 __pycache__/
 raspi_code/credentials/*.txt
 raspi_code/credentials/*.json
+raspi_code/live_stream_test.html
+live_stream_test.html

@@ -5,6 +5,7 @@ from ultralytics import YOLO
 import os
 import logging
 import time
+import queue 
 
 logging.basicConfig(
     filename='logs/debug.log',     # log file name
@@ -37,7 +38,7 @@ def process_A(
         number_of_class_instances: Queue,
         process_a_args: dict
     ) -> None:
-    print(f"{task_name} Running✅")
+    print(f"{task_name}Running✅")
     
     # Configuration
     confidence          = process_a_args["confidence"]
@@ -54,7 +55,6 @@ def process_A(
 
     while True:
         ret, raw_frame = capture.read()
-
         if not ret:
             if is_pc_device:
                 print(f"{task_name}Error: Video has ended or video is a corrupted file.")
@@ -77,22 +77,35 @@ def process_A(
                 
         if live_status.is_set():
             if queue_frame.full():
-                queue_frame.get()
+                try:
+                    queue_frame.get_nowait()  # remove old frame
+                except queue.Empty:
+                    pass
 
-            if annotated_option.is_set():
-                queue_frame.put(annotated_frame)
-            else:
-                queue_frame.put(raw_frame)
+            try:
+                if annotated_option.is_set():
+                    queue_frame.put_nowait(annotated_frame)
+                else:
+                    queue_frame.put_nowait(raw_frame)
+            except queue.Full:
+                pass  # skip frame if queue is full
 
-        if number_of_class_instances.full():
-            number_of_class_instances.get()
-            
-            number_of_class_instances.put(
-                {
-                    "chickens": number_of_chickens,
-                    "intruders": number_of_intruders
-                }
-            )
+
+        # Safely update number_of_class_instances queue
+        try:
+            if number_of_class_instances.full():
+                number_of_class_instances.get_nowait()  # remove old data
+        except queue.Empty:
+            pass  # queue was unexpectedly empty
+
+        try:
+            number_of_class_instances.put_nowait({
+                "chickens": number_of_chickens,
+                "intruders": number_of_intruders
+            })
+        except queue.Full:
+            pass  # queue is still full, skip this update
+        # print(f"{task_name} Repeat✅ - Chickens: {number_of_chickens} | Intruders: {number_of_intruders}")
         
         cv2.imshow("Chicken-Detection", annotated_frame) # diplay the frame or show frame
         if cv2.waitKey(1) & 0xFF == ord('q'):
