@@ -19,11 +19,10 @@ def process_C(
         process_c_args: dict
     ):
 
-    firebase_rtdb.initialize_firebase(save_logs=process_c_args.get("save_logs", False))
+    firebase_rtdb.initialize_firebase(save_logs=process_c_args.get("save_logs"))
     print(f"{task_name} Running ✅")
 
     user_uid = process_c_args["user_credentials"]["userUid"]
-    linked_uid = process_c_args["user_credentials"]["linkedUid"]
 
     is_pc_device = process_c_args.get("is_pc_device", True)
 
@@ -38,7 +37,7 @@ def process_C(
 
         if is_pc_device:
 
-            sensors_ref = db.reference(f"sensors/{user_uid}/{linked_uid}")
+            sensors_ref = db.reference(f"sensors/{user_uid}")
             snapshot = sensors_ref.get() or {}
 
             df_button_status = snapshot.get("df_system_button_status", False)
@@ -61,7 +60,7 @@ def process_C(
                 wf_level_sensor_pins=process_c_args["wf_level_sensor_pins"]
             )
 
-        sensors_ref = db.reference(f"sensors/{user_uid}/{linked_uid}")
+        sensors_ref = db.reference(f"sensors/{user_uid}")
         sensors_snapshot = sensors_ref.get() or {}
 
         feedLevel = sensors_snapshot.get("feedLevel", 0)
@@ -80,4 +79,4 @@ def process_C(
 
         print("Firebase sensors:", sensors_data)
 
-        time.sleep(process_c_args.get("read_delay", 0.2))
+        time.sleep(0.5)
