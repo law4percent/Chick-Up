@@ -51,9 +51,9 @@ def main(
     process_b_args["user_credentials"] = user_credentials
     process_c_args["user_credentials"] = user_credentials
 
-    task_A = Process(target=process_a.process_A, args=("Process A: ", queue_frame, live_status, annotated_option, number_of_class_instances, process_a_args))
-    task_B = Process(target=process_b.process_B, args=("Process B: ", queue_frame, live_status, number_of_class_instances, process_b_args))
-    task_C = Process(target=process_c.process_C, args=("Process C: ", live_status, annotated_option, process_c_args))
+    task_A = Process(target=process_a.process_A, args=("Process A:", queue_frame, live_status, annotated_option, number_of_class_instances, process_a_args))
+    task_B = Process(target=process_b.process_B, args=("Process B:", queue_frame, live_status, number_of_class_instances, process_b_args))
+    task_C = Process(target=process_c.process_C, args=("Process C:", live_status, annotated_option, process_c_args))
 
     task_A.start()
     task_B.start()
