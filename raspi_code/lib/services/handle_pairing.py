@@ -16,7 +16,7 @@ def pair_it(
         save_logs: bool              = False,
         user_credentials_path: str   = "credentials",
         file_name: str               = "user_credentials.txt",
-        required_keys: str           = {"deviceUid", "linkedUid", "username", "userUid", "createdAt"}
+        required_keys: str           = {"deviceUid", "username", "userUid", "createdAt"}
     ) -> dict | None:
     
     # Use forward slash for path segments. os.path.join handles conversion for the OS.
@@ -25,7 +25,6 @@ def pair_it(
     if is_pc_device:
         testing_credentials = {
             "test_username"     : "law4percent",
-            "test_linked_uid"   : "ABCDabcd1234567890",
             "test_user_uid"     : "kP718rjyRXWlDUupBhiQTRAaWKt2",
             "device_uid"        : device_uid
         }
@@ -39,7 +38,6 @@ def pair_it(
             
             test_cred = {
                 "deviceUid" : device_uid,
-                "linkedUid" : testing_credentials["test_linked_uid"],
                 "username"  : testing_credentials["test_username"],
                 "userUid"   : testing_credentials["test_user_uid"]
             } 
@@ -55,7 +53,6 @@ def pair_it(
             print("Info: --------------------------------")
             print("Info: PC mode user credentials info:")
             print(f"Info: - Username   : {user_credentials["username"]}")
-            print(f"Info: - Link UID   : {user_credentials["linkedUid"]}")
             print(f"Info: - User UID   : {user_credentials["userUid"]}")
             print(f"Info: - Device UID : {user_credentials["deviceUid"]}")
             print("Info: --------------------------------")
@@ -63,7 +60,6 @@ def pair_it(
                 logging.info("--------------------------------")
                 logging.info("PC mode user credentials info:")
                 logging.info(f"- Username   : {user_credentials["username"]}")
-                logging.info(f"- Link UID   : {user_credentials["linkedUid"]}")
                 logging.info(f"- User UID   : {user_credentials["userUid"]}")
                 logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
                 logging.info("--------------------------------")
@@ -75,7 +71,6 @@ def pair_it(
             print("Info: --------------------------------")
             print("Info: PC mode user credentials Info:")
             print(f"Info: - Username   : {user_credentials["username"]}")
-            print(f"Info: - Link UID   : {user_credentials["linkedUid"]}")
             print(f"Info: - User UID   : {user_credentials["userUid"]}")
             print(f"Info: - Device UID : {user_credentials["deviceUid"]}")
             print(f"Info: This file was created on {user_credentials["createdAt"]}.")
@@ -84,7 +79,6 @@ def pair_it(
                 logging.info("--------------------------------")
                 logging.info("PC mode user credentials Info:")
                 logging.info(f"- Username   : {user_credentials["username"]}")
-                logging.info(f"- Link UID   : {user_credentials["linkedUid"]}")
                 logging.info(f"- User UID   : {user_credentials["userUid"]}")
                 logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
                 logging.info(f"This file was created on {user_credentials["createdAt"]}.")
@@ -119,7 +113,6 @@ def _write_user_info_in_txt_file(credentials: dict, save_logs: bool, user_creden
     data = (
         f"userUid   : {credentials["userUid"]}\n"
         f"username  : {credentials["username"]}\n"
-        f"linkedUid : {credentials["linkedUid"]}\n"
         f"deviceUid : {credentials["deviceUid"]}\n"
         f"createdAt : {created_at}"
     )

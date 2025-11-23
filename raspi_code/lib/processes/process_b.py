@@ -19,14 +19,14 @@ def process_B(
     print(f"{task_name} Running ✅")
 
     user_uid = process_b_args["user_credentials"]["userUid"]
-    linked_uid = process_b_args["user_credentials"]["linkedUid"]
-
-    livestream_ref = db.reference(f"liveStream/{user_uid}/{linked_uid}")
-    detection_ref = db.reference(f"detection/{user_uid}/{linked_uid}")
+    device_uid = process_b_args["user_credentials"]["deviceUid"]
+    
+    livestream_ref = db.reference(f"liveStream/{user_uid}/{device_uid}")
+    detection_ref = db.reference(f"detection/{user_uid}/{device_uid}")
 
     while True:
         if not live_status.is_set():
-            print(f"{task_name} Live status is OFF. Waiting...")
+            print(f"{task_name} Live status is {live_status.is_set()}. Waiting...")
             time.sleep(0.5)
             continue
 
@@ -39,7 +39,7 @@ def process_B(
             else:
                 jpg_text = base64.b64encode(buffer).decode("utf-8")
                 now = datetime.now()
-                lastUpdateAt = now.strftime('%m/%d/%Y at %H:%M:%S')
+                lastUpdateAt = now.strftime('%m/%d/%Y %H:%M:%S')
 
                 livestream_ref.update({
                     "base64": jpg_text,
