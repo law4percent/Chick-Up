@@ -1,81 +1,78 @@
+from gpiozero import DistanceSensor, Button
 import time
 from firebase_admin import db
-from datetime import datetime
 from lib.services import firebase_rtdb
-from lib.services import handle_hardware
 import logging
 
 logging.basicConfig(
-    filename='logs/debug.log',     # log file name
-    filemode='a',              # 'a' to append, 'w' to overwrite
-    level=logging.INFO,        # minimum level to log
+    filename='logs/debug.log',
+    filemode='a',
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def process_C(
-        task_name: str,
-        live_status: any,
-        annotated_option: any,
-        process_c_args: dict
-    ):
+sensor_feed = DistanceSensor(echo=5, trigger=3, max_distance=4)
+sensor_water = DistanceSensor(echo=7, trigger=6, max_distance=4)
+
+feed_button = Button(20, pull_up=True)
+water_button = Button(28, pull_up=True)
+
+def measure_cm(sensor):
+    return sensor.distance * 100
+
+def convert_to_percentage(distance_cm, min_dist=10, max_dist=300):
+    if distance_cm <= min_dist:
+        return 100
+    if distance_cm >= max_dist:
+        return 0
+    
+    percent = (max_dist - distance_cm) / (max_dist - min_dist) * 100
+    return round(percent, 2)
+
+
+def process_C(task_name: str, 
+              live_status: any, 
+              annotated_option: any, 
+              process_c_args: dict):
 
     firebase_rtdb.initialize_firebase(save_logs=process_c_args.get("save_logs"))
     print(f"{task_name} Running ✅")
 
     user_uid = process_c_args["user_credentials"]["userUid"]
 
-    is_pc_device = process_c_args.get("is_pc_device", True)
-
-    live_status.set() 
-
     while True:
-
-        if not live_status.is_set():
-            print(f"{task_name} Live status is OFF. Waiting...")
-            time.sleep(0.5)
-            continue
-
-        if is_pc_device:
-
-            sensors_ref = db.reference(f"sensors/{user_uid}")
-            hardware = sensors_ref.get() or {}
-
-            df_button_status = hardware.get("df_system_button_status", False)
-            wr_button_status = hardware.get("wr_system_button_status", False)
-            keypad_data = hardware.get("keypad_data", "")
-            hw_sensors_data = hardware.get("sensors", {"df": {}, "wf": {}})
-
-        else:
-
-            (
-                df_button_status,
-                wr_button_status,
-                keypad_data,
-                hw_sensors_data
-            ) = handle_hardware.read_pins_data(
-                dispense_feed_pin=process_c_args["dispense_feed_pin"],
-                water_refill_pin=process_c_args["water_refill_pin"],
-                keypad_pins=process_c_args["keypad_pins"],
-                df_level_sensor_pins=process_c_args["df_level_sensor_pins"],
-                wf_level_sensor_pins=process_c_args["wf_level_sensor_pins"]
-            )
-
         sensors_ref = db.reference(f"sensors/{user_uid}")
-        sensors_snapshot = sensors_ref.get() or {}
 
-        feedLevel = sensors_snapshot.get("feedLevel", 0)
-        waterLevel = sensors_snapshot.get("waterLevel", 0)
-        updatedAt = sensors_snapshot.get("updatedAt", 0)
-        lastFeedDispense = sensors_snapshot.get("lastFeedDispense", {})
-        lastWaterDispense = sensors_snapshot.get("lastWaterDispense", {})
+        feed_dist = measure_cm(sensor_feed)
+        water_dist = measure_cm(sensor_water)
+
+        feedLevel = convert_to_percentage(feed_dist)
+        waterLevel = convert_to_percentage(water_dist)
+
+        print(f"Feed Level: {feedLevel}")
+        print(f"Water Level: {waterLevel}")
+        # mo show ang feed level og water level is low if 0 iya value
+        if feedLevel > 0:
+            print("Feed level is low")
+
+        if waterLevel > 0:
+            print("Water level is low")
+
+        feed_pressed = not feed_button.value
+        water_pressed = not water_button.value
+
+        #ari ang mo press ang button nya if greater to 10 or less than 100
+        if feed_pressed and 10 <= feedLevel <= 100:
+            print("Feed Dispense")
+
+        if water_pressed and 10 <= waterLevel <= 100:
+            print("Water Dispense")
 
         sensors_data = {
-            "feedLevel": feedLevel,
-            "waterLevel": waterLevel,
-            "updatedAt": updatedAt,
-            "lastFeedDispense": lastFeedDispense,
-            "lastWaterDispense": lastWaterDispense
+            "feedLevel": round(feedLevel, 2),
+            "waterLevel": round(waterLevel, 2)
         }
+        sensors_ref.update(sensors_data)
 
         print("Firebase sensors:", sensors_data)
 
