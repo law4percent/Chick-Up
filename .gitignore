@@ -1,3 +1,15 @@
 # app/test-app
 google-services.json
 .idea
+raspi_code/video/
+raspi_code/YOLO/best.pt
+raspi_code/venv
+raspi_code/logs/debug.log
+raspi_code/__pycache__/
+.DS_Store
+.vscode
+__pycache__/
+raspi_code/credentials/*.txt
+raspi_code/credentials/*.json
+raspi_code/live_stream_test.html
+live_stream_test.html
