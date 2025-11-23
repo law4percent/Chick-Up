@@ -24,7 +24,11 @@ def convert_to_percentage(distance_cm, min_dist=10, max_dist=300) -> float:
 
 
 
-def init_level_sensors(feed_level_sensor_data: dict, water_level_sensor_data: dict) -> dict:
+def init_level_sensors(is_pc_device: bool, feed_level_sensor_data: dict, water_level_sensor_data: dict) -> list:
+    if is_pc_device:
+        print("Pass, no initializing level sensors...")
+        return [None, None]
+    
     feed_level_sensor   = DistanceSensor(
                             echo            = feed_level_sensor_data["echo"],
                             trigger         = feed_level_sensor_data["trigger"],
@@ -38,7 +42,11 @@ def init_level_sensors(feed_level_sensor_data: dict, water_level_sensor_data: di
     return [feed_level_sensor, water_level_sensor]
 
 
-def init_physical_buttons(feed_physical_button_data: dict, water_physical_button_data: dict) -> list:
+def init_physical_buttons(is_pc_device: bool, feed_physical_button_data: dict, water_physical_button_data: dict) -> list:
+    if is_pc_device:
+        print("Pass, no initializing physical buttons...")
+        return [None, None]
+    
     feed_button = Button(feed_physical_button_data["gpio"], pull_up=feed_physical_button_data["pull_up"])
     water_button = Button(water_physical_button_data["gpio"], pull_up=water_physical_button_data["pull_up"])
     return [feed_button, water_button]

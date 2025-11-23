@@ -15,8 +15,8 @@ def process_B(
         process_b_args: dict
     ) -> None:
 
-    firebase_rtdb.initialize_firebase(save_logs=process_b_args["save_logs"])
     print(f"{task_name} Running ✅")
+    firebase_rtdb.initialize_firebase(save_logs=process_b_args["save_logs"])
 
     user_uid = process_b_args["user_credentials"]["userUid"]
     device_uid = process_b_args["user_credentials"]["deviceUid"]
