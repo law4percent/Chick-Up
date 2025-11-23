@@ -1,5 +1,5 @@
-from firebase_admin import db
 import logging
+from gpiozero import DistanceSensor, Button
 
 logging.basicConfig(
     filename='logs/debug.log',
@@ -7,6 +7,59 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+
+def measure_cm(sensor) -> float:
+    return sensor.distance * 100
+
+
+def convert_to_percentage(distance_cm, min_dist=10, max_dist=300) -> float:
+    if distance_cm <= min_dist:
+        return 100
+    if distance_cm >= max_dist:
+        return 0
+    
+    percent = (max_dist - distance_cm) / (max_dist - min_dist) * 100
+    return round(percent, 2)
+
+
+
+def init_level_sensors(feed_level_sensor_data: dict, water_level_sensor_data: dict) -> dict:
+    feed_level_sensor   = DistanceSensor(
+                            echo            = feed_level_sensor_data["echo"],
+                            trigger         = feed_level_sensor_data["trigger"],
+                            max_distance    = feed_level_sensor_data["max_distance"]
+                        )
+    water_level_sensor  = DistanceSensor(
+                            echo            = water_level_sensor_data["echo"],
+                            trigger         = water_level_sensor_data["trigger"],
+                            max_distance    = water_level_sensor_data["max_distance"]
+                        )
+    return [feed_level_sensor, water_level_sensor]
+
+
+def init_physical_buttons(feed_physical_button_data: dict, water_physical_button_data: dict) -> list:
+    feed_button = Button(feed_physical_button_data["gpio"], pull_up=feed_physical_button_data["pull_up"])
+    water_button = Button(water_physical_button_data["gpio"], pull_up=water_physical_button_data["pull_up"])
+    return [feed_button, water_button]
+
+
+
+def read_level_sensors_data(feed_level_sensor: any, water_level_sensor: any) -> list:
+    feed_dist       = measure_cm(feed_level_sensor)
+    water_dist      = measure_cm(water_level_sensor)
+    
+    feed_level      = convert_to_percentage(feed_dist)
+    water_level     = convert_to_percentage(water_dist)
+    
+    return [feed_level, water_level]
+
+
+def read_physical_buttons_data(feed_physical_button: any, water_physical_button: any) -> list:
+    feed_button_current_status = not feed_physical_button.value
+    water_button_current_status = not water_physical_button.value
+    return [feed_button_current_status, water_button_current_status]
+
 
 def read_pins_data(
         dispense_feed_pin: int,
@@ -16,45 +69,7 @@ def read_pins_data(
         is_pc_device: bool = False,
         linked_uid: str = None,
         save_logs: bool = False
-    ) -> dict:
+    ) -> dict | None:
     
     if is_pc_device:
-        if not linked_uid:
-            print("Error: linked_uid is required in PC mode.")
-            logging.error("linked_uid is required in PC mode.")
-            return None
-
-        print("Info: Using PC-mode hardware reading...")
-        if save_logs:
-            logging.info("PC-mode hardware reading enabled.")
-
-        sensors_data_path = f"sensors/{linked_uid}"
-        buttons_data_path = f"buttons/{linked_uid}"
-
-        sensors = db.reference(sensors_data_path).get() or {}
-        buttons = db.reference(buttons_data_path).get() or {}
-
-        hw = {
-            "df_level_sensor_pins": sensors.get("feedLevel", df_level_sensor_pins),
-            "wf_level_sensor_pins": sensors.get("waterLevel", wf_level_sensor_pins),
-            "dispense_feed_pin": buttons.get("feedButton", dispense_feed_pin),
-            "water_refill_pin": buttons.get("waterButton", water_refill_pin)
-        }
-
-        print("Info: --------------------------------")
-        print("Info: PC-mode hardware values:")
-        for k, v in hw.items():
-            print(f"Info: - {k}: {v}")
-        print("Info: --------------------------------")
-
-        if save_logs:
-            logging.info("--------------------------------")
-            logging.info("PC-mode hardware values:")
-            logging.info(str(hw))
-            logging.info("--------------------------------")
-
-        return hw
-
-    print("Error: Real hardware mode not available. Use PC mode only.")
-    logging.error("Attempted to use hardware mode but GPIO code removed.")
-    return None
+        return None
