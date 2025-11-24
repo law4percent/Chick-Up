@@ -27,7 +27,7 @@ def process_C(task_name: str,
     
     sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
     
-    feed_level_sensor, water_level_sensor = handle_hardware.init_level_sensors(
+    feed_level_sensor, water_level_sensor = handle_hardware.setup_level_sensors(
                                                 feed_level_sensor_data= {
                                                     "echo"          : 5,
                                                     "trigger"       : 3,
@@ -40,7 +40,7 @@ def process_C(task_name: str,
                                                 },
                                                 is_pc_device = is_pc_device
                                             )
-    feed_physical_button, water_physical_button = handle_hardware.init_physical_buttons(
+    feed_physical_button, water_physical_button = handle_hardware.setup_physical_buttons(
                                                         feed_physical_button_data = {
                                                             "gpio"      : 20,
                                                             "pull_up"   : True

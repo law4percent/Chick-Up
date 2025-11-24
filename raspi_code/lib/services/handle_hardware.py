@@ -24,7 +24,7 @@ def convert_to_percentage(distance_cm, min_dist=10, max_dist=300) -> float:
 
 
 
-def init_level_sensors(is_pc_device: bool, feed_level_sensor_data: dict, water_level_sensor_data: dict) -> list:
+def setup_level_sensors(is_pc_device: bool, feed_level_sensor_data: dict, water_level_sensor_data: dict) -> list:
     if is_pc_device:
         print("Pass, no initializing level sensors...")
         return [None, None]
@@ -42,7 +42,7 @@ def init_level_sensors(is_pc_device: bool, feed_level_sensor_data: dict, water_l
     return [feed_level_sensor, water_level_sensor]
 
 
-def init_physical_buttons(is_pc_device: bool, feed_physical_button_data: dict, water_physical_button_data: dict) -> list:
+def setup_physical_buttons(is_pc_device: bool, feed_physical_button_data: dict, water_physical_button_data: dict) -> list:
     if is_pc_device:
         print("Pass, no initializing physical buttons...")
         return [None, None]
