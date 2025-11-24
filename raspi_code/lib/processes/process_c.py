@@ -24,6 +24,7 @@ def process_C(task_name: str,
     user_uid        = process_c_args["user_credentials"]["userUid"]
     device_uid      = process_c_args["user_credentials"]["deviceUid"]
     is_pc_device    = process_c_args["is_pc_device"]
+    save_logs       = process_c_args["save_logs"]
     
     sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
     
@@ -59,22 +60,15 @@ def process_C(task_name: str,
             time.sleep(0.5)
             continue
         
+        all_pins_data = handle_hardware.read_pins_data(
+                            feed_physical_button    = feed_physical_button, 
+                            water_physical_button   = water_physical_button,
+                            feed_level_sensor       = feed_level_sensor,
+                            water_level_sensor      = water_level_sensor,
+                            is_pc_device            = is_pc_device,
+                            save_logs               = save_logs
+                        )
         
-        # -------------------------------
-        # This handles level sensors
-        # -------------------------------
-        feed_current_level, water_current_level = handle_hardware.read_level_sensors_data(feed_level_sensor=feed_level_sensor, water_level_sensor=water_level_sensor)
-        print(f"{task_name} Current level of feeds  : {feed_current_level}")
-        print(f"{task_name} Current level of water  : {water_current_level}")
-            
-            
-               
-        # -------------------------------
-        # This handles physical buttons
-        # -------------------------------
-        feed_physical_button_current_status, water_physical_button_current_status = handle_hardware.read_physical_buttons_data(feed_physical_button=feed_physical_button, water_physical_button=water_physical_button)
-        print(f"{task_name} Current physical button status of feed  : {feed_physical_button_current_status}")
-        print(f"{task_name} Current physical button status of water : {water_physical_button_current_status}")
             
         
 

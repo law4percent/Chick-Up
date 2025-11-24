@@ -70,14 +70,40 @@ def read_physical_buttons_data(feed_physical_button: any, water_physical_button:
 
 
 def read_pins_data(
-        dispense_feed_pin: int,
-        water_refill_pin: int,
-        df_level_sensor_pins: dict,
-        wf_level_sensor_pins: dict,
+        feed_physical_button: any,
+        water_physical_button: any,
+        feed_level_sensor: any,
+        water_level_sensor: any,
         is_pc_device: bool = False,
-        linked_uid: str = None,
         save_logs: bool = False
     ) -> dict | None:
     
     if is_pc_device:
         return None
+    
+
+    # -------------------------------
+    # This handles level sensors
+    # -------------------------------
+    feed_current_level, water_current_level = read_level_sensors_data(feed_level_sensor=feed_level_sensor, water_level_sensor=water_level_sensor)
+    # print(f"{task_name} Current level of feeds  : {feed_current_level}")
+    # print(f"{task_name} Current level of water  : {water_current_level}")
+        
+        
+            
+    # -------------------------------
+    # This handles physical buttons
+    # -------------------------------
+    feed_physical_button_current_status, water_physical_button_current_status = read_physical_buttons_data(feed_physical_button=feed_physical_button, water_physical_button=water_physical_button)
+    # print(f"{task_name} Current physical button status of feed  : {feed_physical_button_current_status}")
+    # print(f"{task_name} Current physical button status of water : {water_physical_button_current_status}")
+
+    all_data = {
+        "feed_current_level" : feed_current_level,
+        "water_current_level": water_current_level,
+        "feed_physical_button_current_status": feed_physical_button_current_status,
+        "water_physical_button_current_status": water_physical_button_current_status
+    }
+
+    return all_data
+    
