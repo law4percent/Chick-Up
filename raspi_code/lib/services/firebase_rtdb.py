@@ -29,3 +29,20 @@ def initialize_firebase(
             'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
         }
     )
+def setup_RTDB(database_tag:any, is_pc_device: bool) -> list:
+    if is_pc_device:
+        print("Pass, no initializing database...")
+        return None
+
+    ref = db.reference("")
+    database_tag = ref.get()
+
+    return database_tag
+def read_RTDB(database: any) -> dict:
+    
+    return {
+        "df_app_button": database.get("df_app_button"),
+        "wr_app_button": database.get("wr_app_button"),
+        "feed_schedule": database.get("feed_schedule"),
+        "live_button_status": database.get("live_button_status")
+    }

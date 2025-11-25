@@ -60,10 +60,19 @@ def process_C(task_name: str,
                                                         },
                                                         is_pc_device = is_pc_device
                                                     )
+    
+    database = firebase_rtdb.setup_RTDB(database_tag=  {      
+        "df_app_button": bool,
+        "wr_app_button": bool,
+        "feed_schedule": bool,
+        "live_button_status": bool}, 
+        is_pc_device=is_pc_device
+        )
+
     while True:
         
         if is_pc_device:
-            print(f"{task_name} The device is PC... skip reading raspi pins")
+            print(f"{task_name} The device is PC... skip reading raspi pins and database data")
             time.sleep(0.5)
             continue
         
@@ -77,7 +86,25 @@ def process_C(task_name: str,
                             save_logs               = save_logs
                         )
         
-            
+        database_data = firebase_rtdb.read_RTDB(database = database, is_pc_device=is_pc_device)
+        {
+            "df_app_button" : bool,
+            "wr_app_button" : bool,
+            "feed_schedule" : bool,
+            "live_button_status": bool
+        }
+
+        # df_app_button      = database.get("df_app_button")
+        # wr_app_button      = database.get("wr_app_button")
+        # feed_schedule      = database.get("feed_schedule")
+        # live_button_status = database.get("live_button_status")
+
+        # print("\n=== Firebase RTDB Read ===")
+        # print("df_app_button     :", df_app_button)
+        # print("wr_app_button     :", wr_app_button)
+        # print("feed_schedule     :", feed_schedule)
+        # print("live_button_status:", live_button_status)
+        # print("==========================\n")
         
 
 
