@@ -29,20 +29,31 @@ def initialize_firebase(
             'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
         }
     )
-def setup_RTDB(database_tag:any, is_pc_device: bool) -> list:
+def setup_RTDB(user_uid: str, device_uid: str, is_pc_device: bool) -> list:
     if is_pc_device:
         print("Pass, no initializing database...")
         return None
 
-    ref = db.reference("")
-    database_tag = ref.get()
+    df_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt")
+    wr_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt")
+    feed_schedule_ref = db.reference(f"schedules/{user_uid}/{device_uid}/days")
+    live_button_status_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
+    
+    
+    target_references = {
+        "df_app_button_ref":  df_app_button_ref.get(),
+        "wr_app_button_ref": wr_app_button_ref.get(),
+        "feed_schedule_ref": feed_schedule_ref.get(),
+        "live_button_status_ref": live_button_status_ref.get()
+     }
+    
+    return target_references
 
-    return database_tag
 def read_RTDB(database: any) -> dict:
     
     return {
-        "df_app_button": database.get("df_app_button"),
-        "wr_app_button": database.get("wr_app_button"),
-        "feed_schedule": database.get("feed_schedule"),
-        "live_button_status": database.get("live_button_status")
+        "df_app_button": database.get("df_app_button_ref"),
+        "wr_app_button": database.get("wr_app_button_ref"),
+        "feed_schedule": database.get("feed_schedule_ref"),
+        "live_button_status": database.get("live_button_status_ref")
     }

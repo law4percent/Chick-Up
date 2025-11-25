@@ -61,13 +61,12 @@ def process_C(task_name: str,
                                                         is_pc_device = is_pc_device
                                                     )
     
-    database = firebase_rtdb.setup_RTDB(database_tag=  {      
-        "df_app_button": bool,
-        "wr_app_button": bool,
-        "feed_schedule": bool,
-        "live_button_status": bool}, 
-        is_pc_device=is_pc_device
-        )
+    database = firebase_rtdb.setup_RTDB(
+                                        user_uid=user_uid,
+                                        device_uid=device_uid,
+                                        is_pc_device=is_pc_device
+                                    )
+
 
     while True:
         
@@ -86,7 +85,7 @@ def process_C(task_name: str,
                             save_logs               = save_logs
                         )
         
-        database_data = firebase_rtdb.read_RTDB(database = database, is_pc_device=is_pc_device)
+        database_data = firebase_rtdb.read_RTDB(database=database,is_pc_device=is_pc_device)
         {
             "df_app_button" : bool,
             "wr_app_button" : bool,
