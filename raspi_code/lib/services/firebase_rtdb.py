@@ -52,24 +52,30 @@ def is_fresh(datetime_string: str, min_to_stop: int) -> bool:
         return (datetime.now() - dt) <= timedelta(minutes=min_to_stop)
 
 
-def is_schedule_triggered(schedule_list: list) -> bool:
+def is_schedule_triggered(schedule_data: dict) -> bool:
+    if not schedule_data:
+        return False
 
     now = datetime.now()
-    today_name = now.strftime("%A")  
-    now_time = now.strftime("%H:%M")   
+    today_day_index = now.weekday()          # Monday = 0, Sunday = 6
+    now_time = now.strftime("%H:%M")
 
-    for schedule in schedule_list:
-        sched_day = schedule.get("day")
+    # Loop over the actual schedule objects
+    for schedule in schedule_data.values():
+        days = schedule.get("days", [])
         sched_time = schedule.get("time")
+        enabled = schedule.get("enabled", False)
 
-        if not sched_day or not sched_time:
+        if not enabled:
             continue
 
-        if sched_day.strip().lower() != today_name.lower():
+        if sched_time != now_time:
             continue
 
-        if sched_time == now_time:
-            return True
+        if today_day_index not in days:
+            continue
+
+        return True
 
     return False
 
