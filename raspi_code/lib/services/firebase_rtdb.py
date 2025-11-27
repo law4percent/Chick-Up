@@ -36,7 +36,7 @@ def setup_RTDB(user_uid: str, device_uid: str, is_pc_device: bool) -> list:
 
     df_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt")
     wr_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt")
-    feed_schedule_ref = db.reference(f"schedules/{user_uid}/{device_uid}/days")
+    feed_schedule_ref = db.reference(f"schedules/{user_uid}/schedule_uid/days")
     live_button_status_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
     
     
@@ -49,11 +49,59 @@ def setup_RTDB(user_uid: str, device_uid: str, is_pc_device: bool) -> list:
     
     return target_references
 
+from datetime import datetime, timedelta
+
+def is_fresh(datetime_string: str, min_to_stop: int) -> bool:
+        dt = datetime.strptime(datetime_string, "%m/%d/%Y %H:%M:%S")
+
+        return (datetime.now() - dt) <= timedelta(minutes=min_to_stop)
+
+def is_schedule_triggered(schedule_list: list) -> bool:
+
+    now = datetime.now()
+    today_name = now.strftime("%A")  
+    now_time = now.strftime("%H:%M")   
+
+    for schedule in schedule_list:
+        sched_day = schedule.get("day")
+        sched_time = schedule.get("time")
+
+        if not sched_day or not sched_time:
+            continue
+
+        if sched_day.strip().lower() != today_name.lower():
+            continue
+
+        if sched_time == now_time:
+            return True
+
+    return False
+
+
+def livestream_on(value) -> bool:
+    if value is None:
+        return False
+
+    if isinstance(value, bool):
+        return value
+
+    v = str(value).strip().lower()
+    return v in ["1", "true", "yes", "on"]
+
 def read_RTDB(database: any) -> dict:
     
+    df_datetime = database.get("df_app_button_ref")
+    wr_datetime = database.get("wr_app_button_ref")
+    feed_schedule = database.get("feed_schedule_ref")
+    live_status = database.get("live_button_status_ref")
+
+    
     return {
-        "df_app_button": database.get("df_app_button_ref"),
-        "wr_app_button": database.get("wr_app_button_ref"),
-        "feed_schedule": database.get("feed_schedule_ref"),
-        "live_button_status": database.get("live_button_status_ref")
+        "df_app_button": is_fresh(df_datetime, min_to_stop=3),
+
+        "wr_app_button": is_fresh(wr_datetime, min_to_stop=3),
+
+        "feed_schedule": is_schedule_triggered(feed_schedule),
+
+        "live_button_status": livestream_on(live_status)
     }

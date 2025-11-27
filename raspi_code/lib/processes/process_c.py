@@ -86,17 +86,6 @@ def process_C(task_name: str,
                         )
         
         database_data = firebase_rtdb.read_RTDB(database=database,is_pc_device=is_pc_device)
-        {
-            "df_app_button" : bool,
-            "wr_app_button" : bool,
-            "feed_schedule" : bool,
-            "live_button_status": bool
-        }
-
-        # df_app_button      = database.get("df_app_button")
-        # wr_app_button      = database.get("wr_app_button")
-        # feed_schedule      = database.get("feed_schedule")
-        # live_button_status = database.get("live_button_status")
 
         # print("\n=== Firebase RTDB Read ===")
         # print("df_app_button     :", df_app_button)
