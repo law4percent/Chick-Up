@@ -67,6 +67,16 @@ def process_C(task_name: str,
 
     while True:
         
+
+        """
+            read_pins_data() -> {
+                "feed_current_level" : feed_current_level,
+                "water_current_level": water_current_level,
+                "feed_physical_button_current_status": feed_physical_button_current_status,
+                "water_physical_button_current_status": water_physical_button_current_status,
+                "pressed_key": pressed_key
+            }
+        """
         all_pins_data = handle_hardware.read_pins_data(
                             feed_physical_button    = feed_physical_button, 
                             water_physical_button   = water_physical_button,
@@ -77,9 +87,17 @@ def process_C(task_name: str,
                             save_logs               = save_logs
                         )
         
+        """
+            read_RTDB() -> {
+                "feed_app_button": is_fresh(df_datetime, min_to_stop=3),
+                "water_app_button": is_fresh(wr_datetime, min_to_stop=3),
+                "feed_schedule": is_schedule_triggered(feed_schedule),
+                "live_button_status": livestream_on(live_status),
+            }
+        """
         database_data = firebase_rtdb.read_RTDB(database=database)
 
-        print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
+        # print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
 
 
         # updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
