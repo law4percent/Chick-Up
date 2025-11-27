@@ -96,8 +96,32 @@ def process_C(task_name: str,
             }
         """
         database_data = firebase_rtdb.read_RTDB(database=database)
-
         # print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
+
+        feed_level      = all_pins_data["feed_current_level"]
+        water_level     = all_pins_data["water_current_level"]
+
+        feed_button     = all_pins_data["feed_physical_button_current_state"]
+        water_button    = all_pins_data["water_physical_button_current_state"]
+
+        feed_schedule = database_data["feed_schedule_current_state"]
+
+        print(f"Feed level: {feed_level} , Water level: {water_level} ")
+
+        if feed_level <= 10:
+            print("LCD: Feed level is low")
+
+        if water_level <= 10:
+            print("LCD: Water level is low")
+
+
+        if feed_button or feed_schedule:
+            print("Feed Dispense")
+
+        if water_button:
+            print("WATER Dispense")
+      
+
 
 
         # updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
@@ -109,4 +133,4 @@ def process_C(task_name: str,
         # print("Firebase sensors:", sensors_data)
         # sensors_ref.update(sensors_data)
 
-        time.sleep(0.5)
+time.sleep(0.5)
