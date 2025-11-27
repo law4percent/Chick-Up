@@ -38,6 +38,7 @@ def process_A(
     show_window         = process_a_args["show_window"]
     
     class_list, yolo_model, capture = checkpoints(task_name=task_name, is_pc_device=is_pc_device, save_logs=save_logs, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index, use_web_cam=use_web_cam)
+    window_name, window_visible_state = setup_windows()
 
     while True:
         ret, raw_frame = capture.read()
@@ -92,13 +93,35 @@ def process_A(
             pass  # queue is still full, skip this update
 
         if is_pc_device and show_window:
-            cv2.imshow("Chick-Up Streaming", annotated_frame)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if window_visible_state:
+                cv2.imshow(window_name, annotated_frame)
+
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('q'):
                 break
+
+            # Press C → close/hide the window
+            elif key == ord('c'):
+                if window_visible_state:
+                    cv2.destroyAllWindows()
+                    window_visible_state = False
+
+            # Press W → show the window again
+            elif key == ord('w'):
+                if not window_visible_state:
+                    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+                    window_visible_state = True
 
     capture.release()
     cv2.destroyAllWindows()
+
+def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state: bool = True):
+    window_name = window_name
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    window_visible_state = window_visible_state
+    return [window_name, window_visible_state]
 
 
 def checkpoints(task_name:str, is_pc_device: bool, save_logs: bool, yolo_model_path: str, class_list_path: str, use_web_cam: bool, video_path: str = "video/chicken.mp4", camera_index: int = 0) -> list:
