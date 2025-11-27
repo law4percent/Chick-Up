@@ -79,14 +79,7 @@ def process_C(task_name: str,
         
         database_data = firebase_rtdb.read_RTDB(database=database)
 
-        print(database_data)
-        # print("\n=== Firebase RTDB Read ===")
-        # print("df_app_button     :", df_app_button)
-        # print("wr_app_button     :", wr_app_button)
-        # print("feed_schedule     :", feed_schedule)
-        # print("live_button_status:", live_button_status)
-        # print("==========================\n")
-        
+        print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
 
 
         # updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
