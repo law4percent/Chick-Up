@@ -36,7 +36,7 @@ def setup_RTDB(user_uid: str, device_uid: str, is_pc_device: bool) -> list:
 
     df_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt")
     wr_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt")
-    feed_schedule_ref = db.reference(f"schedules/{user_uid}/schedule_uid/days")
+    feed_schedule_ref = db.reference(f"schedules/{user_uid}")
     live_button_status_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
     
     

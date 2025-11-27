@@ -143,14 +143,14 @@ def read_pins_data(
     # print(f"{task_name} Current physical button status of feed  : {feed_physical_button_current_status}")
     # print(f"{task_name} Current physical button status of water : {water_physical_button_current_status}")
 
-    keypad_pins_current_status = read_keypad_data(keypad_pins=keypad_pins)
+    pressed_key = read_keypad_data(keypad_pins=keypad_pins)
 
     all_data = {
         "feed_current_level" : feed_current_level,
         "water_current_level": water_current_level,
         "feed_physical_button_current_status": feed_physical_button_current_status,
         "water_physical_button_current_status": water_physical_button_current_status,
-        "keypad_pins_current_status": keypad_pins_current_status
+        "pressed_key": pressed_key
     }
 
     return all_data
