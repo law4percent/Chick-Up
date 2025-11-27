@@ -26,8 +26,6 @@ def process_C(task_name: str,
     is_pc_device    = process_c_args["is_pc_device"]
     save_logs       = process_c_args["save_logs"]
     
-    sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
-    
     feed_level_sensor, water_level_sensor = handle_hardware.setup_level_sensors(
                                                 feed_level_sensor_data= {
                                                     "echo"          : 5,
@@ -54,26 +52,20 @@ def process_C(task_name: str,
                                                     )
     
     keypad_pins = handle_hardware.setup_keypad(
-                                                        keypad_pins_data = {
-                                                            "row_pins": [20, 21, 22, 26],
-                                                            "col_pins": [16, 17, 18, 19]
-                                                        },
-                                                        is_pc_device = is_pc_device
-                                                    )
+                                        keypad_pins_data = {
+                                            "row_pins": [20, 21, 22, 26],
+                                            "col_pins": [16, 17, 18, 19]
+                                        },
+                                        is_pc_device = is_pc_device
+                                    )
     
     database = firebase_rtdb.setup_RTDB(
-                                        user_uid=user_uid,
-                                        device_uid=device_uid,
-                                        is_pc_device=is_pc_device
-                                    )
+                                user_uid=user_uid,
+                                device_uid=device_uid,
+                            )
 
 
     while True:
-        
-        if is_pc_device:
-            print(f"{task_name} The device is PC... skip reading raspi pins and database data")
-            time.sleep(0.5)
-            continue
         
         all_pins_data = handle_hardware.read_pins_data(
                             feed_physical_button    = feed_physical_button, 
@@ -85,8 +77,9 @@ def process_C(task_name: str,
                             save_logs               = save_logs
                         )
         
-        database_data = firebase_rtdb.read_RTDB(database=database,is_pc_device=is_pc_device)
+        database_data = firebase_rtdb.read_RTDB(database=database)
 
+        print(database_data)
         # print("\n=== Firebase RTDB Read ===")
         # print("df_app_button     :", df_app_button)
         # print("wr_app_button     :", wr_app_button)

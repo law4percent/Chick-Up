@@ -2,6 +2,7 @@ import firebase_admin
 from firebase_admin import credentials, db
 import logging
 import os
+from datetime import datetime, timedelta
 
 logging.basicConfig(
     filename='logs/debug.log',     # log file name
@@ -29,32 +30,27 @@ def initialize_firebase(
             'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
         }
     )
-def setup_RTDB(user_uid: str, device_uid: str, is_pc_device: bool) -> list:
-    if is_pc_device:
-        print("Pass, no initializing database...")
-        return None
 
+
+def setup_RTDB(user_uid: str, device_uid: str) -> dict:
     df_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt")
     wr_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt")
     feed_schedule_ref = db.reference(f"schedules/{user_uid}")
     live_button_status_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
     
-    
-    target_references = {
-        "df_app_button_ref":  df_app_button_ref.get(),
-        "wr_app_button_ref": wr_app_button_ref.get(),
-        "feed_schedule_ref": feed_schedule_ref.get(),
-        "live_button_status_ref": live_button_status_ref.get()
-     }
-    
-    return target_references
+    return {
+        "df_app_button_ref": df_app_button_ref,
+        "wr_app_button_ref": wr_app_button_ref,
+        "feed_schedule_ref": feed_schedule_ref,
+        "live_button_status_ref": live_button_status_ref,
+    }
 
-from datetime import datetime, timedelta
 
 def is_fresh(datetime_string: str, min_to_stop: int) -> bool:
         dt = datetime.strptime(datetime_string, "%m/%d/%Y %H:%M:%S")
 
         return (datetime.now() - dt) <= timedelta(minutes=min_to_stop)
+
 
 def is_schedule_triggered(schedule_list: list) -> bool:
 
@@ -88,20 +84,21 @@ def livestream_on(value) -> bool:
     v = str(value).strip().lower()
     return v in ["1", "true", "yes", "on"]
 
-def read_RTDB(database: any) -> dict:
-    
-    df_datetime = database.get("df_app_button_ref")
-    wr_datetime = database.get("wr_app_button_ref")
-    feed_schedule = database.get("feed_schedule_ref")
-    live_status = database.get("live_button_status_ref")
 
-    
+def read_RTDB(database: dict) -> dict:
+
+    # Get actual values from RTDB
+    df_datetime = database["df_app_button_ref"].get()
+    wr_datetime = database["wr_app_button_ref"].get()
+    feed_schedule = database["feed_schedule_ref"].get()
+    live_status = database["live_button_status_ref"].get()
+
+    print(feed_schedule)
+    exit()
+
     return {
         "df_app_button": is_fresh(df_datetime, min_to_stop=3),
-
         "wr_app_button": is_fresh(wr_datetime, min_to_stop=3),
-
         "feed_schedule": is_schedule_triggered(feed_schedule),
-
-        "live_button_status": livestream_on(live_status)
+        "live_button_status": livestream_on(live_status),
     }
