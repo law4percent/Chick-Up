@@ -99,9 +99,6 @@ def read_RTDB(database: dict) -> dict:
     feed_schedule = database["feed_schedule_ref"].get()
     live_status = database["live_button_status_ref"].get()
 
-    print(feed_schedule)
-    exit()
-
     return {
         "df_app_button": is_fresh(df_datetime, min_to_stop=3),
         "wr_app_button": is_fresh(wr_datetime, min_to_stop=3),
