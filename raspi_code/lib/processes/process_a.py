@@ -43,6 +43,7 @@ def process_A(
         ret, raw_frame = capture.read()
         if not ret:
             if is_pc_device:
+                capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 print(f"{task_name}Error: Video has ended or video is a corrupted file.")
                 print(f"{task_name}Error: Check video here: {video_path}.")
                 print(f"{task_name}Error: Ctrl + C to end the program.")
