@@ -72,8 +72,8 @@ def process_C(task_name: str,
             read_pins_data() -> {
                 "feed_current_level" : feed_current_level,
                 "water_current_level": water_current_level,
-                "feed_physical_button_current_status": feed_physical_button_current_status,
-                "water_physical_button_current_status": water_physical_button_current_status,
+                "feed_physical_button_current_state": feed_physical_button_current_status,
+                "water_physical_button_current_state": water_physical_button_current_status,
                 "pressed_key": pressed_key
             }
         """
@@ -89,10 +89,10 @@ def process_C(task_name: str,
         
         """
             read_RTDB() -> {
-                "feed_app_button": is_fresh(df_datetime, min_to_stop=3),
-                "water_app_button": is_fresh(wr_datetime, min_to_stop=3),
-                "feed_schedule": is_schedule_triggered(feed_schedule),
-                "live_button_status": livestream_on(live_status),
+                "feed_app_button_current_state": is_fresh(df_datetime, min_to_stop=3),
+                "water_app_button_current_state": is_fresh(wr_datetime, min_to_stop=3),
+                "feed_schedule_current_state": is_schedule_triggered(feed_schedule),
+                "live_button_current_state": livestream_on(live_status),
             }
         """
         database_data = firebase_rtdb.read_RTDB(database=database)

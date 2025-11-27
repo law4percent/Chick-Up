@@ -100,8 +100,8 @@ def read_RTDB(database: dict) -> dict:
     live_status = database["live_button_status_ref"].get()
 
     return {
-        "feed_app_button": is_fresh(df_datetime, min_to_stop=3),
-        "water_app_button": is_fresh(wr_datetime, min_to_stop=3),
-        "feed_schedule": is_schedule_triggered(feed_schedule),
-        "live_button_status": livestream_on(live_status),
+        "feed_app_button_current_state": is_fresh(df_datetime, min_to_stop=3),
+        "water_app_button_current_state": is_fresh(wr_datetime, min_to_stop=3),
+        "feed_schedule_current_state": is_schedule_triggered(feed_schedule),
+        "live_button_current_state": livestream_on(live_status),
     }

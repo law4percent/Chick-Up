@@ -148,8 +148,8 @@ def read_pins_data(
     all_data = {
         "feed_current_level" : feed_current_level,
         "water_current_level": water_current_level,
-        "feed_physical_button_current_status": feed_physical_button_current_status,
-        "water_physical_button_current_status": water_physical_button_current_status,
+        "feed_physical_button_current_state": feed_physical_button_current_status,
+        "water_physical_button_current_state": water_physical_button_current_status,
         "pressed_key": pressed_key
     }
 
