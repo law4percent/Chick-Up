@@ -91,7 +91,7 @@ def read_physical_buttons_data(feed_physical_button: any, water_physical_button:
     water_button_current_status = not water_physical_button.value
     return [feed_button_current_status, water_button_current_status]
 
-def read_keypad_data(keypad_pins: any) -> list: 
+def read_keypad_data(keypad_pins: any) -> str: 
     rows = keypad_pins["rows"]
     cols = keypad_pins["cols"]
     key_map = keypad_pins["key_map"]
