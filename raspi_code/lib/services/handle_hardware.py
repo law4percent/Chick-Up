@@ -124,7 +124,13 @@ def read_pins_data(
     ) -> dict | None:
     
     if is_pc_device:
-        return None
+        return {
+            "feed_current_level": 10,    
+            "water_current_level": 10,    
+            "feed_physical_button_current_state": False,
+            "water_physical_button_current_state": False,
+            "pressed_key": None
+        }
     
 
     # -------------------------------

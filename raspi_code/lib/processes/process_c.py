@@ -86,6 +86,10 @@ def process_C(task_name: str,
                             is_pc_device            = is_pc_device,
                             save_logs               = save_logs
                         )
+        if all_pins_data is None:
+            print("❌ ERROR: read_pins_data() returned None")
+            time.sleep(0.5)
+            continue
         
         """
             read_RTDB() -> {
@@ -96,7 +100,6 @@ def process_C(task_name: str,
             }
         """
         database_data = firebase_rtdb.read_RTDB(database=database)
-        # print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
 
         feed_level      = all_pins_data["feed_current_level"]
         water_level     = all_pins_data["water_current_level"]
@@ -104,23 +107,41 @@ def process_C(task_name: str,
         feed_button     = all_pins_data["feed_physical_button_current_state"]
         water_button    = all_pins_data["water_physical_button_current_state"]
 
-        feed_schedule = database_data["feed_schedule_current_state"]
+        feed_schedule_trigger = database_data["feed_schedule_current_state"]
 
-        print(f"Feed level: {feed_level} , Water level: {water_level} ")
+        print("\n===== STATUS UPDATE =====")
+        print(f"Feed Level: {feed_level}")
+        print(f"Water Level: {water_level}")
+        print(f"Feed Btn: {feed_button}, Water Btn: {water_button}")
+        print(f"Schedule Trigger: {feed_schedule_trigger}")
+        print("=========================\n")
+
 
         if feed_level <= 10:
-            print("LCD: Feed level is low")
+            print("FEED LEVEL LOW!")
 
         if water_level <= 10:
-            print("LCD: Water level is low")
+            print("WATER LEVEL LOW!")
 
-
-        if feed_button or feed_schedule:
-            print("Feed Dispense")
+        if feed_button or feed_schedule_trigger:
+            if feed_level > 10:
+                print("DISPENSING FEED...")
+            else:
+                print("Cannot dispense feed — FEED LEVEL LOW!")
 
         if water_button:
-            print("WATER Dispense")
-      
+            if water_level > 10:
+                print("DISPENSING WATER...")
+            else:
+                print("Cannot dispense water — WATER LEVEL LOW!")
+
+        if feed_level <= 10:
+            print("FEED REFILL REQUIRED")
+
+        if water_level <= 10:
+            print("WATER REFILL REQUIRED")
+
+        # print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
 
 
 
