@@ -1,5 +1,5 @@
 import logging
-from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice
+from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice, PWMOutputDevice
 from RPLCD import CharLCD
 
 logging.basicConfig(
@@ -102,6 +102,41 @@ def setup_relay(is_pc_device:bool, relay_data: dict):
     )
 
     return relay_output
+
+def setup_motor_driver(is_pc_device:bool, motor_data: dict):
+    if is_pc_device:
+        print("Pass, no l289n initialized...")
+        return None
+    
+    in1 = DigitalOutputDevice(motor_data["in1"])
+    in2 = DigitalOutputDevice(motor_data["in2"])
+    ena = DigitalOutputDevice(motor_data["ena"])
+
+    ena.off()
+    in1.off()
+    in2.off()
+
+    return {
+        "in1": in1,
+        "in2": in2,
+        "ena": ena
+    }
+
+def motor_forward(motor):
+    motor["in1"].on()
+    motor["in2"].off()
+    motor["ena"].on()
+
+def motor_stop(motor):
+    motor["ena"].off()
+    motor["in1"].off()
+    motor["in2"].off()
+
+def lcd_print(lcd, line1="", line2="", line3="", line4=""):
+    if lcd is None:
+        return  
+    lcd.clear()
+    lcd.write_string(f"{line1}\n{line2}\n{line3}\n{line4}")
 
 def read_level_sensors_data(feed_level_sensor: any, water_level_sensor: any) -> list:
     feed_dist       = measure_cm(feed_level_sensor)

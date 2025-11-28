@@ -11,13 +11,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def lcd_print(lcd, line1="", line2="", line3="", line4=""):
-    if lcd is None:
-        return  
-    lcd.clear()
-    lcd.write_string(f"{line1}\n{line2}\n{line3}\n{line4}")
-
-
 def process_C(task_name: str, 
               live_status: any, 
               annotated_option: any, 
@@ -87,6 +80,15 @@ def process_C(task_name: str,
         }
     )
 
+    feed_motor = handle_hardware.setup_motor_driver(
+        is_pc_device=is_pc_device,
+        motor_data={
+            "in1": 13,
+            "in2": 14,
+            "ena": 15
+        }
+    )
+
     while True:
         
 
@@ -150,15 +152,19 @@ def process_C(task_name: str,
 
         if feed_level <= feed_threshold:
             print("FEED LEVEL LOW!")
-            lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
+            handle_hardware.lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
 
         if water_level <= water_threshold:
             print("WATER LEVEL LOW!")
-            lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
+            handle_hardware.lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
 
         if feed_button or feed_schedule_trigger:
             if feed_level > 10:
                 print("DISPENSING FEED...")
+                if feed_motor:
+                    handle_hardware.motor_forward(feed_motor)
+                    time.sleep(3)           
+                    handle_hardware.motor_stop(feed_motor)
             else:
                 print("Cannot dispense feed — FEED LEVEL LOW!")
 
