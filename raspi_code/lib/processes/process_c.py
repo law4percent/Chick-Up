@@ -11,6 +11,12 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+def lcd_print(lcd, line1="", line2="", line3="", line4=""):
+    if lcd is None:
+        return  
+    lcd.clear()
+    lcd.write_string(f"{line1}\n{line2}\n{line3}\n{line4}")
+
 
 def process_C(task_name: str, 
               live_status: any, 
@@ -63,6 +69,14 @@ def process_C(task_name: str,
                                 user_uid=user_uid,
                                 device_uid=device_uid,
                             )
+    
+    lcd = handle_hardware.setup_lcd(
+    is_pc_device=is_pc_device,
+    lcd_data={
+        "i2c_driver": "PCF8574",
+        "i2c_address": 0x27  # change to 0x3F if your module has a different address
+        }
+            )
 
 
     while True:
@@ -119,9 +133,11 @@ def process_C(task_name: str,
 
         if feed_level <= 10:
             print("FEED LEVEL LOW!")
+            lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
 
         if water_level <= 10:
             print("WATER LEVEL LOW!")
+            lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
 
         if feed_button or feed_schedule_trigger:
             if feed_level > 10:
@@ -140,18 +156,33 @@ def process_C(task_name: str,
 
         if water_level <= 10:
             print("WATER REFILL REQUIRED")
+ 
+        sensors_ref = None
+        feed_button_ref = None
+        water_button_ref = None
 
-        # print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
+        if not is_pc_device:
+            sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
+            updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+
+        if sensors_ref:
+            sensors_ref.update({
+            "feedLevel": feed_level,
+            "waterLevel": water_level,
+            "updatedAt": updatedAt
+        })
+
+        feed_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton")
+        water_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton")
+
+        if feed_button:
+            current_value = feed_button_ref.get() or 0
+            feed_button_ref.set(current_value + 1)
+
+        if water_button:
+            current_value = water_button_ref.get() or 0
+            water_button_ref.set(current_value + 1)
 
 
 
-        # updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
-        # sensors_data = {
-        #     "feedLevel"     : round(feed_current_level, 2),
-        #     "updatedAt"     : updatedAt,
-        #     "waterLevel"    : round(water_current_level, 2)
-        # }
-        # print("Firebase sensors:", sensors_data)
-        # sensors_ref.update(sensors_data)
-
-time.sleep(0.5)
+time.sleep(1)

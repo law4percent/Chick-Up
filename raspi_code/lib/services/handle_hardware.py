@@ -1,5 +1,6 @@
 import logging
 from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice
+from RPLCD import CharLCD
 
 logging.basicConfig(
     filename='logs/debug.log',
@@ -73,6 +74,22 @@ def setup_keypad(is_pc_device: bool, keypad_pins_data: dict):
         "cols": cols,
         "key_map": key_map
     }
+
+def setup_lcd(is_pc_device: bool, lcd_data: dict):
+    """
+    lcd_data = {
+        "i2c_driver": "PCF8574",   # LCD I2C driver
+        "i2c_address": 0x27         # Address detected by i2cdetect
+    }
+    """
+    if is_pc_device:
+        print("Pass, no LCD initialized (PC device).")
+        return None
+
+    lcd = CharLCD(lcd_data["i2c_driver"], lcd_data["i2c_address"])
+    lcd.clear()
+    return lcd
+
 
 
 
