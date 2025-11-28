@@ -77,7 +77,15 @@ def process_C(task_name: str,
         "i2c_address": 0x27  # change to 0x3F if your module has a different address
         }
             )
-
+    
+    water_relay = handle_hardware.setup_relay(
+        is_pc_device=is_pc_device,
+        relay_data={
+            "gpio": 12,        
+            "active_high": False,
+            "initial_value": True
+        }
+    )
 
     while True:
         
@@ -114,6 +122,15 @@ def process_C(task_name: str,
             }
         """
         database_data = firebase_rtdb.read_RTDB(database=database)
+        #feed and water button call in read_rtdb
+        feed_button_ref  = database["df_app_button_ref"]
+        water_button_ref = database["wr_app_button_ref"]
+        settings_ref = db.reference(f"settings/{user_uid}")
+
+        settings = settings_ref.get() or {}
+
+        feed_threshold  = settings.get("feed", {}).get("thresholdPercent", 20)
+        water_threshold = settings.get("water", {}).get("autoRefillThreshold", 30)
 
         feed_level      = all_pins_data["feed_current_level"]
         water_level     = all_pins_data["water_current_level"]
@@ -131,11 +148,11 @@ def process_C(task_name: str,
         print("=========================\n")
 
 
-        if feed_level <= 10:
+        if feed_level <= feed_threshold:
             print("FEED LEVEL LOW!")
             lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
 
-        if water_level <= 10:
+        if water_level <= water_threshold:
             print("WATER LEVEL LOW!")
             lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
 
@@ -148,6 +165,10 @@ def process_C(task_name: str,
         if water_button:
             if water_level > 10:
                 print("DISPENSING WATER...")
+                if water_relay:
+                    water_relay.off()
+                    time.sleep(2)
+                    water_relay.on()
             else:
                 print("Cannot dispense water — WATER LEVEL LOW!")
 
@@ -171,9 +192,6 @@ def process_C(task_name: str,
             "waterLevel": water_level,
             "updatedAt": updatedAt
         })
-
-        feed_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton")
-        water_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton")
 
         if feed_button:
             current_value = feed_button_ref.get() or 0

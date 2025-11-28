@@ -90,8 +90,18 @@ def setup_lcd(is_pc_device: bool, lcd_data: dict):
     lcd.clear()
     return lcd
 
+def setup_relay(is_pc_device:bool, relay_data: dict):
+    if is_pc_device:
+        print("Pass, no relay initialized...")
+        return None
+    
+    relay_output = DigitalOutputDevice(
+        relay_data["gpio"],
+        active_high=relay_data.get("active_high", False),
+        initial_value=relay_data.get("initial_value", True)
+    )
 
-
+    return relay_output
 
 def read_level_sensors_data(feed_level_sensor: any, water_level_sensor: any) -> list:
     feed_dist       = measure_cm(feed_level_sensor)
