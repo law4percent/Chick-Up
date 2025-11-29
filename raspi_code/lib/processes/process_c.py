@@ -133,6 +133,7 @@ def process_C(task_name: str,
 
         feed_threshold  = settings.get("feed", {}).get("thresholdPercent", 20)
         water_threshold = settings.get("water", {}).get("autoRefillThreshold", 30)
+        auto_refill_water_enabled = settings.get("water", {}).get("autoRefillEnabled", False)
 
         feed_level      = all_pins_data["feed_current_level"]
         water_level     = all_pins_data["water_current_level"]
@@ -177,6 +178,14 @@ def process_C(task_name: str,
                     water_relay.on()
             else:
                 print("Cannot dispense water — WATER LEVEL LOW!")
+        
+        if auto_refill_water_enabled:
+            if water_level <= water_threshold:
+                print("AUTO REFILL: DISPENSING WATER (AUTO MODE)")
+                if water_relay:
+                    water_relay.off()
+                    time.sleep(2)
+                    water_relay.on()
 
         if feed_level <= 10:
             print("FEED REFILL REQUIRED")
