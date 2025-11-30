@@ -1,5 +1,7 @@
 import logging
+import firebase_admin
 from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice, PWMOutputDevice
+from firebase_admin import db
 from RPLCD import CharLCD
 
 logging.basicConfig(
@@ -181,14 +183,20 @@ def read_pins_data(
         feed_level_sensor: any,
         water_level_sensor: any,
         keypad_pins: any,
+        user_uid: str,
+        device_uid: str,
         is_pc_device: bool = False,
         save_logs: bool = False
     ) -> dict | None:
-    
+    feed_level = db.reference(f"sensors/{user_uid}/{device_uid}/feedLevel")
+    water_level = db.reference(f"sensors/{user_uid}/{device_uid}/waterLevel")
+
+    feed = feed_level.get()
+    water = water_level.get()
     if is_pc_device:
         return {
-            "feed_current_level": 10,    
-            "water_current_level": 10,    
+            "feed_current_level": feed,    
+            "water_current_level": water,    
             "feed_physical_button_current_state": False,
             "water_physical_button_current_state": False,
             "pressed_key": None
@@ -201,8 +209,8 @@ def read_pins_data(
     feed_current_level, water_current_level = read_level_sensors_data(feed_level_sensor=feed_level_sensor, water_level_sensor=water_level_sensor)
     # print(f"{task_name} Current level of feeds  : {feed_current_level}")
     # print(f"{task_name} Current level of water  : {water_current_level}")
-        
-        
+     
+      
             
     # -------------------------------
     # This handles physical buttons

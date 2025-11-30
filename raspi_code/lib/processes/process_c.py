@@ -108,7 +108,9 @@ def process_C(task_name: str,
                             water_level_sensor      = water_level_sensor,
                             keypad_pins             = keypad_pins,
                             is_pc_device            = is_pc_device,
-                            save_logs               = save_logs
+                            save_logs               = save_logs,
+                            user_uid                = user_uid, 
+                            device_uid              = device_uid
                         )
         if all_pins_data is None:
             print("❌ ERROR: read_pins_data() returned None")
@@ -132,6 +134,7 @@ def process_C(task_name: str,
         settings = settings_ref.get() or {}
 
         feed_threshold  = settings.get("feed", {}).get("thresholdPercent", 20)
+        dispense_volume_percent = settings.get("feed", {}).get("dispenseVolumePercent", 10)
         water_threshold = settings.get("water", {}).get("autoRefillThreshold", 30)
         auto_refill_water_enabled = settings.get("water", {}).get("autoRefillEnabled", False)
 
@@ -164,8 +167,12 @@ def process_C(task_name: str,
                 print("DISPENSING FEED...")
                 if feed_motor:
                     handle_hardware.motor_forward(feed_motor)
+                    new_feed_level = max(0, feed_level - dispense_volume_percent)
+                    print(f"Feed DISPENSED: -{dispense_volume_percent}%")
                     time.sleep(3)           
                     handle_hardware.motor_stop(feed_motor)
+                    timestamp = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+                    feed_button_ref.set(timestamp)
             else:
                 print("Cannot dispense feed — FEED LEVEL LOW!")
 
@@ -176,6 +183,8 @@ def process_C(task_name: str,
                     water_relay.off()
                     time.sleep(2)
                     water_relay.on()
+                timestamp = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+                water_button_ref.set(timestamp)
             else:
                 print("Cannot dispense water — WATER LEVEL LOW!")
         
@@ -194,8 +203,6 @@ def process_C(task_name: str,
             print("WATER REFILL REQUIRED")
  
         sensors_ref = None
-        feed_button_ref = None
-        water_button_ref = None
 
         if not is_pc_device:
             sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
@@ -203,18 +210,10 @@ def process_C(task_name: str,
 
         if sensors_ref:
             sensors_ref.update({
-            "feedLevel": feed_level,
+            "feedLevel": new_feed_level,
             "waterLevel": water_level,
             "updatedAt": updatedAt
         })
-
-        if feed_button:
-            current_value = feed_button_ref.get() or 0
-            feed_button_ref.set(current_value + 1)
-
-        if water_button:
-            current_value = water_button_ref.get() or 0
-            water_button_ref.set(current_value + 1)
 
 
 
