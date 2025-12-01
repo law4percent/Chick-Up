@@ -1,6 +1,6 @@
 // src/screens/DashboardScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { Modal, TextInput, View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { Modal, TextInput, View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MainDrawerParamList } from '../types/types';
@@ -8,6 +8,7 @@ import sensorService from '../services/sensorService';
 import buttonService from '../services/buttonService';
 import settingsService from '../services/settingsService';
 import analyticsService from '../services/analyticsService';
+import liveStreamService from '../services/liveStreamService';
 import { auth } from '../config/firebase.config';
 import deviceService from '../services/deviceService';
 
@@ -46,6 +47,59 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [deviceUidInput, setDeviceUidInput] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [deviceExists, setDeviceExists] = useState<boolean | null>(null);
+
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamImage, setStreamImage] = useState<string | null>(null);
+  const [showStreamModal, setShowStreamModal] = useState(false);
+
+  // Subscribe to live stream data
+  useEffect(() => {
+    if (!linkedDeviceUid) return;
+
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+
+    const unsubscribeStream = liveStreamService.subscribeLiveStream(
+      userId,
+      linkedDeviceUid,
+      (data) => {
+        if (data) {
+          setIsStreaming(data.liveStreamButton);
+          setStreamImage(data.base64 || null);
+        }
+      },
+      (error) => {
+        console.error('Live stream subscription error:', error);
+      }
+    );
+
+    return () => unsubscribeStream();
+  }, [linkedDeviceUid]);
+
+
+  const handleToggleStream = async () => {
+    if (!linkedDeviceUid) {
+      Alert.alert('No Device', 'Please link a device first');
+      return;
+    }
+
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      await liveStreamService.toggleLiveStream(userId, linkedDeviceUid, !isStreaming);
+      
+      if (!isStreaming) {
+        setShowStreamModal(true);
+      }
+    } catch (error: any) {
+      console.error('Error toggling stream:', error);
+      Alert.alert('Error', error.message || 'Failed to toggle stream');
+    }
+  };
 
   useEffect(() => {
     const loadLinkedDevice = async () => {
@@ -666,6 +720,86 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      {/* Live Stream Modal */}
+      <Modal
+        visible={showStreamModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStreamModal(false)}
+      >
+        <View style={styles.streamModalOverlay}>
+          <View style={styles.streamModalContent}>
+            <View style={styles.streamHeader}>
+              <Text style={styles.streamTitle}>📹 Live Stream</Text>
+              <TouchableOpacity
+                onPress={() => setShowStreamModal(false)}
+                style={styles.streamCloseButton}
+              >
+                <Text style={styles.streamCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.streamFrameContainer}>
+              <View style={styles.streamFrame}>
+                {streamImage ? (
+                  <Image
+                    source={{ 
+                      uri: `data:image/jpeg;base64,${streamImage}`,
+                      cache: 'reload' // Force reload every time
+                    }}
+                    style={styles.streamImage}
+                    resizeMode="contain"
+                    fadeDuration={0} // No fade
+                  />
+                ) : (
+                  <View style={styles.streamPlaceholder}>
+                    <Text style={styles.streamPlaceholderIcon}>📷</Text>
+                    <Text style={styles.streamPlaceholderText}>
+                      {isStreaming ? 'Waiting for stream...' : 'Stream is off'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              
+              {/* Recording Indicator */}
+              {isStreaming && (
+                <View style={styles.recordingIndicator}>
+                  <View style={styles.recordingDot} />
+                  <Text style={styles.recordingText}>LIVE</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.streamControls}>
+              <TouchableOpacity
+                style={[
+                  styles.streamControlButton,
+                  isStreaming ? styles.stopButton : styles.startButton
+                ]}
+                onPress={handleToggleStream}
+              >
+                <Text style={styles.streamControlButtonText}>
+                  {isStreaming ? '⏹ Stop Stream' : '▶ Start Stream'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <TouchableOpacity
+        style={[
+          styles.streamButton,
+          isStreaming && styles.streamButtonActive
+        ]}
+        onPress={handleToggleStream}
+      >
+        <Text style={styles.streamButtonIcon}>📹</Text>
+        <Text style={styles.streamButtonText}>
+          {isStreaming ? 'Stop Live Stream' : 'Start Live Stream'}
+        </Text>
+      </TouchableOpacity>
     </LinearGradient>
   );
 };
@@ -1088,6 +1222,138 @@ const styles = StyleSheet.create({
   linkDeviceButtonText: {
     color: '#FFFFFF',
     fontSize: 18,
+    fontWeight: 'bold',
+  },
+  streamButton: {
+    backgroundColor: '#9C27B0',
+    paddingVertical: 18,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    flexDirection: 'row',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  streamButtonActive: {
+    backgroundColor: '#E53935',
+  },
+  streamButtonIcon: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  streamButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  streamModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  streamModalContent: {
+    backgroundColor: '#1E1E1E',
+    borderRadius: 20,
+    width: '90%',
+    maxWidth: 500,
+    padding: 20,
+  },
+  streamHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  streamTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  streamCloseButton: {
+    padding: 8,
+  },
+  streamCloseText: {
+    fontSize: 24,
+    color: '#FFFFFF',
+  },
+  streamFrameContainer: {
+    position: 'relative',
+    marginBottom: 20,
+  },
+  streamFrame: {
+    backgroundColor: '#000000',
+    borderRadius: 12,
+    overflow: 'hidden',
+    aspectRatio: 16 / 9,
+    borderWidth: 3,
+    borderColor: '#9C27B0',
+  },
+  streamImage: {
+    width: '100%',
+    height: '100%',
+  },
+  streamPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#2C2C2C',
+  },
+  streamPlaceholderIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  streamPlaceholderText: {
+    color: '#999',
+    fontSize: 16,
+  },
+  recordingIndicator: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(229, 57, 53, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    marginRight: 6,
+  },
+  recordingText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  streamControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  streamControlButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  startButton: {
+    backgroundColor: '#4CAF50',
+  },
+  stopButton: {
+    backgroundColor: '#E53935',
+  },
+  streamControlButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });
