@@ -1,142 +1,131 @@
 // src/services/sensorService.ts
-import { ref, onValue, off, set, get } from 'firebase/database';
+import { ref, set, get, onValue, update, off } from 'firebase/database';
 import { database } from '../config/firebase.config';
-import { SensorData, DispenseData } from '../types/types';
+
+export interface SensorData {
+  waterLevel: number;
+  feedLevel: number;
+  updatedAt: string;
+}
 
 class SensorService {
   /**
-   * Subscribe to real-time sensor data updates for a user
+   * Initialize sensor data for a new user with default device
    */
-  subscribeSensorData(
-    userId: string,
-    callback: (data: SensorData | null) => void,
-    onError?: (error: Error) => void
-  ): () => void {
-    const sensorRef = ref(database, `sensors/${userId}`);
-
-    const unsubscribe = onValue(
-      sensorRef,
-      (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.val() as SensorData;
-          callback(data);
-        } else {
-          callback(null);
-        }
-      },
-      (error) => {
-        console.error('❌ Sensor data subscription error:', error);
-        if (onError) {
-          onError(error);
-        }
+  async initializeSensorData(userId: string, deviceId: string = '-3GSRmf356dy6GFQSTGIF'): Promise<void> {
+    try {
+      const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
+      const snapshot = await get(sensorRef);
+      
+      if (!snapshot.exists()) {
+        const now = new Date();
+        const formattedDate = this.formatDateTime(now);
+        
+        await set(sensorRef, {
+          waterLevel: 0,
+          feedLevel: 0,
+          updatedAt: formattedDate
+        });
+        
+        console.log('Sensor data initialized successfully');
       }
-    );
-
-    // Return cleanup function
-    return () => off(sensorRef);
+    } catch (error) {
+      console.error('Error initializing sensor data:', error);
+      throw error;
+    }
   }
 
   /**
-   * Get sensor data once (no real-time updates)
+   * Get sensor data for a specific user and device
    */
-  async getSensorData(userId: string): Promise<SensorData | null> {
+  async getSensorData(userId: string, deviceId: string = '-3GSRmf356dy6GFQSTGIF'): Promise<SensorData | null> {
     try {
-      const sensorRef = ref(database, `sensors/${userId}`);
+      const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
       const snapshot = await get(sensorRef);
-
+      
       if (snapshot.exists()) {
         return snapshot.val() as SensorData;
       }
       return null;
     } catch (error) {
-      console.error('❌ Error fetching sensor data:', error);
+      console.error('Error getting sensor data:', error);
       throw error;
     }
   }
 
   /**
-   * Update sensor data (for testing purposes - normally updated by ESP32)
+   * Subscribe to real-time sensor data updates
    */
-  async updateSensorData(userId: string, data: Partial<SensorData>): Promise<void> {
-    try {
-      const sensorRef = ref(database, `sensors/${userId}`);
-      const existingData = await this.getSensorData(userId);
-
-      const updatedData: SensorData = {
-        ...existingData,
-        ...data,
-        updatedAt: Date.now(),
-      } as SensorData;
-
-      await set(sensorRef, updatedData);
-      console.log('✅ Sensor data updated successfully');
-    } catch (error) {
-      console.error('❌ Error updating sensor data:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Initialize default sensor data for a new user
-   */
-  async initializeSensorData(userId: string): Promise<void> {
-    try {
-      const timestamp = Date.now();
-      const now = new Date(timestamp);
-      const date = now.toLocaleDateString('en-US');
-      const time = now.toLocaleTimeString('en-US', { hour12: false });
-
-      const defaultData: SensorData = {
-        waterLevel: 100,
-        feedLevel: 100,
-        lastWaterDispense: {
-          date,
-          time,
-          timestamp,
-        },
-        lastFeedDispense: {
-          date,
-          time,
-          timestamp,
-        },
-        updatedAt: timestamp,
-      };
-
-      await set(ref(database, `sensors/${userId}`), defaultData);
-      console.log('✅ Default sensor data initialized');
-    } catch (error) {
-      console.error('❌ Error initializing sensor data:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update dispense timestamp after a dispense action
-   */
-  async updateDispenseTimestamp(
+  subscribeSensorData(
     userId: string,
-    type: 'water' | 'feed'
+    onUpdate: (data: SensorData | null) => void,
+    onError: (error: Error) => void,
+    deviceId: string = '-3GSRmf356dy6GFQSTGIF'
+  ): () => void {
+    const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
+    
+    const unsubscribe = onValue(
+      sensorRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          onUpdate(snapshot.val() as SensorData);
+        } else {
+          onUpdate(null);
+        }
+      },
+      (error) => {
+        onError(error as Error);
+      }
+    );
+
+    return () => off(sensorRef);
+  }
+
+  /**
+   * Update sensor levels (for testing or manual updates)
+   */
+  async updateSensorLevels(
+    userId: string,
+    waterLevel?: number,
+    feedLevel?: number,
+    deviceId: string = '-3GSRmf356dy6GFQSTGIF'
   ): Promise<void> {
     try {
-      const timestamp = Date.now();
-      const now = new Date(timestamp);
-      const date = now.toLocaleDateString('en-US');
-      const time = now.toLocaleTimeString('en-US', { hour12: false });
-
-      const dispenseData: DispenseData = {
-        date,
-        time,
-        timestamp,
+      const now = new Date();
+      const formattedDate = this.formatDateTime(now);
+      
+      const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
+      const updates: any = {
+        updatedAt: formattedDate
       };
-
-      const path = type === 'water' ? 'lastWaterDispense' : 'lastFeedDispense';
-      await set(ref(database, `sensors/${userId}/${path}`), dispenseData);
-
-      console.log(`✅ ${type} dispense timestamp updated`);
+      
+      if (waterLevel !== undefined) {
+        updates.waterLevel = waterLevel;
+      }
+      if (feedLevel !== undefined) {
+        updates.feedLevel = feedLevel;
+      }
+      
+      await update(sensorRef, updates);
+      console.log('Sensor levels updated successfully');
     } catch (error) {
-      console.error(`❌ Error updating ${type} dispense timestamp:`, error);
+      console.error('Error updating sensor levels:', error);
       throw error;
     }
+  }
+
+  /**
+   * Format date and time as "MM/DD/YYYY HH:MM:SS"
+   */
+  private formatDateTime(date: Date): string {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    
+    return `${month}/${day}/${year} ${hours}:${minutes}:${seconds}`;
   }
 }
 

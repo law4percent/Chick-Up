@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MainDrawerParamList, SensorData, UserSettings } from '../types/types';
+import { MainDrawerParamList } from '../types/types';
 import sensorService from '../services/sensorService';
+import buttonService from '../services/buttonService';
 import settingsService from '../services/settingsService';
 import analyticsService from '../services/analyticsService';
 import { auth } from '../config/firebase.config';
@@ -47,14 +48,22 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       return;
     }
 
-    // Initialize sensor data and settings if they don't exist
+    // Initialize sensor data, button data, and settings if they don't exist
     const initializeData = async () => {
       try {
+        // Initialize sensor data
         const existingSensorData = await sensorService.getSensorData(userId);
         if (!existingSensorData) {
           await sensorService.initializeSensorData(userId);
         }
 
+        // Initialize button data
+        const existingButtonData = await buttonService.getButtonData(userId);
+        if (!existingButtonData) {
+          await buttonService.initializeButtonData(userId);
+        }
+
+        // Initialize settings
         const existingSettings = await settingsService.getSettings(userId);
         if (!existingSettings) {
           await settingsService.initializeSettings(userId);
@@ -73,10 +82,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         if (data) {
           setWaterLevel(data.waterLevel);
           setFeedLevel(data.feedLevel);
-          setLastWaterDate(data.lastWaterDispense.date);
-          setLastWaterTime(data.lastWaterDispense.time);
-          setLastFeedDate(data.lastFeedDispense.date);
-          setLastFeedTime(data.lastFeedDispense.time);
         }
         setLoading(false);
       },
@@ -87,12 +92,37 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       }
     );
 
+    // Subscribe to real-time button data for last dispense timestamps
+    const unsubscribeButton = buttonService.subscribeButtonData(
+      userId,
+      (data) => {
+        if (data) {
+          // Parse water button timestamp
+          if (data.waterButton?.lastUpdateAt) {
+            const [date, time] = data.waterButton.lastUpdateAt.split(' ');
+            setLastWaterDate(date);
+            setLastWaterTime(time);
+          }
+          
+          // Parse feed button timestamp
+          if (data.feedButton?.lastUpdateAt) {
+            const [date, time] = data.feedButton.lastUpdateAt.split(' ');
+            setLastFeedDate(date);
+            setLastFeedTime(time);
+          }
+        }
+      },
+      (error) => {
+        console.error('Button subscription error:', error);
+      }
+    );
+
     // Subscribe to real-time settings for dynamic thresholds
     const unsubscribeSettings = settingsService.subscribeSettings(
       userId,
       (settings) => {
         if (settings) {
-          setWaterThreshold(settings.water.thresholdPercent);
+          setWaterThreshold(settings.water.thresholdPercent || 20);
           setFeedThreshold(settings.feed.thresholdPercent);
           setFeedVolume(settings.feed.dispenseVolumePercent);
         }
@@ -105,6 +135,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     // Cleanup subscriptions on unmount
     return () => {
       unsubscribeSensor();
+      unsubscribeButton();
       unsubscribeSettings();
     };
   }, []);
@@ -140,11 +171,13 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setWaterButtonDisabled(true);
       setWaterCountdown(3);
 
-      // Water refill doesn't use volume - it refills to target level set in settings
       // Log action for analytics (volume will be calculated by IoT device)
       await analyticsService.logAction(userId, 'water', 'refill', 0);
-      await sensorService.updateDispenseTimestamp(userId, 'water');
+      
+      // Update button timestamp
+      await buttonService.updateButtonTimestamp(userId, 'water');
 
+      Alert.alert('Success', 'Water refill command sent!');
     } catch (error: any) {
       console.error('Error refilling water:', error);
       Alert.alert('Error', error.message || 'Failed to refill water');
@@ -164,10 +197,13 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setFeedButtonDisabled(true);
       setFeedCountdown(3);
 
-      // Log action for analytics only
+      // Log action for analytics with volume
       await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
-      await sensorService.updateDispenseTimestamp(userId, 'feed');
+      
+      // Update button timestamp
+      await buttonService.updateButtonTimestamp(userId, 'feed');
 
+      Alert.alert('Success', `Feed dispense command sent! (${feedVolume}%)`);
     } catch (error: any) {
       console.error('Error dispensing feed:', error);
       Alert.alert('Error', error.message || 'Failed to dispense feed');
@@ -344,7 +380,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
         {/* Quick Stats Card */}
         <View style={styles.statsCard}>
-          <Text style={styles.statsTitle}>Quick Stats (Found)</Text>
+          <Text style={styles.statsTitle}>Last Activity</Text>
           <View style={styles.statsRow}>
             <View style={styles.statColumn}>
               <Text style={styles.statLabel}>Last Water</Text>
