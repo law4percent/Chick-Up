@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MainDrawerParamList, DailyAnalytics } from '../types/types';
-import analyticsService from '../services/analyticsService';
+import { MainDrawerParamList } from '../types/types';
+import analyticsService, { DailyAnalytics, SummaryStats } from '../services/analyticsService';
 import { auth } from '../config/firebase.config';
 
 type AnalyticsScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, 'Analytics'>;
@@ -29,7 +29,7 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState<DailyAnalytics[]>([]);
-  const [summaryStats, setSummaryStats] = useState({
+  const [summaryStats, setSummaryStats] = useState<SummaryStats>({
     totalFeedDispensed: 0,
     totalWaterRefilled: 0,
     totalFeedActions: 0,
@@ -47,9 +47,11 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
       const userId = auth.currentUser?.uid;
       if (!userId) {
         Alert.alert('Error', 'User not authenticated');
+        setLoading(false);
         return;
       }
 
+      // Subscribe to real-time analytics
       const unsubscribe = analyticsService.subscribeAnalytics(
         userId,
         async (analyticsData) => {
@@ -136,6 +138,11 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
+  // Show empty state if no data
+  const hasData = analytics.some(item => 
+    item.feedDispensed > 0 || item.waterRefilled > 0
+  );
+
   return (
     <LinearGradient colors={['#FFFEF0', '#FFFEF0']} style={styles.container}>
       {/* Header */}
@@ -170,76 +177,95 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Volume Chart */}
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>📊 Weekly Volume</Text>
-            <Text style={styles.chartSubtitle}>Feed dispensed vs Water refilled</Text>
-          </View>
-          {renderBarChart(
-            analytics,
-            (item) => item.feedDispensed,
-            (item) => item.waterRefilled,
-            '#FF9500',
-            '#2196F3',
-            'Feed Dispensed',
-            'Water Refilled',
-            '%'
-          )}
-          <View style={styles.chartFooter}>
-            <Text style={styles.chartFooterText}>
-              Daily Avg: {summaryStats.avgFeedPerDay.toFixed(1)}% feed, {summaryStats.avgWaterPerDay.toFixed(1)}% water
+        {!hasData ? (
+          // Empty State
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateIcon}>📊</Text>
+            <Text style={styles.emptyStateTitle}>No Analytics Data Yet</Text>
+            <Text style={styles.emptyStateText}>
+              Start using the water refill and feed dispense buttons on the dashboard to see your analytics here.
             </Text>
+            <TouchableOpacity
+              style={styles.emptyStateButton}
+              onPress={() => navigation.navigate('Dashboard')}
+            >
+              <Text style={styles.emptyStateButtonText}>Go to Dashboard</Text>
+            </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Time Comparison Chart */}
-        <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>⏱️ Time Efficiency</Text>
-            <Text style={styles.chartSubtitle}>Average time consumed per day</Text>
-          </View>
-          {renderBarChart(
-            analytics,
-            (item) => item.avgFeedingTime,
-            (item) => item.avgRefillTime,
-            '#4CAF50',
-            '#FF5722',
-            'Feeding Time',
-            'Refilling Time',
-            'min'
-          )}
-          <View style={styles.infoBox}>
-            <Text style={styles.infoIcon}>💡</Text>
-            <View style={styles.infoTextContainer}>
-              <Text style={styles.infoTitle}>Time Savings Insight</Text>
-              <Text style={styles.infoText}>
-                Automated system reduces manual feeding time by ~90%. Traditional method: ~30 mins/day. Automated: ~3 mins/day.
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Weekly Activity Table */}
-        <View style={styles.tableCard}>
-          <Text style={styles.tableTitle}>📋 Weekly Activity</Text>
-          <View style={styles.table}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderCell, { flex: 1.5 }]}>Day</Text>
-              <Text style={styles.tableHeaderCell}>Feed</Text>
-              <Text style={styles.tableHeaderCell}>Water</Text>
-              <Text style={styles.tableHeaderCell}>Actions</Text>
-            </View>
-            {analytics.map((item, index) => (
-              <View key={index} style={styles.tableRow}>
-                <Text style={[styles.tableCell, { flex: 1.5 }]}>{DAYS[item.dayOfWeek]}</Text>
-                <Text style={styles.tableCell}>{item.feedDispensed.toFixed(0)}%</Text>
-                <Text style={styles.tableCell}>{item.waterRefilled.toFixed(0)}%</Text>
-                <Text style={styles.tableCell}>{item.feedDispenseCount + item.waterRefillCount}</Text>
+        ) : (
+          <>
+            {/* Volume Chart */}
+            <View style={styles.chartCard}>
+              <View style={styles.chartHeader}>
+                <Text style={styles.chartTitle}>📊 Weekly Volume</Text>
+                <Text style={styles.chartSubtitle}>Feed dispensed vs Water refilled</Text>
               </View>
-            ))}
-          </View>
-        </View>
+              {renderBarChart(
+                analytics,
+                (item) => item.feedDispensed,
+                (item) => item.waterRefilled,
+                '#FF9500',
+                '#2196F3',
+                'Feed Dispensed',
+                'Water Refilled',
+                '%'
+              )}
+              <View style={styles.chartFooter}>
+                <Text style={styles.chartFooterText}>
+                  Daily Avg: {summaryStats.avgFeedPerDay.toFixed(1)}% feed, {summaryStats.avgWaterPerDay.toFixed(1)}% water
+                </Text>
+              </View>
+            </View>
+
+            {/* Time Comparison Chart */}
+            <View style={styles.chartCard}>
+              <View style={styles.chartHeader}>
+                <Text style={styles.chartTitle}>⏱️ Time Efficiency</Text>
+                <Text style={styles.chartSubtitle}>Average time consumed per day</Text>
+              </View>
+              {renderBarChart(
+                analytics,
+                (item) => item.avgFeedingTime,
+                (item) => item.avgRefillTime,
+                '#4CAF50',
+                '#FF5722',
+                'Feeding Time',
+                'Refilling Time',
+                'min'
+              )}
+              <View style={styles.infoBox}>
+                <Text style={styles.infoIcon}>💡</Text>
+                <View style={styles.infoTextContainer}>
+                  <Text style={styles.infoTitle}>Time Savings Insight</Text>
+                  <Text style={styles.infoText}>
+                    Automated system reduces manual feeding time by ~90%. Traditional method: ~30 mins/day. Automated: ~3 mins/day.
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Weekly Activity Table */}
+            <View style={styles.tableCard}>
+              <Text style={styles.tableTitle}>📋 Weekly Activity</Text>
+              <View style={styles.table}>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderCell, { flex: 1.5 }]}>Day</Text>
+                  <Text style={styles.tableHeaderCell}>Feed</Text>
+                  <Text style={styles.tableHeaderCell}>Water</Text>
+                  <Text style={styles.tableHeaderCell}>Actions</Text>
+                </View>
+                {analytics.map((item, index) => (
+                  <View key={index} style={styles.tableRow}>
+                    <Text style={[styles.tableCell, { flex: 1.5 }]}>{DAYS[item.dayOfWeek]}</Text>
+                    <Text style={styles.tableCell}>{item.feedDispensed.toFixed(0)}%</Text>
+                    <Text style={styles.tableCell}>{item.waterRefilled.toFixed(0)}%</Text>
+                    <Text style={styles.tableCell}>{item.feedDispenseCount + item.waterRefillCount}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
+        )}
 
         <View style={{ height: 30 }} />
       </ScrollView>
@@ -329,6 +355,46 @@ const styles = StyleSheet.create({
   summarySubtext: {
     fontSize: 12,
     color: '#999',
+  },
+  emptyState: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 40,
+    alignItems: 'center',
+    marginTop: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  emptyStateIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  emptyStateButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  emptyStateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   chartCard: {
     backgroundColor: '#FFFFFF',
