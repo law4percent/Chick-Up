@@ -427,7 +427,11 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       {/* Device Badge - Only show when device is linked */}
       <View style={styles.deviceBadge}>
         <Text style={styles.deviceLabel}>Connected Device:</Text>
-        <Text style={styles.deviceUid}>{linkedDeviceUid}</Text>
+        <TouchableOpacity
+          onPress={() => setShowLinkModal(true)}
+        >
+          <Text style={styles.deviceUid}>{linkedDeviceUid}</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -585,14 +589,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
       </ScrollView>
-
-      {/* FAB - Only show when device is linked (optional: could show always) */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setShowLinkModal(true)}
-      >
-        <Text style={styles.fabIcon}>⇆</Text>
-      </TouchableOpacity>
 
       {/* Modal - Same as in the no-device view */}
       <Modal
@@ -970,11 +966,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
-  },
-  fabIcon: {
-    fontSize: 32,
-    color: '#FFFFFF',
-    fontWeight: 'bold',
   },
   modalOverlay: {
     flex: 1,
