@@ -1,4 +1,4 @@
-// src/services/sensorService.ts
+// src/services/buttonService.ts
 import { ref, set, get, onValue, update, off } from 'firebase/database';
 import { database } from '../config/firebase.config';
 
@@ -12,10 +12,10 @@ export interface ButtonData {
 }
 
 class ButtonService {
-      /**
-   * Initialize button data for a new user with default device
+  /**
+   * Initialize button data for a user with their linked device
    */
-  async initializeButtonData(userId: string, deviceId: string = '-3GSRmf356dy6GFQSTGIF'): Promise<void> {
+  async initializeButtonData(userId: string, deviceId: string): Promise<void> {
     try {
       const buttonRef = ref(database, `buttons/${userId}/${deviceId}`);
       const snapshot = await get(buttonRef);
@@ -33,7 +33,7 @@ class ButtonService {
           }
         });
         
-        console.log('Button data initialized successfully');
+        console.log('Button data initialized successfully for device:', deviceId);
       }
     } catch (error) {
       console.error('Error initializing button data:', error);
@@ -41,10 +41,10 @@ class ButtonService {
     }
   }
 
-    /**
+  /**
    * Get button data for a specific user and device
    */
-  async getButtonData(userId: string, deviceId: string = '-3GSRmf356dy6GFQSTGIF'): Promise<ButtonData | null> {
+  async getButtonData(userId: string, deviceId: string): Promise<ButtonData | null> {
     try {
       const buttonRef = ref(database, `buttons/${userId}/${deviceId}`);
       const snapshot = await get(buttonRef);
@@ -59,15 +59,14 @@ class ButtonService {
     }
   }
 
-
-    /**
+  /**
    * Subscribe to real-time button data updates
    */
   subscribeButtonData(
     userId: string,
+    deviceId: string,
     onUpdate: (data: ButtonData | null) => void,
-    onError: (error: Error) => void,
-    deviceId: string = '-3GSRmf356dy6GFQSTGIF'
+    onError: (error: Error) => void
   ): () => void {
     const buttonRef = ref(database, `buttons/${userId}/${deviceId}`);
     
@@ -88,14 +87,13 @@ class ButtonService {
     return () => off(buttonRef);
   }
 
-
   /**
    * Update button timestamp when water is refilled or feed is dispensed
    */
   async updateButtonTimestamp(
     userId: string,
-    type: 'water' | 'feed',
-    deviceId: string = '-3GSRmf356dy6GFQSTGIF'
+    deviceId: string,
+    type: 'water' | 'feed'
   ): Promise<void> {
     try {
       const now = new Date();
@@ -108,14 +106,14 @@ class ButtonService {
         lastUpdateAt: formattedDate
       });
       
-      console.log(`${type} button timestamp updated successfully`);
+      console.log(`${type} button timestamp updated for device:`, deviceId);
     } catch (error) {
       console.error(`Error updating ${type} button timestamp:`, error);
       throw error;
     }
   }
 
-    /**
+  /**
    * Format date and time as "MM/DD/YYYY HH:MM:SS"
    */
   private formatDateTime(date: Date): string {

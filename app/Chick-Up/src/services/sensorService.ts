@@ -10,9 +10,9 @@ export interface SensorData {
 
 class SensorService {
   /**
-   * Initialize sensor data for a new user with default device
+   * Initialize sensor data for a user with their linked device
    */
-  async initializeSensorData(userId: string, deviceId: string = '-3GSRmf356dy6GFQSTGIF'): Promise<void> {
+  async initializeSensorData(userId: string, deviceId: string): Promise<void> {
     try {
       const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
       const snapshot = await get(sensorRef);
@@ -27,7 +27,7 @@ class SensorService {
           updatedAt: formattedDate
         });
         
-        console.log('Sensor data initialized successfully');
+        console.log('Sensor data initialized successfully for device:', deviceId);
       }
     } catch (error) {
       console.error('Error initializing sensor data:', error);
@@ -38,7 +38,7 @@ class SensorService {
   /**
    * Get sensor data for a specific user and device
    */
-  async getSensorData(userId: string, deviceId: string = '-3GSRmf356dy6GFQSTGIF'): Promise<SensorData | null> {
+  async getSensorData(userId: string, deviceId: string): Promise<SensorData | null> {
     try {
       const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
       const snapshot = await get(sensorRef);
@@ -58,9 +58,9 @@ class SensorService {
    */
   subscribeSensorData(
     userId: string,
+    deviceId: string,
     onUpdate: (data: SensorData | null) => void,
-    onError: (error: Error) => void,
-    deviceId: string = '-3GSRmf356dy6GFQSTGIF'
+    onError: (error: Error) => void
   ): () => void {
     const sensorRef = ref(database, `sensors/${userId}/${deviceId}`);
     
@@ -86,9 +86,9 @@ class SensorService {
    */
   async updateSensorLevels(
     userId: string,
+    deviceId: string,
     waterLevel?: number,
-    feedLevel?: number,
-    deviceId: string = '-3GSRmf356dy6GFQSTGIF'
+    feedLevel?: number
   ): Promise<void> {
     try {
       const now = new Date();
@@ -107,7 +107,7 @@ class SensorService {
       }
       
       await update(sensorRef, updates);
-      console.log('Sensor levels updated successfully');
+      console.log('Sensor levels updated successfully for device:', deviceId);
     } catch (error) {
       console.error('Error updating sensor levels:', error);
       throw error;

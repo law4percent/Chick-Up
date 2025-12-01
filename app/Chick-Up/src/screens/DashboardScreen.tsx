@@ -1,6 +1,6 @@
 // src/screens/DashboardScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { Modal, TextInput, View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MainDrawerParamList } from '../types/types';
@@ -9,6 +9,7 @@ import buttonService from '../services/buttonService';
 import settingsService from '../services/settingsService';
 import analyticsService from '../services/analyticsService';
 import { auth } from '../config/firebase.config';
+import deviceService from '../services/deviceService';
 
 type DashboardScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, 'Dashboard'>;
 
@@ -39,6 +40,61 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const isWaterLow = waterLevel < waterThreshold;
   const isFeedLow = feedLevel < feedThreshold;
 
+  const [linkedDeviceUid, setLinkedDeviceUid] = useState<string | null>(null);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+
+  const [deviceUidInput, setDeviceUidInput] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [deviceExists, setDeviceExists] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const loadLinkedDevice = async () => {
+      setLoading(true); // Add this
+      const userId = auth.currentUser?.uid;
+      if (userId) {
+        const deviceUid = await deviceService.getLinkedDevice(userId);
+        setLinkedDeviceUid(deviceUid);
+      }
+      // Don't set loading to false here, let the main useEffect handle it
+    };
+    loadLinkedDevice();
+  }, []);
+
+  const handleVerifyDevice = async () => {
+    if (!deviceUidInput.trim()) return;
+    
+    setVerifying(true);
+    try {
+      const exists = await deviceService.verifyDevice(deviceUidInput.trim());
+      setDeviceExists(exists);
+      
+      if (!exists) {
+        Alert.alert('Not Found', 'This device UID does not exist in the system.');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', 'Failed to verify device. Please try again.');
+      setDeviceExists(false);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleLinkDevice = async () => {
+    const userId = auth.currentUser?.uid;
+    if (!userId || !deviceUidInput) return;
+
+    try {
+      await deviceService.linkDeviceToUser(userId, deviceUidInput.trim());
+      setLinkedDeviceUid(deviceUidInput.trim());
+      setShowLinkModal(false);
+      setDeviceUidInput('');
+      setDeviceExists(null);
+      Alert.alert('Success', 'Device linked successfully!');
+    } catch (error: any) {
+      Alert.alert('Error', 'Failed to link device. Please try again.');
+    }
+  };
+
   // Load sensor data and settings on mount
   useEffect(() => {
     const userId = auth.currentUser?.uid;
@@ -48,22 +104,28 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       return;
     }
 
+    // If no device linked, stop loading and return
+    if (!linkedDeviceUid) {
+      setLoading(false);
+      return;
+    }
+
     // Initialize sensor data, button data, and settings if they don't exist
     const initializeData = async () => {
       try {
         // Initialize sensor data
-        const existingSensorData = await sensorService.getSensorData(userId);
+        const existingSensorData = await sensorService.getSensorData(userId, linkedDeviceUid);
         if (!existingSensorData) {
-          await sensorService.initializeSensorData(userId);
+          await sensorService.initializeSensorData(userId, linkedDeviceUid);
         }
 
         // Initialize button data
-        const existingButtonData = await buttonService.getButtonData(userId);
+        const existingButtonData = await buttonService.getButtonData(userId, linkedDeviceUid);
         if (!existingButtonData) {
-          await buttonService.initializeButtonData(userId);
+          await buttonService.initializeButtonData(userId, linkedDeviceUid);
         }
 
-        // Initialize settings
+        // Initialize settings (this is still per user, not per device)
         const existingSettings = await settingsService.getSettings(userId);
         if (!existingSettings) {
           await settingsService.initializeSettings(userId);
@@ -78,6 +140,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     // Subscribe to real-time sensor data
     const unsubscribeSensor = sensorService.subscribeSensorData(
       userId,
+      linkedDeviceUid,
       (data) => {
         if (data) {
           setWaterLevel(data.waterLevel);
@@ -92,19 +155,17 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       }
     );
 
-    // Subscribe to real-time button data for last dispense timestamps
+    // Subscribe to real-time button data
     const unsubscribeButton = buttonService.subscribeButtonData(
       userId,
+      linkedDeviceUid,
       (data) => {
         if (data) {
-          // Parse water button timestamp
           if (data.waterButton?.lastUpdateAt) {
             const [date, time] = data.waterButton.lastUpdateAt.split(' ');
             setLastWaterDate(date);
             setLastWaterTime(time);
           }
-          
-          // Parse feed button timestamp
           if (data.feedButton?.lastUpdateAt) {
             const [date, time] = data.feedButton.lastUpdateAt.split(' ');
             setLastFeedDate(date);
@@ -138,7 +199,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       unsubscribeButton();
       unsubscribeSettings();
     };
-  }, []);
+  }, [linkedDeviceUid]); // Add linkedDeviceUid as dependency
 
   // Water button countdown effect
   useEffect(() => {
@@ -161,6 +222,11 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   }, [feedCountdown, feedButtonDisabled]);
 
   const handleWaterRefill = async () => {
+    if (!linkedDeviceUid) {
+      Alert.alert('No Device', 'Please link a device first');
+      return;
+    }
+
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -175,7 +241,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       await analyticsService.logAction(userId, 'water', 'refill', 0);
       
       // Update button timestamp
-      await buttonService.updateButtonTimestamp(userId, 'water');
+      await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'water');
 
       Alert.alert('Success', 'Water refill command sent!');
     } catch (error: any) {
@@ -187,6 +253,11 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleFeedDispense = async () => {
+    if (!linkedDeviceUid) {
+      Alert.alert('No Device', 'Please link a device first');
+      return;
+    }
+
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
@@ -201,7 +272,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
       
       // Update button timestamp
-      await buttonService.updateButtonTimestamp(userId, 'feed');
+      await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'feed');
 
       Alert.alert('Success', `Feed dispense command sent! (${feedVolume}%)`);
     } catch (error: any) {
@@ -218,6 +289,119 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         <ActivityIndicator size="large" color="#4CAF50" />
         <Text style={styles.loadingText}>Loading dashboard...</Text>
       </View>
+    );
+  }
+
+  if (!linkedDeviceUid) {
+    return (
+      <LinearGradient
+        colors={['#FFFEF0', '#FFFEF0']}
+        style={styles.container}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => navigation.openDrawer()}
+          >
+            <Text style={styles.menuIcon}>☰</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.headerTitle}>Chick-Up</Text>
+            <Text style={styles.headerSubtitle}>Smart Poultry Automation</Text>
+          </View>
+        </View>
+
+        <View style={styles.noDeviceContainer}>
+          <Text style={styles.noDeviceIcon}>📱</Text>
+          <Text style={styles.noDeviceTitle}>No Device Linked</Text>
+          <Text style={styles.noDeviceMessage}>
+            Please link a device to start monitoring your poultry system
+          </Text>
+          <TouchableOpacity
+            style={styles.linkDeviceButton}
+            onPress={() => setShowLinkModal(true)}
+          >
+            <Text style={styles.linkDeviceButtonText}>Link Device</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Modal - Include once here */}
+        <Modal
+          visible={showLinkModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowLinkModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Link Device</Text>
+              <Text style={styles.modalSubtitle}>Enter your device UID to connect</Text>
+              
+              <TextInput
+                style={styles.deviceInput}
+                placeholder="Enter Device UID"
+                value={deviceUidInput}
+                onChangeText={(text) => {
+                  setDeviceUidInput(text);
+                  setDeviceExists(null);
+                }}
+                autoCapitalize="none"
+              />
+
+              {verifying && (
+                <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />
+              )}
+
+              {deviceExists === false && (
+                <Text style={styles.errorText}>❌ Device UID not found</Text>
+              )}
+
+              {deviceExists === true && (
+                <Text style={styles.successText}>✅ Device verified!</Text>
+              )}
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton, 
+                    styles.verifyButton,
+                    (!deviceUidInput || verifying) && styles.modalButtonDisabled
+                  ]}
+                  onPress={handleVerifyDevice}
+                  disabled={!deviceUidInput || verifying}
+                >
+                  <Text style={styles.modalButtonText}>
+                    {verifying ? 'Verifying...' : 'Verify'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.linkButton,
+                    !deviceExists && styles.modalButtonDisabled
+                  ]}
+                  onPress={handleLinkDevice}
+                  disabled={!deviceExists}
+                >
+                  <Text style={styles.modalButtonText}>Link Device</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => {
+                  setShowLinkModal(false);
+                  setDeviceUidInput('');
+                  setDeviceExists(null);
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </LinearGradient>
     );
   }
 
@@ -238,6 +422,12 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           <Text style={styles.headerTitle}>Chick-Up</Text>
           <Text style={styles.headerSubtitle}>Smart Poultry Automation</Text>
         </View>
+      </View>
+
+      {/* Device Badge - Only show when device is linked */}
+      <View style={styles.deviceBadge}>
+        <Text style={styles.deviceLabel}>Connected Device:</Text>
+        <Text style={styles.deviceUid}>{linkedDeviceUid}</Text>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -395,6 +585,91 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
       </ScrollView>
+
+      {/* FAB - Only show when device is linked (optional: could show always) */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => setShowLinkModal(true)}
+      >
+        <Text style={styles.fabIcon}>⇆</Text>
+      </TouchableOpacity>
+
+      {/* Modal - Same as in the no-device view */}
+      <Modal
+        visible={showLinkModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLinkModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Link Device</Text>
+            <Text style={styles.modalSubtitle}>Enter your device UID to connect</Text>
+            
+            <TextInput
+              style={styles.deviceInput}
+              placeholder="Enter Device UID"
+              value={deviceUidInput}
+              onChangeText={(text) => {
+                setDeviceUidInput(text);
+                setDeviceExists(null);
+              }}
+              autoCapitalize="none"
+            />
+
+            {verifying && (
+              <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />
+            )}
+
+            {deviceExists === false && (
+              <Text style={styles.errorText}>❌ Device UID not found</Text>
+            )}
+
+            {deviceExists === true && (
+              <Text style={styles.successText}>✅ Device verified!</Text>
+            )}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.modalButton, 
+                  styles.verifyButton,
+                  (!deviceUidInput || verifying) && styles.modalButtonDisabled
+                ]}
+                onPress={handleVerifyDevice}
+                disabled={!deviceUidInput || verifying}
+              >
+                <Text style={styles.modalButtonText}>
+                  {verifying ? 'Verifying...' : 'Verify'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  styles.linkButton,
+                  !deviceExists && styles.modalButtonDisabled
+                ]}
+                onPress={handleLinkDevice}
+                disabled={!deviceExists}
+              >
+                <Text style={styles.modalButtonText}>Link Device</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => {
+                setShowLinkModal(false);
+                setDeviceUidInput('');
+                setDeviceExists(null);
+              }}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 };
@@ -649,6 +924,180 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#000000ff',
+  },
+  deviceBadge: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  deviceLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginRight: 6,
+  },
+  deviceUid: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  noDeviceText: {
+    fontSize: 14,
+    color: '#E53935',
+    fontWeight: '500',
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  fabIcon: {
+    fontSize: 32,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '85%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  deviceInput: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  verifyIndicator: {
+    marginBottom: 12,
+  },
+  errorText: {
+    color: '#E53935',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  successText: {
+    color: '#4CAF50',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  verifyButton: {
+    backgroundColor: '#2196F3',
+  },
+  linkButton: {
+    backgroundColor: '#4CAF50',
+  },
+  modalButtonDisabled: {
+    backgroundColor: '#BDBDBD',
+    opacity: 0.5,
+  },
+  modalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  cancelButton: {
+    paddingVertical: 12,
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  noDeviceContainer: {
+  flex: 1,
+  justifyContent: 'center',
+  alignItems: 'center',
+  paddingHorizontal: 40,
+  },
+  noDeviceIcon: {
+    fontSize: 80,
+    marginBottom: 20,
+  },
+  noDeviceTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  noDeviceMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 24,
+  },
+  linkDeviceButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  linkDeviceButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
 
