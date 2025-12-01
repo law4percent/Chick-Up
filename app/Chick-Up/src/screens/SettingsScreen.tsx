@@ -27,9 +27,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // SMS Notification setting
-  const [smsEnabled, setSmsEnabled] = useState(true);
-
   // Feed settings
   const [feedThreshold, setFeedThreshold] = useState(20);
   const [feedVolume, setFeedVolume] = useState(10);
@@ -54,7 +51,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
       const settings = await settingsService.getSettings(userId);
       if (settings) {
-        setSmsEnabled(settings.notifications.smsEnabled);
         setFeedThreshold(settings.feed.thresholdPercent);
         setFeedVolume(settings.feed.dispenseVolumePercent);
         setWaterThreshold(settings.water.thresholdPercent);
@@ -83,9 +79,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       }
 
       const updatedSettings: UserSettings = {
-        notifications: {
-          smsEnabled,
-        },
         feed: {
           thresholdPercent: feedThreshold,
           dispenseVolumePercent: feedVolume,
@@ -134,32 +127,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Card 1: SMS Notifications */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={[styles.iconCircle, { backgroundColor: '#FF9800' }]}>
-              <Text style={styles.iconEmoji}>📱</Text>
-            </View>
-            <View style={styles.cardHeaderText}>
-              <Text style={styles.cardTitle}>SMS Notifications</Text>
-              <Text style={styles.cardSubtitle}>
-                Receive alerts via text message
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Enable SMS Notifications</Text>
-            <Switch
-              value={smsEnabled}
-              onValueChange={setSmsEnabled}
-              trackColor={{ false: '#D1D1D1', true: '#4CAF50' }}
-              thumbColor={smsEnabled ? '#FFFFFF' : '#F4F3F4'}
-            />
-          </View>
-        </View>
-
-        {/* Card 2: Feed Settings */}
+        {/* Feed Settings */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={[styles.iconCircle, { backgroundColor: '#FF9500' }]}>
