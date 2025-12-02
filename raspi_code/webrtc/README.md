@@ -76,8 +76,11 @@ npm install react-native-webrtc
 This is already a working minimal system, but I can also give you:
 
 ✅ TURN server setup (to make it work behind firewalls)
+
 ✅ Better architecture
+
 ✅ Pi → Cloudflare Tunnel → RN (no port forwarding)
+
 ✅ Multi-viewer support
 
 
