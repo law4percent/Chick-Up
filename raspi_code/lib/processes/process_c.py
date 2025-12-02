@@ -127,8 +127,9 @@ def process_C(task_name: str,
         """
         database_data = firebase_rtdb.read_RTDB(database=database)
         #feed and water button call in read_rtdb
-        feed_button_ref  = database["df_app_button_ref"]
-        water_button_ref = database["wr_app_button_ref"]
+        feed_button_ref  = database["feed_app_button_current_state"]
+        water_button_ref = database["water_app_button_current_state"]
+        live_button_status = database["live_button_current_state"]
         settings_ref = db.reference(f"settings/{user_uid}")
 
         settings = settings_ref.get() or {}
@@ -215,6 +216,12 @@ def process_C(task_name: str,
             "updatedAt": updatedAt
         })
 
-
+        
+        if live_button_status:
+            live_status.set()
+            print("🔴 LIVE STREAM ENABLED")
+        else:
+            live_status.clear()
+            print("⚫ LIVE STREAM DISABLED")
 
 time.sleep(1)
