@@ -29,7 +29,7 @@ pip3 install aiortc opencv-python av firebase_admin
 
 **Raspberry Pi WebRTC sender (sender.py)**
 
-[text](sender.py)
+[sender.py](sender.py)
 
 
 ### ✅ PART 2 — Firebase Signaling Structure
@@ -58,7 +58,7 @@ npm install react-native-webrtc
 
 **React Native WebRTC viewer (Viewer.js)**
 
-[text](View.js)
+[View.js](View.js)
 
 
 
@@ -66,8 +66,11 @@ npm install react-native-webrtc
 ### Result
 
 ✔ Raspberry Pi streams live camera feed
+
 ✔ WebRTC sends real-time video (50–200ms delay)
+
 ✔ React Native receives and plays the stream
+
 ✔ Works anytime, anywhere with internet
 
 This is already a working minimal system, but I can also give you:
@@ -119,7 +122,7 @@ pip3 install aiortc opencv-python av firebase-admin
 
 **sender_rtdb.py**
 
-[text](sender_rtdb.py)
+[sender_rtdb.py](sender_rtdb.py)
 
 
 
@@ -131,7 +134,7 @@ npm install react-native-webrtc @react-native-firebase/app @react-native-firebas
 
 **ViewerRTDB.js**
 
-[text](ViewerRTDB.js)
+[ViewerRTDB.js](ViewerRTDB.js)
 
 
 
