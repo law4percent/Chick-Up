@@ -26,8 +26,6 @@ def process_C(task_name: str,
     is_pc_device    = process_c_args["is_pc_device"]
     save_logs       = process_c_args["save_logs"]
     
-    sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
-    
     feed_level_sensor, water_level_sensor = handle_hardware.setup_level_sensors(
                                                 feed_level_sensor_data= {
                                                     "echo"          : 5,
@@ -53,24 +51,53 @@ def process_C(task_name: str,
                                                         is_pc_device = is_pc_device
                                                     )
     
+    keypad_pins = handle_hardware.setup_keypad(
+                                        keypad_pins_data = {
+                                            "row_pins": [20, 21, 22, 26],
+                                            "col_pins": [16, 17, 18, 19]
+                                        },
+                                        is_pc_device = is_pc_device
+                                    )
+    
+    database = firebase_rtdb.setup_RTDB(
+                                user_uid=user_uid,
+                                device_uid=device_uid,
+                            )
+
+
     while True:
         
-        if is_pc_device:
-            print(f"{task_name} The device is PC... skip reading raspi pins")
-            time.sleep(0.5)
-            continue
-        
+
+        """
+            read_pins_data() -> {
+                "feed_current_level" : feed_current_level,
+                "water_current_level": water_current_level,
+                "feed_physical_button_current_state": feed_physical_button_current_status,
+                "water_physical_button_current_state": water_physical_button_current_status,
+                "pressed_key": pressed_key
+            }
+        """
         all_pins_data = handle_hardware.read_pins_data(
                             feed_physical_button    = feed_physical_button, 
                             water_physical_button   = water_physical_button,
                             feed_level_sensor       = feed_level_sensor,
                             water_level_sensor      = water_level_sensor,
+                            keypad_pins             = keypad_pins,
                             is_pc_device            = is_pc_device,
                             save_logs               = save_logs
                         )
         
-            
-        
+        """
+            read_RTDB() -> {
+                "feed_app_button_current_state": is_fresh(df_datetime, min_to_stop=3),
+                "water_app_button_current_state": is_fresh(wr_datetime, min_to_stop=3),
+                "feed_schedule_current_state": is_schedule_triggered(feed_schedule),
+                "live_button_current_state": livestream_on(live_status),
+            }
+        """
+        database_data = firebase_rtdb.read_RTDB(database=database)
+
+        # print(f"====== Process C ======\n{database_data}\n====== Process C END ======\n")   
 
 
         # updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
