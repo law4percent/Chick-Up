@@ -89,6 +89,7 @@ def process_C(task_name: str,
         }
     )
 
+
     while True:
         
 
@@ -127,8 +128,8 @@ def process_C(task_name: str,
         """
         database_data = firebase_rtdb.read_RTDB(database=database)
         #feed and water button call in read_rtdb
-        feed_button_ref  = database["df_app_button_ref"]
-        water_button_ref = database["wr_app_button_ref"]
+        feed_button_ref  = database_data["feed_app_button_current_state"]
+        water_button_ref = database_data["water_app_button_current_state"]
 
         live_button_status = database_data["live_button_current_state"]
 
@@ -137,7 +138,8 @@ def process_C(task_name: str,
 
         feed_threshold  = settings.get("feed", {}).get("thresholdPercent", 20)
         dispense_volume_percent = settings.get("feed", {}).get("dispenseVolumePercent", 10)
-        water_threshold = settings.get("water", {}).get("autoRefillThreshold", 30)
+        water_threshold = settings.get("water", {}).get("thresholdPercent", 20)
+        auto_refill_threshold = settings.get("water", {}).get("autoRefillThreshold", 30)
         auto_refill_water_enabled = settings.get("water", {}).get("autoRefillEnabled", False)
 
         feed_level      = all_pins_data["feed_current_level"]
@@ -147,7 +149,9 @@ def process_C(task_name: str,
         water_button    = all_pins_data["water_physical_button_current_state"]
 
         feed_schedule_trigger = database_data["feed_schedule_current_state"]
-
+        
+        new_feed_level = feed_level
+        
         print("\n===== STATUS UPDATE =====")
         print(f"Feed Level: {feed_level}")
         print(f"Water Level: {water_level}")
@@ -166,11 +170,11 @@ def process_C(task_name: str,
 
         if feed_button or feed_schedule_trigger:
             if feed_level > 10:
+                new_feed_level = max(0, feed_level - dispense_volume_percent)
+                print(f"Feed DISPENSED: -{dispense_volume_percent}%")
                 print("DISPENSING FEED...")
                 if feed_motor:
                     handle_hardware.motor_forward(feed_motor)
-                    new_feed_level = max(0, feed_level - dispense_volume_percent)
-                    print(f"Feed DISPENSED: -{dispense_volume_percent}%")
                     time.sleep(3)           
                     handle_hardware.motor_stop(feed_motor)
                     timestamp = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
@@ -180,7 +184,9 @@ def process_C(task_name: str,
 
         if water_button:
             if water_level > 10:
-                print("DISPENSING WATER...")
+                new_water_level = max(0, water_level - auto_refill_threshold)
+                print(f"Water Refill: -{auto_refill_threshold}%")
+                print("REFILLING WATER...")
                 if water_relay:
                     water_relay.off()
                     time.sleep(2)
@@ -188,11 +194,11 @@ def process_C(task_name: str,
                 timestamp = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
                 water_button_ref.set(timestamp)
             else:
-                print("Cannot dispense water — WATER LEVEL LOW!")
+                print("Cannot refill water — WATER LEVEL LOW!")
         
         if auto_refill_water_enabled:
             if water_level <= water_threshold:
-                print("AUTO REFILL: DISPENSING WATER (AUTO MODE)")
+                print("AUTO REFILL: REFILLING WATER (AUTO MODE)")
                 if water_relay:
                     water_relay.off()
                     time.sleep(2)
@@ -210,14 +216,12 @@ def process_C(task_name: str,
             sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
             updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
 
-        if sensors_ref:
             sensors_ref.update({
             "feedLevel": new_feed_level,
-            "waterLevel": water_level,
+            "waterLevel": new_water_level,
             "updatedAt": updatedAt
         })
 
-        
         if live_button_status:
             live_status.set()
             print("LIVE STREAM ENABLED")
