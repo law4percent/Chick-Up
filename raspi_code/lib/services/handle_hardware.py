@@ -188,13 +188,11 @@ def read_pins_data(
         is_pc_device: bool = False,
         save_logs: bool = False
     ) -> dict | None:
-    
-    feed_level = db.reference(f"sensors/{user_uid}/{device_uid}/feedLevel")
-    water_level = db.reference(f"sensors/{user_uid}/{device_uid}/waterLevel")
-
-    feed = feed_level.get()
-    water = water_level.get()
     if is_pc_device:
+        
+        feed = db.reference(f"sensors/{user_uid}/{device_uid}/feedLevel").get()
+        water = db.reference(f"sensors/{user_uid}/{device_uid}/waterLevel").get()
+
         return {
             "feed_current_level": feed,    
             "water_current_level": water,    
