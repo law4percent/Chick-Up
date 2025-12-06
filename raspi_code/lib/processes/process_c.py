@@ -139,7 +139,6 @@ def process_C(task_name: str,
         feed_threshold  = settings.get("feed", {}).get("thresholdPercent", 20)
         dispense_volume_percent = settings.get("feed", {}).get("dispenseVolumePercent", 10)
         water_threshold = settings.get("water", {}).get("thresholdPercent", 20)
-        auto_refill_threshold = settings.get("water", {}).get("autoRefillThreshold", 30)
         auto_refill_water_enabled = settings.get("water", {}).get("autoRefillEnabled", False)
 
         feed_level      = all_pins_data["feed_current_level"]
@@ -170,13 +169,13 @@ def process_C(task_name: str,
 
         if feed_button or feed_schedule_trigger:
             if feed_level > 10:
-                new_feed_level = max(0, feed_level - dispense_volume_percent)
-                print(f"Feed DISPENSED: -{dispense_volume_percent}%")
                 print("DISPENSING FEED...")
                 if feed_motor:
                     handle_hardware.motor_forward(feed_motor)
                     time.sleep(3)           
                     handle_hardware.motor_stop(feed_motor)
+                    new_feed_level = max(0, feed_level - dispense_volume_percent)
+                    print(f"Feed DISPENSED: -{dispense_volume_percent}%")
                     timestamp = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
                     feed_button_ref.set(timestamp)
             else:
@@ -184,8 +183,6 @@ def process_C(task_name: str,
 
         if water_button:
             if water_level > 10:
-                new_water_level = max(0, water_level - auto_refill_threshold)
-                print(f"Water Refill: -{auto_refill_threshold}%")
                 print("REFILLING WATER...")
                 if water_relay:
                     water_relay.off()
@@ -204,12 +201,6 @@ def process_C(task_name: str,
                     time.sleep(2)
                     water_relay.on()
 
-        if feed_level <= 10:
-            print("FEED REFILL REQUIRED")
-
-        if water_level <= 10:
-            print("WATER REFILL REQUIRED")
- 
         sensors_ref = None
 
         if not is_pc_device:
@@ -218,7 +209,7 @@ def process_C(task_name: str,
 
             sensors_ref.update({
             "feedLevel": new_feed_level,
-            "waterLevel": new_water_level,
+            "waterLevel": water_level,
             "updatedAt": updatedAt
         })
 
