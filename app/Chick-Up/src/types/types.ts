@@ -58,11 +58,6 @@ export interface SensorData {
   updatedAt: number;
 }
 
-// Settings structures
-export interface NotificationSettings {
-  smsEnabled: boolean;
-}
-
 export interface DispenseSettings {
   thresholdPercent: number;
   dispenseVolumePercent: number;
@@ -75,7 +70,6 @@ export interface WaterSettings {
 }
 
 export interface UserSettings {
-  notifications: NotificationSettings;
   feed: DispenseSettings;
   water: WaterSettings;
   updatedAt: number;

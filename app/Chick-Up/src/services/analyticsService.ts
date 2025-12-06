@@ -1,43 +1,67 @@
 // src/services/analyticsService.ts
-import { ref, onValue, off, set, get, push } from 'firebase/database';
+import { ref, push, set, get, query, orderByChild, limitToLast, onValue, off } from 'firebase/database';
 import { database } from '../config/firebase.config';
-import { DispenseLog, DailyAnalytics } from '../types/types';
+
+export interface AnalyticsLog {
+  action: 'refill' | 'dispense';
+  type: 'water' | 'feed';
+  volumePercent: number;
+  timestamp: number;
+  date: string;
+  time: string;
+  dayOfWeek: number;
+  userId: string;
+}
+
+export interface DailyAnalytics {
+  dayOfWeek: number;
+  feedDispensed: number;
+  waterRefilled: number;
+  feedDispenseCount: number;
+  waterRefillCount: number;
+  avgFeedingTime: number;
+  avgRefillTime: number;
+}
+
+export interface SummaryStats {
+  totalFeedDispensed: number;
+  totalWaterRefilled: number;
+  totalFeedActions: number;
+  totalWaterActions: number;
+  avgFeedPerDay: number;
+  avgWaterPerDay: number;
+}
 
 class AnalyticsService {
   /**
-   * Log a dispense/refill action
+   * Log an action (water refill or feed dispense)
    */
   async logAction(
     userId: string,
     type: 'water' | 'feed',
-    action: 'dispense' | 'refill',
+    action: 'refill' | 'dispense',
     volumePercent: number
   ): Promise<void> {
     try {
-      const timestamp = Date.now();
-      const date = new Date(timestamp);
-      const dateString = date.toLocaleDateString('en-US');
-      const timeString = date.toLocaleTimeString('en-US', { hour12: false });
-      const dayOfWeek = date.getDay();
-
-      const logData: Omit<DispenseLog, 'id'> = {
-        userId,
-        type,
+      const now = new Date();
+      const logsRef = ref(database, `analytics/logs/${userId}`);
+      const newLogRef = push(logsRef);
+      
+      const logData: AnalyticsLog = {
         action,
+        type,
         volumePercent,
-        timestamp,
-        date: dateString,
-        time: timeString,
-        dayOfWeek,
+        timestamp: now.getTime(),
+        date: this.formatDate(now),
+        time: this.formatTime(now),
+        dayOfWeek: now.getDay(),
+        userId
       };
-
-      const logRef = ref(database, `analytics/logs/${userId}`);
-      const newLogRef = push(logRef);
+      
       await set(newLogRef, logData);
-
-      console.log(`✅ ${type} ${action} action logged`);
+      console.log(`${type} ${action} logged successfully`);
     } catch (error) {
-      console.error('❌ Error logging action:', error);
+      console.error('Error logging action:', error);
       throw error;
     }
   }
@@ -45,122 +69,70 @@ class AnalyticsService {
   /**
    * Get all logs for a user
    */
-  async getLogs(userId: string, limit?: number): Promise<DispenseLog[]> {
+  async getAllLogs(userId: string): Promise<AnalyticsLog[]> {
     try {
-      const logRef = ref(database, `analytics/logs/${userId}`);
-      const snapshot = await get(logRef);
-
+      const logsRef = ref(database, `analytics/logs/${userId}`);
+      const snapshot = await get(logsRef);
+      
       if (snapshot.exists()) {
-        const data = snapshot.val();
-        let logs: DispenseLog[] = Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        }));
-
-        // Sort by timestamp descending
-        logs.sort((a, b) => b.timestamp - a.timestamp);
-
-        if (limit) {
-          logs = logs.slice(0, limit);
-        }
-
-        return logs;
+        const logs: AnalyticsLog[] = [];
+        snapshot.forEach((childSnapshot) => {
+          logs.push(childSnapshot.val() as AnalyticsLog);
+        });
+        return logs.sort((a, b) => b.timestamp - a.timestamp); // Most recent first
       }
       return [];
     } catch (error) {
-      console.error('❌ Error fetching logs:', error);
+      console.error('Error getting all logs:', error);
       throw error;
     }
   }
 
   /**
-   * Get daily analytics for the past week
+   * Get recent logs for a user
    */
-  async getWeeklyAnalytics(userId: string): Promise<DailyAnalytics[]> {
+  async getRecentLogs(userId: string, limit: number = 10): Promise<AnalyticsLog[]> {
     try {
-      const logs = await this.getLogs(userId);
-      const now = new Date();
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      // Filter logs from the past 7 days
-      const recentLogs = logs.filter(log => log.timestamp >= sevenDaysAgo.getTime());
-
-      // Group logs by date
-      const logsByDate: { [date: string]: DispenseLog[] } = {};
-      recentLogs.forEach(log => {
-        if (!logsByDate[log.date]) {
-          logsByDate[log.date] = [];
-        }
-        logsByDate[log.date].push(log);
-      });
-
-      // Calculate daily analytics
-      const analytics: DailyAnalytics[] = [];
+      const logsRef = ref(database, `analytics/logs/${userId}`);
+      const logsQuery = query(logsRef, orderByChild('timestamp'), limitToLast(limit));
+      const snapshot = await get(logsQuery);
       
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-        const dateString = date.toLocaleDateString('en-US');
-        const dayOfWeek = date.getDay();
-        const dayLogs = logsByDate[dateString] || [];
-
-        const feedLogs = dayLogs.filter(log => log.type === 'feed' && log.action === 'dispense');
-        const waterLogs = dayLogs.filter(log => log.type === 'water' && log.action === 'refill');
-
-        const feedDispensed = feedLogs.reduce((sum, log) => sum + log.volumePercent, 0);
-        const waterRefilled = waterLogs.reduce((sum, log) => sum + log.volumePercent, 0);
-
-        // Calculate average time (mock data - in real implementation, this would be tracked)
-        const avgFeedingTime = feedLogs.length > 0 ? 3 : 0; // 3 minutes average
-        const avgRefillTime = waterLogs.length > 0 ? 15 : 0; // 15 minutes average
-
-        analytics.push({
-          date: dateString,
-          dayOfWeek,
-          feedDispensed,
-          waterRefilled,
-          feedDispenseCount: feedLogs.length,
-          waterRefillCount: waterLogs.length,
-          avgFeedingTime,
-          avgRefillTime,
+      if (snapshot.exists()) {
+        const logs: AnalyticsLog[] = [];
+        snapshot.forEach((childSnapshot) => {
+          logs.push(childSnapshot.val() as AnalyticsLog);
         });
+        return logs.reverse(); // Most recent first
       }
-
-      return analytics;
+      return [];
     } catch (error) {
-      console.error('❌ Error fetching weekly analytics:', error);
+      console.error('Error getting recent logs:', error);
       throw error;
     }
   }
 
   /**
-   * Get summary statistics
+   * Get logs filtered by type (water or feed)
    */
-  async getSummaryStats(userId: string): Promise<{
-    totalFeedDispensed: number;
-    totalWaterRefilled: number;
-    totalFeedActions: number;
-    totalWaterActions: number;
-    avgFeedPerDay: number;
-    avgWaterPerDay: number;
-  }> {
+  async getLogsByType(userId: string, type: 'water' | 'feed', limit: number = 10): Promise<AnalyticsLog[]> {
     try {
-      const analytics = await this.getWeeklyAnalytics(userId);
-
-      const totalFeedDispensed = analytics.reduce((sum, day) => sum + day.feedDispensed, 0);
-      const totalWaterRefilled = analytics.reduce((sum, day) => sum + day.waterRefilled, 0);
-      const totalFeedActions = analytics.reduce((sum, day) => sum + day.feedDispenseCount, 0);
-      const totalWaterActions = analytics.reduce((sum, day) => sum + day.waterRefillCount, 0);
-
-      return {
-        totalFeedDispensed,
-        totalWaterRefilled,
-        totalFeedActions,
-        totalWaterActions,
-        avgFeedPerDay: totalFeedDispensed / 7,
-        avgWaterPerDay: totalWaterRefilled / 7,
-      };
+      const logs = await this.getAllLogs(userId);
+      return logs.filter(log => log.type === type).slice(0, limit);
     } catch (error) {
-      console.error('❌ Error fetching summary stats:', error);
+      console.error('Error getting logs by type:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get the last action of a specific type
+   */
+  async getLastAction(userId: string, type: 'water' | 'feed'): Promise<AnalyticsLog | null> {
+    try {
+      const logs = await this.getLogsByType(userId, type, 1);
+      return logs.length > 0 ? logs[0] : null;
+    } catch (error) {
+      console.error('Error getting last action:', error);
       throw error;
     }
   }
@@ -170,33 +142,151 @@ class AnalyticsService {
    */
   subscribeAnalytics(
     userId: string,
-    callback: (analytics: DailyAnalytics[]) => void,
-    onError?: (error: Error) => void
+    onUpdate: (analytics: DailyAnalytics[]) => void,
+    onError: (error: Error) => void
   ): () => void {
-    const logRef = ref(database, `analytics/logs/${userId}`);
-
+    const logsRef = ref(database, `analytics/logs/${userId}`);
+    
     const unsubscribe = onValue(
-      logRef,
-      async () => {
-        try {
-          const analytics = await this.getWeeklyAnalytics(userId);
-          callback(analytics);
-        } catch (error: any) {
-          if (onError) {
-            onError(error);
-          }
+      logsRef,
+      (snapshot) => {
+        const logs: AnalyticsLog[] = [];
+        if (snapshot.exists()) {
+          snapshot.forEach((childSnapshot) => {
+            logs.push(childSnapshot.val() as AnalyticsLog);
+          });
         }
+        
+        const analytics = this.processLogsToWeekly(logs);
+        onUpdate(analytics);
       },
       (error) => {
-        console.error('❌ Analytics subscription error:', error);
-        if (onError) {
-          onError(error);
-        }
+        onError(error as Error);
       }
     );
 
-    // Return cleanup function
-    return () => off(logRef);
+    return () => off(logsRef);
+  }
+
+  /**
+   * Process logs into weekly analytics (last 7 days)
+   */
+  private processLogsToWeekly(logs: AnalyticsLog[]): DailyAnalytics[] {
+    // Get the last 7 days
+    const today = new Date();
+    const weeklyData: DailyAnalytics[] = [];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dayOfWeek = date.getDay();
+      
+      // Filter logs for this day
+      const dayLogs = logs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        return logDate.toDateString() === date.toDateString();
+      });
+      
+      // Calculate metrics for this day
+      const feedLogs = dayLogs.filter(log => log.type === 'feed');
+      const waterLogs = dayLogs.filter(log => log.type === 'water');
+      
+      const feedDispensed = feedLogs.reduce((sum, log) => sum + log.volumePercent, 0);
+      const waterRefilled = waterLogs.reduce((sum, log) => sum + log.volumePercent, 0);
+      
+      // Estimate time (rough calculation: 0.5 min per action)
+      const avgFeedingTime = feedLogs.length * 0.5;
+      const avgRefillTime = waterLogs.length * 0.5;
+      
+      weeklyData.push({
+        dayOfWeek,
+        feedDispensed,
+        waterRefilled,
+        feedDispenseCount: feedLogs.length,
+        waterRefillCount: waterLogs.length,
+        avgFeedingTime,
+        avgRefillTime,
+      });
+    }
+    
+    return weeklyData;
+  }
+
+  /**
+   * Get summary statistics
+   */
+  async getSummaryStats(userId: string): Promise<SummaryStats> {
+    try {
+      const logs = await this.getAllLogs(userId);
+      
+      const feedLogs = logs.filter(log => log.type === 'feed');
+      const waterLogs = logs.filter(log => log.type === 'water');
+      
+      const totalFeedDispensed = feedLogs.reduce((sum, log) => sum + log.volumePercent, 0);
+      const totalWaterRefilled = waterLogs.reduce((sum, log) => sum + log.volumePercent, 0);
+      
+      // Calculate daily averages (last 7 days)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      const recentFeedLogs = feedLogs.filter(log => log.timestamp >= sevenDaysAgo.getTime());
+      const recentWaterLogs = waterLogs.filter(log => log.timestamp >= sevenDaysAgo.getTime());
+      
+      const recentFeedVolume = recentFeedLogs.reduce((sum, log) => sum + log.volumePercent, 0);
+      const recentWaterVolume = recentWaterLogs.reduce((sum, log) => sum + log.volumePercent, 0);
+      
+      return {
+        totalFeedDispensed,
+        totalWaterRefilled,
+        totalFeedActions: feedLogs.length,
+        totalWaterActions: waterLogs.length,
+        avgFeedPerDay: recentFeedVolume / 7,
+        avgWaterPerDay: recentWaterVolume / 7,
+      };
+    } catch (error) {
+      console.error('Error getting summary stats:', error);
+      return {
+        totalFeedDispensed: 0,
+        totalWaterRefilled: 0,
+        totalFeedActions: 0,
+        totalWaterActions: 0,
+        avgFeedPerDay: 0,
+        avgWaterPerDay: 0,
+      };
+    }
+  }
+
+  /**
+   * Calculate total volume dispensed/refilled for a specific type
+   */
+  async getTotalVolume(userId: string, type: 'water' | 'feed'): Promise<number> {
+    try {
+      const logs = await this.getLogsByType(userId, type, 1000);
+      return logs.reduce((total, log) => total + log.volumePercent, 0);
+    } catch (error) {
+      console.error('Error calculating total volume:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Format date as "MM/DD/YYYY"
+   */
+  private formatDate(date: Date): string {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${month}/${day}/${year}`;
+  }
+
+  /**
+   * Format time as "HH:MM:SS"
+   */
+  private formatTime(date: Date): string {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
   }
 }
 
