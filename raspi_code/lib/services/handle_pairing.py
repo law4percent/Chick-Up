@@ -11,7 +11,7 @@ logging.basicConfig(
 )
 
 def pair_it(
-        device_uid: str, 
+        device_uid: str,    
         is_pc_device: bool           = False, 
         save_logs: bool              = False,
         user_credentials_path: str   = "credentials",
@@ -134,7 +134,6 @@ def _read_txt_to_dict(user_credentials_path: str) -> dict:
             key, value = line.split(":", 1)
             user_credentials[key.strip()] = value.strip()
     return user_credentials
-
 
 def _is_available_for_resetting() -> bool:
     pass

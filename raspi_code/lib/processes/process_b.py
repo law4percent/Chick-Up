@@ -43,7 +43,7 @@ def process_B(
 
                 livestream_ref.update({
                     "base64": jpg_text,
-                    "lastUpdateAt": lastUpdateAt
+                    "lastUpdateAt": lastUpdateAt,
                 })
 
         if not number_of_class_instances.empty():
