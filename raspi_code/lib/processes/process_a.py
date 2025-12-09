@@ -38,66 +38,96 @@ def process_A(
     show_window         = process_a_args["show_window"]
     
     class_list, yolo_model, capture = checkpoints(task_name=task_name, is_pc_device=is_pc_device, save_logs=save_logs, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index, use_web_cam=use_web_cam)
+    window_name, window_visible_state = setup_windows()
 
     while True:
-        ret, raw_frame = capture.read()
-        if not ret:
-            if is_pc_device:
-                print(f"{task_name}Error: Video has ended or video is a corrupted file.")
-                print(f"{task_name}Error: Check video here: {video_path}.")
-                print(f"{task_name}Error: Ctrl + C to end the program.")
-                if save_logs:
-                    logging.error(f"{task_name}Video ended or video is a corrupt file.")
-                    logging.error(f"{task_name}Check video here: {video_path}.")
-                    logging.error(f"{task_name}Ctrl + C to end the program.")
-            else:
-                print(f"{task_name}Error: Check the hardware camera.")
-                if save_logs:
-                    logging.error(f"{task_name}Error: Check the hardware camera.")
+        try:
+            ret, raw_frame = capture.read()
+            if not ret:
+                if is_pc_device:
+                    capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    print(f"{task_name}Error: Video has ended or video is a corrupted file.")
+                    print(f"{task_name}Error: Check video here: {video_path}.")
+                    print(f"{task_name}Error: Ctrl + C to end the program.")
+                    if save_logs:
+                        logging.error(f"{task_name}Video ended or video is a corrupt file.")
+                        logging.error(f"{task_name}Check video here: {video_path}.")
+                        logging.error(f"{task_name}Ctrl + C to end the program.")
+                else:
+                    print(f"{task_name}Error: Check the hardware camera.")
+                    if save_logs:
+                        logging.error(f"{task_name}Error: Check the hardware camera.")
+                        
+                time.sleep(2)
+                continue
+            
+            raw_frame = cv2.resize(raw_frame, (frame_dimensions["width"], frame_dimensions["height"]))
+            annotated_frame, number_of_chickens, number_of_intruders = detection.run(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence, class_list=class_list, frame_dimensions=frame_dimensions)
                     
-            time.sleep(2)
-            continue
-        
-        raw_frame = cv2.resize(raw_frame, (frame_dimensions["width"], frame_dimensions["height"]))
-        annotated_frame, number_of_chickens, number_of_intruders = detection.run(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence, class_list=class_list, frame_dimensions=frame_dimensions)
-                
-        if live_status.is_set():
-            if queue_frame.full():
+            if live_status.is_set():
+                if queue_frame.full():
+                    try:
+                        queue_frame.get_nowait()  # remove old frame
+                    except queue.Empty:
+                        pass
+
                 try:
-                    queue_frame.get_nowait()  # remove old frame
-                except queue.Empty:
-                    pass
+                    if annotated_option.is_set():
+                        queue_frame.put_nowait(annotated_frame)
+                    else:
+                        queue_frame.put_nowait(raw_frame)
+                except queue.Full:
+                    pass  # skip frame if queue is full
 
             try:
-                if annotated_option.is_set():
-                    queue_frame.put_nowait(annotated_frame)
-                else:
-                    queue_frame.put_nowait(raw_frame)
+                if number_of_class_instances.full():
+                    number_of_class_instances.get_nowait()  # remove old data
+            except queue.Empty:
+                pass  # queue was unexpectedly empty
+
+            try:
+                number_of_class_instances.put_nowait({
+                    "chickens": number_of_chickens,
+                    "intruders": number_of_intruders
+                })
             except queue.Full:
-                pass  # skip frame if queue is full
+                pass  # queue is still full, skip this update
 
-        try:
-            if number_of_class_instances.full():
-                number_of_class_instances.get_nowait()  # remove old data
-        except queue.Empty:
-            pass  # queue was unexpectedly empty
+            if is_pc_device and show_window:
 
-        try:
-            number_of_class_instances.put_nowait({
-                "chickens": number_of_chickens,
-                "intruders": number_of_intruders
-            })
-        except queue.Full:
-            pass  # queue is still full, skip this update
+                if window_visible_state:
+                    cv2.imshow(window_name, annotated_frame)
 
-        if is_pc_device and show_window:
-            cv2.imshow("Chick-Up Streaming", annotated_frame)
+                key = cv2.waitKey(1) & 0xFF
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                if key == ord('q'):
+                    break
+
+                # Press C → close/hide the window
+                elif key == ord('c'):
+                    if window_visible_state:
+                        cv2.destroyAllWindows()
+                        window_visible_state = False
+
+                # Press W → show the window again
+                elif key == ord('w'):
+                    if not window_visible_state:
+                        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+                        window_visible_state = True
+
+        except Exception as e:
+            print(f"{task_name} Error occurred: {e}")
+            time.sleep(2)
 
     capture.release()
     cv2.destroyAllWindows()
+
+
+def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state: bool = True):
+    window_name = window_name
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    window_visible_state = window_visible_state
+    return [window_name, window_visible_state]
 
 
 def checkpoints(task_name:str, is_pc_device: bool, save_logs: bool, yolo_model_path: str, class_list_path: str, use_web_cam: bool, video_path: str = "video/chicken.mp4", camera_index: int = 0) -> list:
