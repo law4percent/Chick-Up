@@ -10,7 +10,7 @@ def initialize_firebase() -> dict:
     FILE_NAME               = "serviceAccountKey.json"
     FULL_PATH               = utils.join_path_with_os_adaptability(SERVICE_ACC_KEY_PATH, FILE_NAME, __name__, False)
     
-    check_point_result = utils.file_existence_checkpoint(utils)
+    check_point_result = utils.file_existence_check_point(utils)
     if check_point_result["status"] == "error":
         return check_point_result
 

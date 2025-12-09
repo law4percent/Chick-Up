@@ -68,7 +68,6 @@ if __name__ == "__main__":
         TEST_CREDENTIALS= TEST_CREDENTIALS,
         process_A_args  = {
             "TASK_NAME"         : "Process A",
-            "USER_CREDENTIAL"   : {},
             "queue_frame"       : queue_frame,
             "live_status"       : live_status,
             "annotated_option"  : annotated_option,
@@ -83,15 +82,15 @@ if __name__ == "__main__":
         },
         # ("Process B:", queue_frame, live_status, number_of_class_instances, process_b_args))
         process_B_args  = {
-            "user_credentials"  : {},
-            "is_pc_device"      : PC_MODE,
-            "save_logs"         : SAVE_LOGS
+            "USER_CREDENTIAL"   : {},
+            "PC_MODE"           : PC_MODE,
+            "SAVE_LOGS"         : SAVE_LOGS
         },
         # ("Process C:", live_status, annotated_option, process_c_args))
         process_C_args  = {
-            "user_credentials"  : {},
-            "is_pc_device"      : PC_MODE,
-            "save_logs"         : SAVE_LOGS
+            "USER_CREDENTIAL"   : {},
+            "PC_MODE"           : PC_MODE,
+            "SAVE_LOGS"         : SAVE_LOGS
         }
     )
     

@@ -139,7 +139,7 @@ def pair_it(
     
     
     # Check the file existence else create one with empty data
-    check_point_result = utils.file_existence_checkpoint(USER_CRED_FULL_PATH, __name__)
+    check_point_result = utils.file_existence_check_point(USER_CRED_FULL_PATH, __name__)
     if check_point_result["status"] == "error":
        ask_result = _ask_user_for_username_to_get_userUid()
        CREDENTIALS  = {
