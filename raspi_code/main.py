@@ -67,18 +67,19 @@ if __name__ == "__main__":
         DEVICE_UID      = DEVICE_UID,
         TEST_CREDENTIALS= TEST_CREDENTIALS,
         process_A_args  = {
-            "TASK_NAME"         : "Process A",
-            "queue_frame"       : queue_frame,
-            "live_status"       : live_status,
-            "annotated_option"  : annotated_option,
-            "YOLO_CONFIDENCE"   : 0.25,
-            "FRAME_DIMENSION"   : {"width": 640, "height": 480},
-            "IS_WEB_CAM"        : False, # <==== need to find
-            "PC_MODE"           : PC_MODE,
-            "CAMERA_INDEX"      : 0,
-            "VIDEO_FILE"        : "video/chicken.mp4",
-            "SAVE_LOGS"         : SAVE_LOGS,
-            "SHOW_WINDOW"       : True
+            "TASK_NAME"             : "Process A",
+            "queue_frame"           : queue_frame,
+            "live_status"           : live_status,
+            "annotated_option"      : annotated_option,
+            "number_of_instances"   : number_of_instances,
+            "YOLO_CONFIDENCE"       : 0.25,
+            "FRAME_DIMENSION"       : {"width": 640, "height": 480},
+            "IS_WEB_CAM"            : False, # <==== need to find
+            "PC_MODE"               : PC_MODE,
+            "CAMERA_INDEX"          : 0,
+            "VIDEO_FILE"            : "video/chicken.mp4",
+            "SAVE_LOGS"             : SAVE_LOGS,
+            "SHOW_WINDOW"           : True
         },
         # ("Process B:", queue_frame, live_status, number_of_class_instances, process_b_args))
         process_B_args  = {

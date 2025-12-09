@@ -1,75 +1,93 @@
 import cv2
-from lib.services import detection
 from multiprocessing import Queue, Event
 from ultralytics import YOLO
 import os
 import logging
 import time
-import queue 
+import queue
 
-logging.basicConfig(
-    filename='logs/debug.log',     # log file name
-    filemode='a',              # 'a' to append, 'w' to overwrite
-    level=logging.INFO,        # minimum level to log
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+from lib.services import detection, utils
+from lib import logger_config
 
+logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
-def process_A(
-        task_name: str,
-        queue_frame: Queue,
-        live_status: any,
-        annotated_option: any,
-        number_of_class_instances: Queue,
-        process_a_args: dict
-    ) -> None:
-    print(f"{task_name}Running✅")
-    
+def process_A(**kwargs) -> None:
     # Configuration
-    confidence          = process_a_args["confidence"]
-    yolo_model_path     = process_a_args["yolo_model_path"]
-    class_list_path     = process_a_args["class_list_path"]
-    frame_dimensions    = process_a_args["frame_dimensions"]
-    is_pc_device        = process_a_args["is_pc_device"]
-    camera_index        = process_a_args["camera_index"]
-    save_logs           = process_a_args["save_logs"]
-    video_path          = process_a_args["video_path"]
-    use_web_cam         = process_a_args["use_web_cam"]
-    show_window         = process_a_args["show_window"]
+    process_A_args      = kwargs["process_A_args"]
+    TASK_NAME           = process_A_args["TASK_NAME"]
+    queue_frame         = process_A_args["queue_frame"]
+    live_status         = process_A_args["live_status"]
+    annotated_option    = process_A_args["annotated_option"]
+    number_of_instances = process_A_args["number_of_instances"]
+    YOLO_CONFIDENCE     = process_A_args["YOLO_CONFIDENCE"]
+    FRAME_DIMENSION     = process_A_args["FRAME_DIMENSION"]
+    IS_WEB_CAM          = process_A_args["IS_WEB_CAM"]
+    PC_MODE             = process_A_args["PC_MODE"]
+    CAMERA_INDEX        = process_A_args["CAMERA_INDEX"]
+    VIDEO_FILE          = process_A_args["VIDEO_FILE"]
+    SAVE_LOGS           = process_A_args["SAVE_LOGS"]
+    SHOW_WINDOW         = process_A_args["SHOW_WINDOW"]
+    YOLO_MODEL_FILE     = "YOLO/best.pt",
+    CLASS_LIST_FILE     = "YOLO/class_list.txt",
     
-    YOLO_MODEL_FILE = "YOLO/best.pt",
-    CLASS_LIST_FILE = "YOLO/class_list.txt",
+    print(f"{TASK_NAME} - Running✅")
+    logger.info(f"{TASK_NAME} - Running✅")
     
-    # Check for prerequisites
-    # YOLO file existence
-    # CLASS LIST file existence
+    FILE_PATHS = {
+        "YOLO_MODEL_FILE"   : YOLO_MODEL_FILE, 
+        "CLASS_LIST_FILE"   : CLASS_LIST_FILE, 
+        "VIDEO_FILE"        : VIDEO_FILE
+    }
     
-    class_list, yolo_model, capture = checkpoints(task_name=task_name, is_pc_device=is_pc_device, save_logs=save_logs, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index, use_web_cam=use_web_cam)
+    # "status"    : "success",
+    # "class_list": init_result["class_list"],
+    # "yolo_model": init_result["yolo_model"],
+    # "capture"   : capture
+    check_point_result = _check_points(
+        FILE_PATHS  = FILE_PATHS, 
+        PC_MODE     = PC_MODE, 
+        SAVE_LOGS   = SAVE_LOGS, 
+        CAMERA_INDEX= CAMERA_INDEX, 
+        IS_WEB_CAM  = IS_WEB_CAM
+    )
+    if check_point_result["status"] == "error":
+        if SAVE_LOGS:
+            logger.error(f"{TASK_NAME} - {check_point_result["message"]}")
+        exit()
+        
+    capture     = check_point_result["capture"]
+    class_list  = check_point_result["class_list"]
+    yolo_model  = check_point_result["yolo_model"]
     window_name, window_visible_state = setup_windows()
-
+    
     while True:
         try:
             ret, raw_frame = capture.read()
             if not ret:
-                if is_pc_device:
+                if PC_MODE:
                     capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    print(f"{task_name}Error: Video has ended or video is a corrupted file.")
-                    print(f"{task_name}Error: Check video here: {video_path}.")
-                    print(f"{task_name}Error: Ctrl + C to end the program.")
-                    if save_logs:
-                        logging.error(f"{task_name}Video ended or video is a corrupt file.")
-                        logging.error(f"{task_name}Check video here: {video_path}.")
-                        logging.error(f"{task_name}Ctrl + C to end the program.")
+                    print(f"{TASK_NAME}Error: Video has ended or video is a corrupted file.")
+                    print(f"{TASK_NAME}Error: Check video here: {VIDEO_FILE}.")
+                    print(f"{TASK_NAME}Error: Ctrl + C to end the program.")
+                    if SAVE_LOGS:
+                        logging.error(f"{TASK_NAME}Video ended or video is a corrupt file.")
+                        logging.error(f"{TASK_NAME}Check video here: {VIDEO_FILE}.")
+                        logging.error(f"{TASK_NAME}Ctrl + C to end the program.")
                 else:
-                    print(f"{task_name}Error: Check the hardware camera.")
-                    if save_logs:
-                        logging.error(f"{task_name}Error: Check the hardware camera.")
+                    print(f"{TASK_NAME}Error: Check the hardware camera.")
+                    if SAVE_LOGS:
+                        logging.error(f"{TASK_NAME}Error: Check the hardware camera.")
                         
                 time.sleep(2)
                 continue
             
-            raw_frame = cv2.resize(raw_frame, (frame_dimensions["width"], frame_dimensions["height"]))
-            annotated_frame, number_of_chickens, number_of_intruders = detection.run(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence, class_list=class_list, frame_dimensions=frame_dimensions)
+            raw_frame = cv2.resize(raw_frame, (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"]))
+            annotated_frame, number_of_chickens, number_of_intruders = detection.run(
+                raw_frame=raw_frame, 
+                yolo_model=yolo_model, 
+                confidence=YOLO_CONFIDENCE, 
+                class_list=class_list, 
+                frame_dimensions=FRAME_DIMENSION)
                     
             if live_status.is_set():
                 if queue_frame.full():
@@ -87,20 +105,20 @@ def process_A(
                     pass  # skip frame if queue is full
 
             try:
-                if number_of_class_instances.full():
-                    number_of_class_instances.get_nowait()  # remove old data
+                if number_of_instances.full():
+                    number_of_instances.get_nowait()  # remove old data
             except queue.Empty:
                 pass  # queue was unexpectedly empty
 
             try:
-                number_of_class_instances.put_nowait({
+                number_of_instances.put_nowait({
                     "chickens": number_of_chickens,
                     "intruders": number_of_intruders
                 })
             except queue.Full:
                 pass  # queue is still full, skip this update
 
-            if is_pc_device and show_window:
+            if PC_MODE and SHOW_WINDOW:
 
                 if window_visible_state:
                     cv2.imshow(window_name, annotated_frame)
@@ -123,7 +141,7 @@ def process_A(
                         window_visible_state = True
 
         except Exception as e:
-            print(f"{task_name} Error occurred: {e}")
+            print(f"{TASK_NAME} Error occurred: {e}")
             time.sleep(2)
 
     capture.release()
@@ -137,56 +155,66 @@ def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state:
     return [window_name, window_visible_state]
 
 
-def checkpoints(task_name:str, is_pc_device: bool, save_logs: bool, yolo_model_path: str, class_list_path: str, use_web_cam: bool, video_path: str = "video/chicken.mp4", camera_index: int = 0) -> list:
+def _init_YOLO_detection(CLASS_LIST_FILE: str, YOLO_MODEL_FILE: str) -> dict:
     class_list = []
-
-    if is_pc_device and not use_web_cam:
-        if not os.path.exists(video_path):
-            print(f"{task_name}Error: Video file not found at path: {video_path}")
-            if save_logs:
-                logging.error(f"{task_name}Video file not found at path: {video_path}")
-            exit()
-            
-        capture = cv2.VideoCapture(video_path)
-        if not capture.isOpened():
-            print(f"{task_name}Error: Could not open video.")
-            print(f"{task_name}Error: Try to play the video file separately to check if it's corrupted.")
-            print(f"{task_name}Error: Video file location: {video_path}")
-            if save_logs:
-                logging.error(f"{task_name}Could not open video.")
-                logging.error(f"{task_name}Try to play the video file separately to check if it's corrupted.")
-                logging.error(f"{task_name}Video file location: {video_path}")
-            exit()
-    elif is_pc_device and use_web_cam:
-        capture = cv2.VideoCapture(camera_index)
-        if not capture.isOpened():
-            print(f"{task_name}Error: Could not open the camera index {camera_index}.")
-            if save_logs:
-                logging.error(f"{task_name}Could not open the camera index {camera_index}.")
-            exit()
-    else:
-        capture = cv2.VideoCapture(camera_index)
-        if not capture.isOpened():
-            print(f"{task_name}Error: Could not open the camera index {camera_index}.")
-            if save_logs:
-                logging.error(f"{task_name}Could not open the camera index {camera_index}.")
-            exit()
-    
-    if not os.path.exists(yolo_model_path):
-        print(f"{task_name}Error: YOLO model not found at path: {yolo_model_path}")
-        if save_logs:
-            logging.error(f"{task_name}YOLO model not found at path: {yolo_model_path}")
-        exit()
-
-    if not os.path.exists(class_list_path):
-        print(f"{task_name}Error: Class list file not found at path: {class_list_path}")
-        if save_logs:
-            logging.error(f"{task_name}Class list file not found at path: {class_list_path}")
-        exit()
-
-    with open(class_list_path, 'r') as f:
+    with open(CLASS_LIST_FILE, 'r') as f:
         class_list = [line.strip() for line in f.readlines()]
     
-    yolo_model = YOLO(yolo_model_path)
+    try:    
+        yolo_model = YOLO(YOLO_MODEL_FILE)
+        return {
+            "status"    : "success",
+            "class_list": class_list,
+            "yolo_model": yolo_model
+        }
+    except Exception as e:
+        return {
+            "status"    : "error",
+            "message"   : "{e}. Failed to load"
+        }
 
-    return [class_list, yolo_model, capture]
+
+def _check_points(FILE_PATHS: dict, PC_MODE: bool, SAVE_LOGS: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int) -> dict:
+    for FILE_PATH in FILE_PATHS.values():    
+        check_point_result = utils.file_existence_check_point(FILE_PATH, __name__)
+        if check_point_result["status"] == "error":
+            return check_point_result
+    
+    capture = None
+    VIDEO_PATH = FILE_PATHS["VIDEO_PATH"]
+    
+    if PC_MODE and not IS_WEB_CAM:
+        capture = cv2.VideoCapture(VIDEO_PATH)
+        if not capture.isOpened():
+            return {
+                "status"    : "error",
+                "message"   : f"Could not open video. Try to play the video file separately to check if it's corrupted. Video file location: {video_path}"
+            }
+            
+    elif PC_MODE and IS_WEB_CAM:
+        capture = cv2.VideoCapture(CAMERA_INDEX)
+        if not capture.isOpened():
+            return {
+                "status"    : "error",
+                "message"   : f"Could not open the camera index {CAMERA_INDEX}. Source: {__name__}"
+            }
+          
+    # =============== WIP: Change this to RASPI CAMERA ===============
+    else: 
+        capture = cv2.VideoCapture(CAMERA_INDEX)
+        if not capture.isOpened():
+            return {
+                "status"    : "error",
+                "message"   : f"Could not open the camera index {CAMERA_INDEX}. Source: {__name__}"
+            }
+        
+    init_result = _init_YOLO_detection(FILE_PATHS["CLASS_LIST_FILE"], FILE_PATHS["YOLO_MODEL_FILE"])
+    if init_result["status"] == "error":
+        return init_result
+
+    return {
+        "status"    : "success",
+        "class_list": init_result["class_list"],
+        "yolo_model": init_result["yolo_model"],
+        "capture"   : capture
+    }
