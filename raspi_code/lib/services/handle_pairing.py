@@ -44,7 +44,7 @@ def _read_txt_and_return_dict(user_credentials_path: str) -> dict:
         
         
 
-# ====================== NOT YET FINISHED ======================
+# ====================== WIP: NOT YET FINISHED ======================
 def _ask_user_for_username_to_get_userUid(SAVE_LOGS) -> dict:
     init_result = firebase_rtdb.initialize_firebase(save_logs=SAVE_LOGS)
     if init_result["status"] == "error":
@@ -92,7 +92,7 @@ def _validate_essenstial_keys(user_credentials) -> dict:
     return {"status": "success"}
 
 
-# ====================== NOT YET FINISHED ======================
+# ====================== WIP: NOT YET FINISHED ======================
 def pair_it(
         DEVICE_UID: str,    
         PRODUCTION_MODE: bool,
@@ -147,7 +147,10 @@ def pair_it(
             "userUid"   : ask_result["userUid"],
             "deviceUid" : DEVICE_UID
         }
-       user_credentials = _write_credentials_to_file(CREDENTIALS, USER_CRED_FULL_PATH)
+       user_credentials = _write_credentials_to_file(
+            CREDENTIALS = TEST_CREDENTIALS,
+            FULL_PATH   = USER_CRED_FULL_PATH
+        )
         
     validation_result = _validate_essenstial_keys(user_credentials)
     if validation_result["status"] == "error":

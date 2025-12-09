@@ -8,34 +8,19 @@ import logging
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 def main(**kargs) -> None:
-    # Initial code for checking the internet
+    # ============================== WIP: Initial code for checking the internet ==============================
     # if not handle_internet.check_external_connection(TARGET_HOST, TARGET_PORT, TIMEOUT_SECONDS):
     #     pass
-        
-    
-    # In AUTHENTICATION FEATURE the will be ask by the system for username
-    # Then once obtained the system will get the userUid from RTDB
-    # Then save the as a file as user_credentials.txt
-    #   Data Format:
-    #       userUid   : kP718rjyRXWlDUupBhiQTRAaWKt2
-    #       username  : law4percent
-    #       deviceUid : -3GSRmf356dy6GFQSTGIF
-    #       createdAt : 11/24/2025 at 00:17:48
+     
+    # Get the user_credentials   
     user_credentials = handle_pairing.pair_it(
         DEVICE_UID      = kargs["DEVICE_UID"], 
         PRODUCTION_MODE = kargs["PRODUCTION_MODE"], 
         SAVE_LOGS       = kargs["SAVE_LOGS"],
         TEST_CREDENTIALS= kargs["TEST_CREDENTIALS"]
     )
-
-    # -----------------
-    # Multi-processing
-    #------------------
-    
-    
-    
-    # process_b_args["user_credentials"] = user_credentials
-    # process_c_args["user_credentials"] = user_credentials
+    kargs["process_B_args"]["USER_CREDENTIAL"] = user_credentials
+    kargs["process_C_args"]["USER_CREDENTIAL"] = user_credentials
 
     task_A = Process(
         target = process_a.process_A, 
