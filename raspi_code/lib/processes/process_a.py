@@ -37,6 +37,13 @@ def process_A(
     use_web_cam         = process_a_args["use_web_cam"]
     show_window         = process_a_args["show_window"]
     
+    YOLO_MODEL_FILE = "YOLO/best.pt",
+    CLASS_LIST_FILE = "YOLO/class_list.txt",
+    
+    # Check for prerequisites
+    # YOLO file existence
+    # CLASS LIST file existence
+    
     class_list, yolo_model, capture = checkpoints(task_name=task_name, is_pc_device=is_pc_device, save_logs=save_logs, yolo_model_path=yolo_model_path, class_list_path=class_list_path, video_path=video_path, camera_index=camera_index, use_web_cam=use_web_cam)
     window_name, window_visible_state = setup_windows()
 

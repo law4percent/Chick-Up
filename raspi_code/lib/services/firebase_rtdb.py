@@ -3,33 +3,31 @@ from firebase_admin import credentials, db
 import logging
 import os
 from datetime import datetime, timedelta
+from . import utils
 
-logging.basicConfig(
-    filename='logs/debug.log',     # log file name
-    filemode='a',              # 'a' to append, 'w' to overwrite
-    level=logging.INFO,        # minimum level to log
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+def initialize_firebase() -> dict:
+    SERVICE_ACC_KEY_PATH    = "credentials",
+    FILE_NAME               = "serviceAccountKey.json"
+    FULL_PATH               = utils.join_path_with_os_adaptability(SERVICE_ACC_KEY_PATH, FILE_NAME, __name__, False)
+    
+    check_point_result = utils.file_existence_checkpoint(utils)
+    if check_point_result["status"] == "error":
+        return check_point_result
 
-def initialize_firebase(
-        service_acc_key_path: str   = "credentials",
-        file_name: str              = "serviceAccountKey.json",
-        save_logs: bool             = False
-    ) -> None:
-    service_acc_key_full_path = os.path.join(service_acc_key_path, file_name)
-    if not os.path.exists(service_acc_key_full_path):
-        print(f"Error: No such file {file_name} in {service_acc_key_path} folder.")
-        if save_logs:
-            logging.error(f"Error: No such file or directory of {service_acc_key_full_path}.")
-        exit()
-
-    cred = credentials.Certificate(service_acc_key_full_path)
-    firebase_admin.initialize_app(
-        cred,
-        {
-            'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
+    try:
+        cred = credentials.Certificate(FULL_PATH)
+        firebase_admin.initialize_app(
+            cred,
+            {
+                'databaseURL': 'https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/'
+            }
+        )
+        return {"status": "success"}
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"{e}. Initiallizing Firebase RTDB failed. Source: {__name__}"
         }
-    )
 
 
 def setup_RTDB(user_uid: str, device_uid: str) -> dict:
