@@ -12,7 +12,7 @@ def main(**kargs) -> None:
     # if not handle_internet.check_external_connection(TARGET_HOST, TARGET_PORT, TIMEOUT_SECONDS):
     #     pass
      
-    # Get the user_credentials   
+    # ========================= WIP =========================
     user_credentials = handle_pairing.pair_it(
         DEVICE_UID      = kargs["DEVICE_UID"], 
         PRODUCTION_MODE = kargs["PRODUCTION_MODE"], 
@@ -59,7 +59,9 @@ if __name__ == "__main__":
     queue_frame         = Queue(maxsize = 1)
     live_status         = Event()
     annotated_option    = Event()
+    status_checker      = Event()
     number_of_instances = Queue(maxsize = 1)
+    status_checker.set()
     
     main(
         PRODUCTION_MODE = PRODUCTION_MODE,
@@ -73,22 +75,25 @@ if __name__ == "__main__":
             "annotated_option"      : annotated_option,
             "number_of_instances"   : number_of_instances,
             "YOLO_CONFIDENCE"       : 0.25,
-            "FRAME_DIMENSION"       : {"width": 640, "height": 480},
+            "FRAME_DIMENSION"       : {"width": 1280, "height": 720}, # {"width": 640, "height": 480}
             "IS_WEB_CAM"            : False, # <==== need to find
             "PC_MODE"               : PC_MODE,
             "CAMERA_INDEX"          : 0,
             "VIDEO_FILE"            : "video/chicken.mp4",
             "SAVE_LOGS"             : SAVE_LOGS,
-            "SHOW_WINDOW"           : True
+            "SHOW_WINDOW"           : True,
+            "PRODUCTION_MODE"       : PRODUCTION_MODE
         },
         # ("Process B:", queue_frame, live_status, number_of_class_instances, process_b_args))
         process_B_args  = {
+            "status_checker"    : status_checker,
             "USER_CREDENTIAL"   : {},
             "PC_MODE"           : PC_MODE,
             "SAVE_LOGS"         : SAVE_LOGS
         },
         # ("Process C:", live_status, annotated_option, process_c_args))
         process_C_args  = {
+            "status_checker"    : status_checker,
             "USER_CREDENTIAL"   : {},
             "PC_MODE"           : PC_MODE,
             "SAVE_LOGS"         : SAVE_LOGS

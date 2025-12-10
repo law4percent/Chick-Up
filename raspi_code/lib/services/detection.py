@@ -11,9 +11,9 @@ logging.basicConfig(
 )
 
 
-def run(raw_frame: any, frame_dimensions: dict, yolo_model: any, class_list: list, confidence: float = 0.25) -> list:
+def run(raw_frame: any, frame_dimension: dict, yolo_model: any, class_list: list, confidence: float = 0.25) -> list:
     boxes = _get_prediction_boxes(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence)
-    return _detect_object(frame=raw_frame, boxes=boxes, class_list=class_list, frame_dimensions=frame_dimensions)
+    return _detect_object(frame=raw_frame, boxes=boxes, class_list=class_list, frame_dimensions=frame_dimension)
 
 
 def _get_prediction_boxes(raw_frame: any, confidence: float, yolo_model: any) -> any:
