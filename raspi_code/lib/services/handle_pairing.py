@@ -1,127 +1,30 @@
 from firebase_admin import db
-import os
-import logging
 from datetime import datetime
+import time
 
-logging.basicConfig(
-    filename='logs/debug.log',     # log file name
-    filemode='a',              # 'a' to append, 'w' to overwrite
-    level=logging.INFO,        # minimum level to log
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+from lib.services import utils, handle_hardware, firebase_rtdb
+from lib import logger_config
+import logging
 
-def pair_it(
-        device_uid: str, 
-        is_pc_device: bool           = False, 
-        save_logs: bool              = False,
-        user_credentials_path: str   = "credentials",
-        file_name: str               = "user_credentials.txt",
-        required_keys: str           = {"deviceUid", "username", "userUid", "createdAt"}
-    ) -> dict | None:
-    
-    # Use forward slash for path segments. os.path.join handles conversion for the OS.
-    cred_full_path = os.path.join(user_credentials_path, file_name)
-    
-    if is_pc_device:
-        testing_credentials = {
-            "test_username"     : "law4percent",
-            "test_user_uid"     : "kP718rjyRXWlDUupBhiQTRAaWKt2",
-            "device_uid"        : device_uid
-        }
-        
-        if not os.path.exists(cred_full_path):
-            print(f"Warning: The '{file_name}' file does not exist.")
-            print(f"Info: Writing {file_name} file at '{cred_full_path}'...")
-            if save_logs:
-                logging.warning(f"The '{file_name}' file does not exist.")
-                logging.info(f"Writing {file_name} file at '{cred_full_path}'...")
-            
-            test_cred = {
-                "deviceUid" : device_uid,
-                "username"  : testing_credentials["test_username"],
-                "userUid"   : testing_credentials["test_user_uid"]
-            } 
-            
-            _write_user_info_in_txt_file(
-                credentials=test_cred, 
-                save_logs=save_logs, 
-                user_credentials_full_path=cred_full_path
-            )
-            
-            # Wait for the file to be created before reading
-            user_credentials = _read_txt_to_dict(cred_full_path)
-            print("Info: --------------------------------")
-            print("Info: PC mode user credentials info:")
-            print(f"Info: - Username   : {user_credentials["username"]}")
-            print(f"Info: - User UID   : {user_credentials["userUid"]}")
-            print(f"Info: - Device UID : {user_credentials["deviceUid"]}")
-            print("Info: --------------------------------")
-            if save_logs:
-                logging.info("--------------------------------")
-                logging.info("PC mode user credentials info:")
-                logging.info(f"- Username   : {user_credentials["username"]}")
-                logging.info(f"- User UID   : {user_credentials["userUid"]}")
-                logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
-                logging.info("--------------------------------")
-            return user_credentials
-        else:   
-            user_credentials = _read_txt_to_dict(cred_full_path)
-            _validate_credentials_keys(required_keys=required_keys, save_logs=save_logs, user_credentials=user_credentials, file_name=file_name)
-            
-            print("Info: --------------------------------")
-            print("Info: PC mode user credentials Info:")
-            print(f"Info: - Username   : {user_credentials["username"]}")
-            print(f"Info: - User UID   : {user_credentials["userUid"]}")
-            print(f"Info: - Device UID : {user_credentials["deviceUid"]}")
-            print(f"Info: This file was created on {user_credentials["createdAt"]}.")
-            print("Info: --------------------------------")
-            if save_logs:
-                logging.info("--------------------------------")
-                logging.info("PC mode user credentials Info:")
-                logging.info(f"- Username   : {user_credentials["username"]}")
-                logging.info(f"- User UID   : {user_credentials["userUid"]}")
-                logging.info(f"- Device UID : {user_credentials["deviceUid"]}")
-                logging.info(f"This file was created on {user_credentials["createdAt"]}.")
-                logging.info("--------------------------------")
-            return user_credentials
-        
-    # print("Pairing device to app...")
-    # ... (Rest of the logic for non-PC devices) ...
-    
-    # If the file exists, read and validate it
-    # user_credentials = _read_txt_to_dict(cred_full_path)
-    # if user_credentials:
-    #     _validate_credentials_keys(required_keys=required_keys, save_logs=save_logs, user_credentials=user_credentials)
-    
-    # return user_credentials
+logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 
-def _validate_credentials_keys(required_keys: set, save_logs: bool, user_credentials: dict, file_name: str) -> None:
-    if user_credentials.keys() >= required_keys:
-        return
-    
-    print("Error: Pairing info file is missing some required keys.")
-    if save_logs:
-        logging.error("Pairing info file is missing some required keys.")
-    exit()
-
-
-def _write_user_info_in_txt_file(credentials: dict, save_logs: bool, user_credentials_full_path: str) -> None:
+def _write_credentials_to_file(CREDENTIALS: dict, FULL_PATH: str) -> None:
     """Writes credentials to a file, ensuring the directory exists."""
     now = datetime.now()
     created_at = now.strftime('%m/%d/%Y at %H:%M:%S')
     data = (
-        f"userUid   : {credentials["userUid"]}\n"
-        f"username  : {credentials["username"]}\n"
-        f"deviceUid : {credentials["deviceUid"]}\n"
+        f"username  : {CREDENTIALS["username"]}\n"
+        f"userUid   : {CREDENTIALS["userUid"]}\n"
+        f"deviceUid : {CREDENTIALS["deviceUid"]}\n"
         f"createdAt : {created_at}"
     )
     
-    with open(user_credentials_full_path, "w") as f:
+    with open(FULL_PATH, "w") as f:
         f.write(data)
+    
 
-
-def _read_txt_to_dict(user_credentials_path: str) -> dict:
+def _read_txt_and_return_dict(user_credentials_path: str) -> dict:
     user_credentials = {}
     with open(user_credentials_path, "r") as f:
         for line in f:
@@ -133,12 +36,158 @@ def _read_txt_to_dict(user_credentials_path: str) -> dict:
             # Split only on the first colon to handle potential colons in the value
             key, value = line.split(":", 1)
             user_credentials[key.strip()] = value.strip()
+    
+    return {
+        "status"            : "success",
+        "user_credentials"  : user_credentials
+    }
+        
+        
+
+# ====================== WIP: NOT YET FINISHED ======================
+def _ask_user_for_username_to_get_userUid() -> dict:
+    return {
+        "status"    : "error",
+        "message"   : "Work in progress..."
+    }
+    
+    
+    init_result = firebase_rtdb.initialize_firebase()
+    if init_result["status"] == "error":
+        return init_result
+    
+    while True:
+        time.sleep(0.1)
+        
+        # Ask for username
+        key = handle_hardware.read_keypad_data()
+        if key == None:
+            continue
+        
+        if key == '#': # meaning erase the last single character input
+            pass 
+            
+        """
+        Keypad Rule
+        1: abc1, 2: def2, 3: ghi3
+        4: jkl4, 5: lmn5, 6: opq6
+        7: rst7, 8: uvw8, 9: xyz9
+        *: DONE, 0: *#0,  #: ERASE   
+        """
+        
+        # Fetch usernames/ from RTDB Firebase, and pick the same input username, then get userUid 
+        
+        userUid     = ""
+        username    = ""
+        return {
+            "status"    : "success",
+            "userUid"   : userUid,
+            "username"  : username
+        }
+    
+    
+def _validate_essenstial_keys(user_credentials) -> dict:
+    REQUIRED_KEYS = {"userUid", "username", "deviceUid", "createdAt"}
+    
+    for key in REQUIRED_KEYS:
+        if key not in user_credentials:
+            return {
+                "status"    : "error",
+                "message"   : f"Missing key: {key}. Check your user_credentials.txt file. Source: {__name__}"
+            }
+        
+    return {"status": "success"}
+
+
+# ====================== WIP: NOT YET FINISHED ======================
+def pair_it(
+        DEVICE_UID: str,    
+        PRODUCTION_MODE: bool,
+        SAVE_LOGS: bool,
+        TEST_CREDENTIALS: dict
+    ) -> dict:
+    """
+        Args:
+            device_uid      = kargs["DEVICE_UID"], 
+            is_pc_device    = kargs["PRODUCTION_MODE"], 
+            save_logs       = kargs["SAVE_LOGS"]
+            
+        Returns:
+            Dict of credentials
+    """
+    FILE_NAME           = "user_credentials.txt"
+    TARGET_PATH         = "credentials"
+    USER_CRED_FULL_PATH = utils.join_path_with_os_adaptability(TARGET_PATH, FILE_NAME, __name__)
+    user_credentials    = {}
+    
+    if not PRODUCTION_MODE:        
+        _write_credentials_to_file(
+            CREDENTIALS = TEST_CREDENTIALS,
+            FULL_PATH   = USER_CRED_FULL_PATH
+        )
+        user_credentials = _read_txt_and_return_dict(USER_CRED_FULL_PATH)
+        print(
+            "Info: --------------------------------\n"
+            "Info: PC mode user credentials info:\n"
+            f"Info: - Username   : {user_credentials["username"]}\n"
+            f"Info: - User UID   : {user_credentials["userUid"]}\n"
+            f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
+            "Info: --------------------------------"
+        )
+        if SAVE_LOGS:
+            logging.info(            
+                "Info: --------------------------------\n"
+                "Info: PC mode user credentials info:\n"
+                f"Info: - Username   : {user_credentials["username"]}\n"
+                f"Info: - User UID   : {user_credentials["userUid"]}\n"
+                f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
+                "Info: --------------------------------"
+            )
+        return user_credentials
+    
+    
+    # Check the file existence else create one with empty data
+    check_point_result = utils.file_existence_check_point(USER_CRED_FULL_PATH, __name__)
+    if check_point_result["status"] == "error":
+        ask_result = _ask_user_for_username_to_get_userUid()
+        
+        if ask_result["status"] == "error":
+            if SAVE_LOGS:
+                logger.error(ask_result["message"])
+            exit()
+            
+        CREDENTIALS  = {
+            "username"  : ask_result["username"],
+            "userUid"   : ask_result["userUid"],
+            "deviceUid" : DEVICE_UID
+        }
+        user_credentials = _write_credentials_to_file(
+            CREDENTIALS = CREDENTIALS,
+            FULL_PATH   = USER_CRED_FULL_PATH
+        )
+        
+    validation_result = _validate_essenstial_keys(user_credentials)
+    if validation_result["status"] == "error":
+        if SAVE_LOGS:
+            logger.error(validation_result["message"])
+        exit()
+    
+    user_credentials = _read_txt_and_return_dict(USER_CRED_FULL_PATH)
+    print(
+        "Info: --------------------------------\n"
+        "Info: PC mode user credentials info:\n"
+        f"Info: - Username   : {user_credentials["username"]}\n"
+        f"Info: - User UID   : {user_credentials["userUid"]}\n"
+        f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
+        "Info: --------------------------------"
+    )
+    if SAVE_LOGS:
+        logging.info(            
+            "Info: --------------------------------\n"
+            "Info: PC mode user credentials info:\n"
+            f"Info: - Username   : {user_credentials["username"]}\n"
+            f"Info: - User UID   : {user_credentials["userUid"]}\n"
+            f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
+            "Info: --------------------------------"
+        )
     return user_credentials
-
-
-def _is_available_for_resetting() -> bool:
-    pass
-
-
-def _collect_device_info_from_db() -> dict:
-    pass
