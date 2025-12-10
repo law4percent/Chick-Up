@@ -168,9 +168,7 @@ def process_C(**kwargs) -> None:
             current_water_app_button_state  = database_data["current_water_app_button_state"]
             current_feed_schedule_state     = database_data["current_feed_schedule_state"]
             current_live_button_state       = database_data["current_live_button_state"]
-            all_data_from_db_state          = True
         except Exception as e:
-            all_data_from_db_state          = False
             logger.warning(f"{TASK_NAME} - {e}. Skip reading buttons from RTDB. No internet.")
         
         # Modify Live Stream Status
@@ -206,10 +204,12 @@ def process_C(**kwargs) -> None:
             if current_water_level <= water_threshold_warning:
                 refill_now_state = True
                 
-        
         if current_water_level == MAX_REFILL_LEVEL and refill_now_state:
             refill_now_state = False
-            
+        
+        if not refill_now_state and current_water_physical_button_state or current_water_app_button_state:
+            refill_now_state = False
+        
         _handle_water_refill(water_pump_relay, refill_now_state)
         
         # ================= UPDATE ALL DATA TO DB =================
