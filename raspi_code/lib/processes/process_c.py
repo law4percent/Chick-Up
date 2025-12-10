@@ -29,15 +29,6 @@ def _handle_water_refill(water_pump_relay: any, refill_now_state: bool) -> None:
 
 # ========================= WIP =========================
 def process_C(**kwargs) -> None:
-    # process_C_args  = {
-    #     "TASK_NAME"         : "Process C",
-    #     "status_checker"    : status_checker,
-    #     "live_status"       : live_status,
-    #     "annotated_option"  : annotated_option,
-    #     "USER_CREDENTIAL"   : {},
-    #     "PC_MODE"           : PC_MODE,
-    #     "SAVE_LOGS"         : SAVE_LOGS
-    # }
     process_C_args  = kwargs["process_C_args"]
     TASK_NAME       = process_C_args["TASK_NAME"]
     status_checker  = process_C_args["status_checker"]
@@ -50,9 +41,12 @@ def process_C(**kwargs) -> None:
     
     print(f"{TASK_NAME} - Running✅")
     logger.info(f"{TASK_NAME} - Running✅")
+    
     init_result = firebase_rtdb.initialize_firebase()
     if init_result["status"] == "error":
-        return init_result
+        status_checker.clear()
+        logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
+        exit()
 
     user_uid    = USER_CREDENTIAL["userUid"]
     device_uid  = USER_CREDENTIAL["deviceUid"]
