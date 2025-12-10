@@ -216,4 +216,4 @@ def process_C(**kwargs) -> None:
                 "updatedAt" : datetime.now().strftime('%m/%d/%Y %H:%M:%S')
             })
         except Exception as e:
-            logger.warning(f"{TASK_NAME} - {e}. Skip update database. No internet.")
+            logger.warning(f"{TASK_NAME} - {e}. Skip update feedLevel and waterLevel to database. No internet.")

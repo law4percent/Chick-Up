@@ -8,11 +8,6 @@ import logging
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 def main(**kargs) -> None:
-    # ============================== WIP: Initial code for checking the internet ==============================
-    # if not handle_internet.check_external_connection(TARGET_HOST, TARGET_PORT, TIMEOUT_SECONDS):
-    #     pass
-     
-    # ========================= WIP =========================
     user_credentials = handle_pairing.pair_it(
         DEVICE_UID      = kargs["DEVICE_UID"], 
         PRODUCTION_MODE = kargs["PRODUCTION_MODE"], 
@@ -75,8 +70,8 @@ if __name__ == "__main__":
             "annotated_option"      : annotated_option,
             "number_of_instances"   : number_of_instances,
             "YOLO_CONFIDENCE"       : 0.25,
-            "FRAME_DIMENSION"       : {"width": 1280, "height": 720}, # {"width": 640, "height": 480}
-            "IS_WEB_CAM"            : False, # <==== need to find
+            "FRAME_DIMENSION"       : {"width": 1280, "height": 720}, # RECOMMEND ==> {"width": 640, "height": 480}
+            "IS_WEB_CAM"            : False,
             "PC_MODE"               : PC_MODE,
             "CAMERA_INDEX"          : 0,
             "VIDEO_FILE"            : "video/chicken.mp4",
@@ -84,13 +79,15 @@ if __name__ == "__main__":
             "SHOW_WINDOW"           : True,
             "PRODUCTION_MODE"       : PRODUCTION_MODE
         },
-        # ("Process B:", queue_frame, live_status, number_of_class_instances, process_b_args))
         process_B_args  = {
-            "TASK_NAME"         : "Process B",
-            "status_checker"    : status_checker,
-            "USER_CREDENTIAL"   : {},
-            "PC_MODE"           : PC_MODE,
-            "SAVE_LOGS"         : SAVE_LOGS
+            "TASK_NAME"             : "Process B",
+            "status_checker"        : status_checker,
+            "queue_frame"           : queue_frame,
+            "live_status"           : live_status,
+            "number_of_instances"   : number_of_instances,
+            "USER_CREDENTIAL"       : {},
+            "PC_MODE"               : PC_MODE,
+            "SAVE_LOGS"             : SAVE_LOGS
         },
         process_C_args  = {
             "TASK_NAME"         : "Process C",
