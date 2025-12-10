@@ -129,6 +129,9 @@ def process_C(**kwargs) -> None:
     auto_refill_water_enabled   = True
     MAX_REFILL_LEVEL            = 95
     
+    settings_ref    = db.reference(f"settings/{user_uid}")
+    sensors_ref     = db.reference(f"sensors/{user_uid}/{device_uid}")
+    
     while True:
         if not status_checker.is_set():
             logger.error(f"{TASK_NAME} - One of the processes got error.")
@@ -174,7 +177,6 @@ def process_C(**kwargs) -> None:
         
         # ==================== GET USER SETTINGS ====================
         try:
-            settings_ref                = db.reference(f"settings/{user_uid}")
             settings                    = settings_ref.get() or {}
             feed_threshold_warning      = settings.get("feed", {}).get("thresholdPercent")
             dispense_volume_percent     = settings.get("feed", {}).get("dispenseVolumePercent") # Work in progress
@@ -207,9 +209,11 @@ def process_C(**kwargs) -> None:
         _handle_water_refill(water_pump_relay, refill_now_state)
         
         # ================= UPDATE ALL DATA TO DB =================
-        sensors_ref = db.reference(f"sensors/{user_uid}/{device_uid}")
-        sensors_ref.update({
-            "feedLevel" : current_feed_level,
-            "waterLevel": current_water_level,
-            "updatedAt" : datetime.now().strftime('%m/%d/%Y %H:%M:%S')
-        })
+        try:
+            sensors_ref.update({
+                "feedLevel" : current_feed_level,
+                "waterLevel": current_water_level,
+                "updatedAt" : datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+            })
+        except Exception as e:
+            logger.warning(f"{TASK_NAME} - {e}. Skip update database. No internet.")
