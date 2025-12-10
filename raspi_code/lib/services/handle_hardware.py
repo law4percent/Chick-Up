@@ -192,11 +192,11 @@ def read_pins_data(
         return {    
             "status"                                : "error",
             "message"                               : f"Cannot get data from pins due in PC MODE. Source: {__name__}",
-            "current_feed_level"                    : None,
-            "current_water_level"                   : None,
-            "current_key_pressed"                   : None,
-            "current_feed_physical_button_state"    : None,
-            "current_water_physical_button_state"   : None,
+            "current_feed_level"                    : 0,
+            "current_water_level"                   : 0,
+            "current_key_pressed"                   : 0,
+            "current_feed_physical_button_state"    : '',
+            "current_water_physical_button_state"   : 0,
         }
     current_feed_level, current_water_level = read_level_sensors_data(feed_level_sensor=feed_level_sensor, water_level_sensor=water_level_sensor)
     current_feed_physical_button_state, current_water_physical_button_state = read_physical_buttons_data(feed_physical_button=feed_physical_button, water_physical_button=water_physical_button)

@@ -14,10 +14,10 @@ def _write_credentials_to_file(CREDENTIALS: dict, FULL_PATH: str) -> None:
     now = datetime.now()
     created_at = now.strftime('%m/%d/%Y at %H:%M:%S')
     data = (
-        f"username  : {CREDENTIALS["username"]}\n"
-        f"userUid   : {CREDENTIALS["userUid"]}\n"
-        f"deviceUid : {CREDENTIALS["deviceUid"]}\n"
-        f"createdAt : {created_at}"
+        f"username: {CREDENTIALS["username"]}\n"
+        f"userUid: {CREDENTIALS["userUid"]}\n"
+        f"deviceUid: {CREDENTIALS["deviceUid"]}\n"
+        f"createdAt: {created_at}"
     )
     
     with open(FULL_PATH, "w") as f:
@@ -126,21 +126,25 @@ def pair_it(
             FULL_PATH   = USER_CRED_FULL_PATH
         )
         user_credentials = _read_txt_and_return_dict(USER_CRED_FULL_PATH)
+        # username = user_credentials['username']
+        # userUid = user_credentials['userUid']
+        # deviceUid = user_credentials['deviceUid']
         print(
             "Info: --------------------------------\n"
             "Info: PC mode user credentials info:\n"
-            f"Info: - Username   : {user_credentials["username"]}\n"
-            f"Info: - User UID   : {user_credentials["userUid"]}\n"
-            f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
+            f"Info: - user_credentials   : {user_credentials}\n"
+            # f"Info: - User UID   : {userUid}\n"
+            # f"Info: - Device UID : {deviceUid}\n"
             "Info: --------------------------------"
         )
         if SAVE_LOGS:
             logging.info(            
                 "Info: --------------------------------\n"
                 "Info: PC mode user credentials info:\n"
-                f"Info: - Username   : {user_credentials["username"]}\n"
-                f"Info: - User UID   : {user_credentials["userUid"]}\n"
-                f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
+                f"Info: - user_credentials   : {user_credentials}\n"
+                #f"Info: - Username   : {username}\n"
+                #f"Info: - User UID   : {userUid}\n"
+                #f"Info: - Device UID : {udeviceUid}\n"
                 "Info: --------------------------------"
             )
         return user_credentials
