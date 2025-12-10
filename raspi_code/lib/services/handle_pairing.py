@@ -141,14 +141,19 @@ def pair_it(
     # Check the file existence else create one with empty data
     check_point_result = utils.file_existence_check_point(USER_CRED_FULL_PATH, __name__)
     if check_point_result["status"] == "error":
-       ask_result = _ask_user_for_username_to_get_userUid()
-       CREDENTIALS  = {
+        ask_result = _ask_user_for_username_to_get_userUid()
+        if ask_result["status"] == "error":
+            if SAVE_LOGS:
+                logger.error(ask_result["message"])
+            exit()
+            
+        CREDENTIALS  = {
             "username"  : "law4percent",
             "userUid"   : ask_result["userUid"],
             "deviceUid" : DEVICE_UID
         }
-       user_credentials = _write_credentials_to_file(
-            CREDENTIALS = TEST_CREDENTIALS,
+        user_credentials = _write_credentials_to_file(
+            CREDENTIALS = CREDENTIALS,
             FULL_PATH   = USER_CRED_FULL_PATH
         )
         
