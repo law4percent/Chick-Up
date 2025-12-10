@@ -45,8 +45,8 @@ def _read_txt_and_return_dict(user_credentials_path: str) -> dict:
         
 
 # ====================== WIP: NOT YET FINISHED ======================
-def _ask_user_for_username_to_get_userUid(SAVE_LOGS) -> dict:
-    init_result = firebase_rtdb.initialize_firebase(save_logs=SAVE_LOGS)
+def _ask_user_for_username_to_get_userUid() -> dict:
+    init_result = firebase_rtdb.initialize_firebase()
     if init_result["status"] == "error":
         return init_result
     
