@@ -115,6 +115,7 @@ def process_A(**kwargs) -> None:
     raw_frame   = None
     while True:
         if not status_checker.is_set():
+            logger.error(f"{TASK_NAME} - One of the processes got error.")
             exit()
         
         if PC_MODE:

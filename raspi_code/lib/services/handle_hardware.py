@@ -189,46 +189,27 @@ def read_pins_data(
         save_logs: bool = False
     ) -> dict | None:
     if is_pc_device:
-        
-        feed = db.reference(f"sensors/{user_uid}/{device_uid}/feedLevel").get()
-        water = db.reference(f"sensors/{user_uid}/{device_uid}/waterLevel").get()
-
-        return {
-            "feed_current_level": feed,    
-            "water_current_level": water,    
-            "feed_physical_button_current_state": False,
-            "water_physical_button_current_state": False,
-            "pressed_key": None
+        return {    
+            "status"                                : "error",
+            "message"                               : f"Cannot get data from pins due in PC MODE. Source: {__name__}",
+            "current_feed_level"                    : None,
+            "current_water_level"                   : None,
+            "current_key_pressed"                   : None,
+            "current_feed_physical_button_state"    : None,
+            "current_water_physical_button_state"   : None,
         }
-    
+    current_feed_level, current_water_level = read_level_sensors_data(feed_level_sensor=feed_level_sensor, water_level_sensor=water_level_sensor)
+    current_feed_physical_button_state, current_water_physical_button_state = read_physical_buttons_data(feed_physical_button=feed_physical_button, water_physical_button=water_physical_button)
+    current_key_pressed = read_keypad_data(keypad_pins=keypad_pins)
 
-    # -------------------------------
-    # This handles level sensors
-    # -------------------------------
-    feed_current_level, water_current_level = read_level_sensors_data(feed_level_sensor=feed_level_sensor, water_level_sensor=water_level_sensor)
-    # print(f"{task_name} Current level of feeds  : {feed_current_level}")
-    # print(f"{task_name} Current level of water  : {water_current_level}")
-     
-      
-            
-    # -------------------------------
-    # This handles physical buttons
-    # -------------------------------
-    feed_physical_button_current_status, water_physical_button_current_status = read_physical_buttons_data(feed_physical_button=feed_physical_button, water_physical_button=water_physical_button)
-    # print(f"{task_name} Current physical button status of feed  : {feed_physical_button_current_status}")
-    # print(f"{task_name} Current physical button status of water : {water_physical_button_current_status}")
-
-    pressed_key = read_keypad_data(keypad_pins=keypad_pins)
-
-    all_data = {
-        "feed_current_level" : feed_current_level,
-        "water_current_level": water_current_level,
-        "feed_physical_button_current_state": feed_physical_button_current_status,
-        "water_physical_button_current_state": water_physical_button_current_status,
-        "pressed_key": pressed_key
+    return {
+        "status"                                : "success",
+        "current_feed_level"                    : current_feed_level,
+        "current_water_level"                   : current_water_level,
+        "current_key_pressed"                   : current_key_pressed,
+        "current_feed_physical_button_state"    : current_feed_physical_button_state,
+        "current_water_physical_button_state"   : current_water_physical_button_state,
     }
-
-    return all_data
 
 
 

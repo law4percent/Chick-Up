@@ -46,6 +46,12 @@ def _read_txt_and_return_dict(user_credentials_path: str) -> dict:
 
 # ====================== WIP: NOT YET FINISHED ======================
 def _ask_user_for_username_to_get_userUid() -> dict:
+    return {
+        "status"    : "error",
+        "message"   : "Work in progress..."
+    }
+    
+    
     init_result = firebase_rtdb.initialize_firebase()
     if init_result["status"] == "error":
         return init_result
@@ -74,6 +80,7 @@ def _ask_user_for_username_to_get_userUid() -> dict:
         userUid     = ""
         username    = ""
         return {
+            "status"    : "success",
             "userUid"   : userUid,
             "username"  : username
         }
@@ -111,6 +118,7 @@ def pair_it(
     FILE_NAME           = "user_credentials.txt"
     TARGET_PATH         = "credentials"
     USER_CRED_FULL_PATH = utils.join_path_with_os_adaptability(TARGET_PATH, FILE_NAME, __name__)
+    user_credentials    = {}
     
     if not PRODUCTION_MODE:        
         _write_credentials_to_file(
@@ -142,13 +150,14 @@ def pair_it(
     check_point_result = utils.file_existence_check_point(USER_CRED_FULL_PATH, __name__)
     if check_point_result["status"] == "error":
         ask_result = _ask_user_for_username_to_get_userUid()
+        
         if ask_result["status"] == "error":
             if SAVE_LOGS:
                 logger.error(ask_result["message"])
             exit()
             
         CREDENTIALS  = {
-            "username"  : "law4percent",
+            "username"  : ask_result["username"],
             "userUid"   : ask_result["userUid"],
             "deviceUid" : DEVICE_UID
         }

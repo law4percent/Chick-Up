@@ -92,14 +92,14 @@ def livestream_on(value) -> bool:
 def read_RTDB(database: dict) -> dict:
 
     # Get actual values from RTDB
-    df_datetime = database["df_app_button_ref"].get()
-    wr_datetime = database["wr_app_button_ref"].get()
-    feed_schedule = database["feed_schedule_ref"].get()
-    live_status = database["live_button_status_ref"].get()
+    df_datetime     = database["df_app_button_ref"].get()
+    wr_datetime     = database["wr_app_button_ref"].get()
+    feed_schedule   = database["feed_schedule_ref"].get()
+    live_status     = database["live_button_status_ref"].get()
 
     return {
-        "feed_app_button_current_state": is_fresh(df_datetime, min_to_stop=3),
-        "water_app_button_current_state": is_fresh(wr_datetime, min_to_stop=3),
-        "feed_schedule_current_state": is_schedule_triggered(feed_schedule),
-        "live_button_current_state": livestream_on(live_status),
+        "current_feed_app_button_state" : is_fresh(df_datetime, min_to_stop=3),
+        "current_water_app_button_state": is_fresh(wr_datetime, min_to_stop=3),
+        "current_feed_schedule_state"   : is_schedule_triggered(feed_schedule),
+        "current_live_button_state"     : livestream_on(live_status),
     }

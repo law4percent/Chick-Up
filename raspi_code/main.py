@@ -51,8 +51,8 @@ if __name__ == "__main__":
     SAVE_LOGS           = True
     DEVICE_UID          = "DEV_001"
     TEST_CREDENTIALS    = {
-        "username"  : "law4percent",
-        "userUid"   : "kP718rjyRXWlDUupBhiQTRAaWKt2",
+        "username"  : "dine",
+        "userUid"   : "A7e4bI9ucpa0JRZjHiscXfaUsxy1",
         "deviceUid" : DEVICE_UID
     }
     
@@ -86,14 +86,18 @@ if __name__ == "__main__":
         },
         # ("Process B:", queue_frame, live_status, number_of_class_instances, process_b_args))
         process_B_args  = {
+            "TASK_NAME"         : "Process B",
             "status_checker"    : status_checker,
             "USER_CREDENTIAL"   : {},
             "PC_MODE"           : PC_MODE,
             "SAVE_LOGS"         : SAVE_LOGS
         },
-        # ("Process C:", live_status, annotated_option, process_c_args))
         process_C_args  = {
+            "TASK_NAME"         : "Process C",
+            "FEED_DELAY"        : 5,
             "status_checker"    : status_checker,
+            "live_status"       : live_status,
+            "annotated_option"  : annotated_option,
             "USER_CREDENTIAL"   : {},
             "PC_MODE"           : PC_MODE,
             "SAVE_LOGS"         : SAVE_LOGS
