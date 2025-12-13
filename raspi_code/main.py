@@ -1,7 +1,6 @@
 from lib.processes import process_a, process_b, process_c
 from multiprocessing import Process, Queue, Event
-from lib.services import firebase_rtdb, handle_pairing, handle_internet, utils
-import os
+from lib.services import handle_pairing
 from lib import logger_config
 import logging
 
@@ -41,7 +40,7 @@ def main(**kargs) -> None:
 
 if __name__ == "__main__":
     # ===== MANUALLY TO ADJUST =====
-    PRODUCTION_MODE     = False
+    PRODUCTION_MODE     = True
     PC_MODE             = False
     SAVE_LOGS           = True
     DEVICE_UID          = "DEV_001"

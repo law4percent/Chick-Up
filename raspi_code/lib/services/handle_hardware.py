@@ -1,16 +1,6 @@
-import logging
-import firebase_admin
 from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice, PWMOutputDevice
 from firebase_admin import db
 from RPLCD import CharLCD
-
-logging.basicConfig(
-    filename='logs/debug.log',
-    filemode='a',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
 
 def measure_cm(sensor) -> float:
     return sensor.distance * 100

@@ -126,35 +126,18 @@ def pair_it(
             FULL_PATH   = USER_CRED_FULL_PATH
         )
         user_credentials = _read_txt_and_return_dict(USER_CRED_FULL_PATH)
-        # username = user_credentials['username']
-        # userUid = user_credentials['userUid']
-        # deviceUid = user_credentials['deviceUid']
-        print(
-            "Info: --------------------------------\n"
-            "Info: PC mode user credentials info:\n"
-            f"Info: - user_credentials   : {user_credentials}\n"
-            # f"Info: - User UID   : {userUid}\n"
-            # f"Info: - Device UID : {deviceUid}\n"
-            "Info: --------------------------------"
-        )
         if SAVE_LOGS:
             logging.info(            
-                "Info: --------------------------------\n"
-                "Info: PC mode user credentials info:\n"
-                f"Info: - user_credentials   : {user_credentials}\n"
-                #f"Info: - Username   : {username}\n"
-                #f"Info: - User UID   : {userUid}\n"
-                #f"Info: - Device UID : {udeviceUid}\n"
-                "Info: --------------------------------"
+                "===============================\n"
+                "PC mode user credentials info:\n"
+                f"user_credentials: {user_credentials}\n"
+                "==============================="
             )
         return user_credentials
     
-    
-    # Check the file existence else create one with empty data
     check_point_result = utils.file_existence_check_point(USER_CRED_FULL_PATH, __name__)
     if check_point_result["status"] == "error":
         ask_result = _ask_user_for_username_to_get_userUid()
-        
         if ask_result["status"] == "error":
             if SAVE_LOGS:
                 logger.error(ask_result["message"])
