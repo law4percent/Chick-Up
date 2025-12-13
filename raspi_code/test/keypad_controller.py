@@ -1,6 +1,8 @@
 from gpiozero import DigitalOutputDevice, Button
 from time import sleep
 
+# Rows → 5, 6, 13, 19
+# Cols → 12, 16, 20, 21
 ROWS = [5, 6, 13, 19]
 COLS = [12, 16, 20, 21]
 

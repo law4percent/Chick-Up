@@ -2,6 +2,14 @@ from gpiozero import Motor
 from time import sleep
 
 # LEFT motor
+# IN1 → 17
+# IN2 → 27
+
+# RIGHT motor
+# IN3 → 22
+# IN4 → 23
+
+# LEFT motor
 LEFT_IN1 = 17
 LEFT_IN2 = 27
 
