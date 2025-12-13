@@ -2,13 +2,8 @@ from ultralytics import YOLO
 import cv2
 import os
 import logging
-
-logging.basicConfig(
-    filename='logs/debug.log',     # log file name
-    filemode='a',              # 'a' to append, 'w' to overwrite
-    level=logging.INFO,        # minimum level to log
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# from .logger_config import setup_logger
+#logger = setup_logger(name=__name__, level=logging.DEBUG)
 
 
 def run(raw_frame: any, frame_dimension: dict, yolo_model: any, class_list: list, confidence: float = 0.25) -> list:

@@ -44,7 +44,6 @@ def process_B(**kwargs) -> None:
             exit()
         
         if not live_status.is_set():
-            print(f"{TASK_NAME} - Live status is {live_status.is_set()}. Waiting...")
             time.sleep(0.1)
             continue
 

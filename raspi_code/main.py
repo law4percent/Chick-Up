@@ -1,7 +1,6 @@
 from lib.processes import process_a, process_b, process_c
 from multiprocessing import Process, Queue, Event
-from lib.services import firebase_rtdb, handle_pairing, handle_internet, utils
-import os
+from lib.services import handle_pairing
 from lib import logger_config
 import logging
 
@@ -14,8 +13,8 @@ def main(**kargs) -> None:
         SAVE_LOGS       = kargs["SAVE_LOGS"],
         TEST_CREDENTIALS= kargs["TEST_CREDENTIALS"]
     )
-    kargs["process_B_args"]["USER_CREDENTIAL"] = user_credentials
-    kargs["process_C_args"]["USER_CREDENTIAL"] = user_credentials
+    kargs["process_B_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
+    kargs["process_C_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
 
     task_A = Process(
         target = process_a.process_A, 
@@ -41,13 +40,13 @@ def main(**kargs) -> None:
 
 if __name__ == "__main__":
     # ===== MANUALLY TO ADJUST =====
-    PRODUCTION_MODE     = False
+    PRODUCTION_MODE     = True
     PC_MODE             = False
     SAVE_LOGS           = True
     DEVICE_UID          = "DEV_001"
     TEST_CREDENTIALS    = {
-        "username"  : "dine",
-        "userUid"   : "A7e4bI9ucpa0JRZjHiscXfaUsxy1",
+        "username"  : "honey",
+        "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
         "deviceUid" : DEVICE_UID
     }
     
@@ -57,6 +56,8 @@ if __name__ == "__main__":
     status_checker      = Event()
     number_of_instances = Queue(maxsize = 1)
     status_checker.set()
+    live_status.set()
+    live_status.clear()
     
     main(
         PRODUCTION_MODE = PRODUCTION_MODE,
@@ -68,6 +69,7 @@ if __name__ == "__main__":
             "queue_frame"           : queue_frame,
             "live_status"           : live_status,
             "annotated_option"      : annotated_option,
+            "status_checker"        : status_checker,
             "number_of_instances"   : number_of_instances,
             "YOLO_CONFIDENCE"       : 0.25,
             "FRAME_DIMENSION"       : {"width": 1280, "height": 720}, # RECOMMEND ==> {"width": 640, "height": 480}

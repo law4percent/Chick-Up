@@ -14,11 +14,13 @@ logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 def _init_YOLO_detection(CLASS_LIST_FILE: str, YOLO_MODEL_FILE: str) -> dict:
     class_list = []
-    with open(CLASS_LIST_FILE, 'r') as f:
+    path = utils.normalize_path(CLASS_LIST_FILE)
+    with open(path, 'r') as f:
         class_list = [line.strip() for line in f.readlines()]
     
-    try:    
-        yolo_model = YOLO(YOLO_MODEL_FILE)
+    try:
+        path = utils.normalize_path(YOLO_MODEL_FILE)
+        yolo_model = YOLO(path)
         return {
             "status"    : "success",
             "class_list": class_list,
@@ -32,13 +34,15 @@ def _init_YOLO_detection(CLASS_LIST_FILE: str, YOLO_MODEL_FILE: str) -> dict:
 
 
 def _check_points(FILE_PATHS: dict, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
+    count = 0
     for FILE_PATH in FILE_PATHS.values():    
         check_point_result = utils.file_existence_check_point(FILE_PATH, __name__)
-        if check_point_result["status"] == "error":
+        if check_point_result["status"] == "error" and count < 2:
             return check_point_result
+        count += 1
     
     capture = None
-    VIDEO_PATH = FILE_PATHS["VIDEO_PATH"]
+    VIDEO_PATH = FILE_PATHS["VIDEO_FILE"]
     
     config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":

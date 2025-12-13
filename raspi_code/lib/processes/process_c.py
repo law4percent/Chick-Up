@@ -21,7 +21,9 @@ def _handle_feed_dispense(feed_motor_relay: any, delay: int) -> None:
     feed_motor_relay.off()
     
     
-def _handle_water_refill(water_pump_relay: any, refill_now_state: bool) -> None:
+def _handle_water_refill(water_pump_relay: any, refill_now_state: bool, PC_MODE: bool) -> None:
+    if PC_MODE:
+        return
     if refill_now_state:
         water_pump_relay.on()
     water_pump_relay.off()
@@ -35,7 +37,7 @@ def process_C(**kwargs) -> None:
     live_status     = process_C_args["live_status"]
     annotated_option= process_C_args["annotated_option"] # work in progress
     USER_CREDENTIAL = process_C_args["USER_CREDENTIAL"]
-    PC_MODE         = process_C_args["PC_MODE"]
+    PC_MODE         = True # process_C_args["PC_MODE"]
     SAVE_LOGS       = process_C_args["SAVE_LOGS"]
     FEED_DELAY      = process_C_args["FEED_DELAY"] 
     
@@ -47,7 +49,7 @@ def process_C(**kwargs) -> None:
         status_checker.clear()
         logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
         exit()
-
+        
     user_uid    = USER_CREDENTIAL["userUid"]
     device_uid  = USER_CREDENTIAL["deviceUid"]
     
@@ -66,11 +68,11 @@ def process_C(**kwargs) -> None:
     )
     feed_physical_button, water_physical_button = handle_hardware.setup_physical_buttons(
         feed_physical_button_data = {
-            "gpio"      : 20,
+            "gpio"      : 12,
             "pull_up"   : True
         },
         water_physical_button_data = {
-            "gpio"      : 28,
+            "gpio"      : 13,
             "pull_up"   : True
         },
         is_pc_device = PC_MODE
@@ -90,7 +92,7 @@ def process_C(**kwargs) -> None:
     )
     
     lcd = handle_hardware.setup_lcd(
-        is_pc_device= PC_MODE,
+        is_pc_device= True, #PC_MODE,
         lcd_data    = {
             "i2c_driver"    : "PCF8574",
             "i2c_address"   : 0x27  # change to 0x3F if your module has a different address
@@ -129,6 +131,23 @@ def process_C(**kwargs) -> None:
     auto_refill_water_enabled   = True
     MAX_REFILL_LEVEL            = 95
     
+    current_feed_level                  = 0
+    current_water_level                 = 0
+    current_feed_physical_button_state  = 0
+    current_water_physical_button_state = 0
+    
+    current_feed_app_button_state   = 0
+    current_water_app_button_state  = 0
+    current_feed_schedule_state     = 0
+    current_live_button_state       = 0
+    
+    feed_threshold_warning      = 20 #minimun
+    dispense_volume_percent     = 0 # Work in progress
+    water_threshold_warning     = 20 #minimun
+    auto_refill_water_enabled   = False
+    
+    refill_now_state = False
+        
     settings_ref    = db.reference(f"settings/{user_uid}")
     sensors_ref     = db.reference(f"sensors/{user_uid}/{device_uid}")
     
@@ -169,7 +188,12 @@ def process_C(**kwargs) -> None:
             logger.warning(f"{TASK_NAME} - {e}. Skip reading buttons from RTDB. No internet.")
         
         # Modify Live Stream Status
-        _handle_live_stream(current_live_button_state, live_status)
+        if current_live_button_state:
+            live_status.set()
+            #print("current_live_button_state:", current_live_button_state)
+        else:
+            live_status.clear()
+        #_handle_live_stream(current_live_button_state, live_status)
         
         # Dispense it!
         if current_feed_physical_button_state or current_feed_app_button_state or current_feed_schedule_state:
@@ -187,13 +211,15 @@ def process_C(**kwargs) -> None:
         
         # Warn it!
         if current_feed_level <= feed_threshold_warning:
-            print("FEED LEVEL LOW!")
+            # print("FEED LEVEL LOW!")
             # handle_hardware.lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
-        
+            pass
+                
         # Warn it!
         if current_water_level <= water_threshold_warning:
-            print("WATER LEVEL LOW!")
+            # print("WATER LEVEL LOW!")
             # handle_hardware.lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
+            pass
         
         # Refill it!
         if auto_refill_water_enabled:
@@ -206,7 +232,7 @@ def process_C(**kwargs) -> None:
         if not refill_now_state and current_water_physical_button_state or current_water_app_button_state:
             refill_now_state = False
         
-        _handle_water_refill(water_pump_relay, refill_now_state)
+        _handle_water_refill(water_pump_relay, refill_now_state, PC_MODE)
         
         # ================= UPDATE ALL DATA TO DB =================
         try:

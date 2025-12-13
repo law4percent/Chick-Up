@@ -59,11 +59,11 @@ def config_camera(PC_MODE: bool, IS_WEB_CAM: bool, VIDEO_PATH: str, CAMERA_INDEX
     picam2.configure(config)
 
     # Optional tuning
-    picam2.set_controls({
-        "AwbMode": "auto",           # Auto white balance
-        "ExposureTime": 10000,       # Adjust if needed
-        "AnalogueGain": 1.0,         # Adjust for brightness
-    })
+    #picam2.set_controls({
+    #    "AwbMode": "auto",           # Auto white balance
+    #    "ExposureTime": 10000,       # Adjust if needed
+    #    "AnalogueGain": 1.0,         # Adjust for brightness
+    #})
 
     return {
       "status"  : "success",
