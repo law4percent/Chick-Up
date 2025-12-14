@@ -5,8 +5,9 @@ from lib import logger_config
 import logging
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
-
+        
 def main(**kargs) -> None:
+    
     user_credentials = handle_pairing.pair_it(
         DEVICE_UID      = kargs["DEVICE_UID"], 
         PRODUCTION_MODE = kargs["PRODUCTION_MODE"], 
@@ -33,9 +34,19 @@ def main(**kargs) -> None:
     task_B.start()
     task_C.start()
 
-    task_A.join()
-    task_B.join()
-    task_C.join()
+    try:
+        # Keep main process alive until children finish
+        task_A.join()
+        task_B.join()
+        task_C.join()
+    except KeyboardInterrupt:
+        print("Stopping all processes...")
+    finally:
+        # Terminate any alive processes
+        for task in [task_A, task_B, task_C]:
+            if task.is_alive():
+                task.terminate()
+                task.join()
 
 
 if __name__ == "__main__":
@@ -88,7 +99,6 @@ if __name__ == "__main__":
             "live_status"           : live_status,
             "number_of_instances"   : number_of_instances,
             "USER_CREDENTIAL"       : {},
-            "PC_MODE"               : PC_MODE,
             "SAVE_LOGS"             : SAVE_LOGS
         },
         process_C_args  = {

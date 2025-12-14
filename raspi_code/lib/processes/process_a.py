@@ -59,7 +59,8 @@ def process_A(**kwargs) -> None:
     CLASS_LIST_FILE     = "YOLO/class_list.txt",
     
     print(f"{TASK_NAME} - Running✅")
-    logger.info(f"{TASK_NAME} - Running✅")
+    if SAVE_LOGS:
+        logger.info(f"{TASK_NAME} - Running✅")
     
     FILE_PATHS = {
         "YOLO_MODEL_FILE"   : YOLO_MODEL_FILE, 
@@ -98,8 +99,12 @@ def process_A(**kwargs) -> None:
     try:
         while True:
             if not status_checker.is_set():
-                camera.clean_up_camera(capture, PC_MODE)
-                logger.error(f"{TASK_NAME} - One of the processes got error.")
+                clean_result = camera.clean_up_camera(capture, PC_MODE)
+                if clean_result["status"] == "error":
+                    if SAVE_LOGS:
+                        logger.error(f"{TASK_NAME} - {clean_result["message"]}")
+                if SAVE_LOGS:
+                    logger.error(f"{TASK_NAME} - One of the processes got error.")
                 exit()
             
             if PC_MODE:
@@ -112,7 +117,10 @@ def process_A(**kwargs) -> None:
                     if SAVE_LOGS:
                         logging.error(f"{TASK_NAME}Error: Check the hardware camera.")
                     status_checker.clear()
-                    camera.clean_up_camera(capture, PC_MODE)
+                    clean_result = camera.clean_up_camera(capture, PC_MODE)
+                    if clean_result["status"] == "error":
+                        if SAVE_LOGS:
+                            logger.error(f"{TASK_NAME} - {clean_result["message"]}")
                     exit()
                             
                     time.sleep(5)
@@ -167,7 +175,10 @@ def process_A(**kwargs) -> None:
                 # Press C → close/hide the window
                 if key == ord('c'):
                     if window_visible_state:
-                        camera.clean_up_camera(capture, PC_MODE)
+                        clean_result = camera.clean_up_camera(capture, PC_MODE)
+                        if clean_result["status"] == "error":
+                            if SAVE_LOGS:
+                                logger.error(f"{TASK_NAME} - {clean_result["message"]}")
                         window_visible_state = False
 
                 # Press W → show the window again
@@ -177,6 +188,10 @@ def process_A(**kwargs) -> None:
                         window_visible_state = True
                         
     except KeyboardInterrupt:
-        logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
         status_checker.clear()
-        camera.clean_up_camera(capture, PC_MODE)
+        clean_result = camera.clean_up_camera(capture, PC_MODE)
+        if SAVE_LOGS:
+            logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+        if clean_result["status"] == "error":
+            if SAVE_LOGS:
+                logger.error(f"{TASK_NAME} - {clean_result["message"]}")
