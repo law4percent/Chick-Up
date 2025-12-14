@@ -18,13 +18,15 @@ logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 def _handle_feed_dispense(state: bool) -> None:
     if state:
         motor.run_left_motor()
-    motor.stop_left_motor()
-    
-    
+    else:
+        motor.stop_left_motor()
+
+
 def _handle_water_refill(state: bool) -> None:
     if state:
         motor.run_right_motor()
-    motor.stop_right_motor()
+    else:
+        motor.stop_right_motor()
 
 
 def _read_pins_data(PC_MODE: bool):
@@ -155,7 +157,6 @@ def process_C(**kwargs) -> None:
     )
     
     keypad.setup_keypad()
-    motor.setup_motors()
     distance.setup_ultrasonics()
     
     current_feed_level                  = 0
