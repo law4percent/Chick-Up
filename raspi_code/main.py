@@ -78,7 +78,7 @@ if __name__ == "__main__":
             "CAMERA_INDEX"          : 0,
             "VIDEO_FILE"            : "video/chicken.mp4",
             "SAVE_LOGS"             : SAVE_LOGS,
-            "SHOW_WINDOW"           : True,
+            "SHOW_WINDOW"           : False,
             "PRODUCTION_MODE"       : PRODUCTION_MODE
         },
         process_B_args  = {
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         },
         process_C_args  = {
             "TASK_NAME"                 : "Process C",
-            "DISPENSE_COUNTDOWN_TIME"   : 5000,
+            "DISPENSE_COUNTDOWN_TIME"   : 1000 * 60, # 1min or 60 secs
             "status_checker"            : status_checker,
             "live_status"               : live_status,
             "annotated_option"          : annotated_option,
