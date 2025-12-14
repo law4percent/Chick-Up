@@ -3,11 +3,27 @@ from multiprocessing import Process, Queue, Event
 from lib.services import handle_pairing
 from lib import logger_config
 import logging
-from RPi.GPIO import GPIO
+import subprocess 
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
+
+def _kill_leftover_processes():
+    """
+    Kill any previous Thonny backend or main.py processes to prevent
+    camera/GPIO allocation errors.
+    """
+    try:
+        subprocess.run(["pkill", "-f", "cp_launcher.py"], check=False)
+        subprocess.run(["pkill", "-f", "main.py"], check=False)
+        print("Previous Python processes killed successfully.")
+    except Exception as e:
+        print(f"Error killing leftover processes: {e}")
+        
+
 def main(**kargs) -> None:
+    _kill_leftover_processes()
+    
     user_credentials = handle_pairing.pair_it(
         DEVICE_UID      = kargs["DEVICE_UID"], 
         PRODUCTION_MODE = kargs["PRODUCTION_MODE"], 
@@ -47,9 +63,6 @@ def main(**kargs) -> None:
             if task.is_alive():
                 task.terminate()
                 task.join()
-        # Clean up GPIO to prevent allocation errors next run
-        GPIO.cleanup()
-        print("All processes stopped and GPIO cleaned up.")
 
 
 if __name__ == "__main__":
