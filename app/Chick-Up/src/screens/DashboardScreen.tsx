@@ -215,15 +215,58 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       linkedDeviceUid,
       (data) => {
         if (data) {
+          // Handle water timestamp
           if (data.waterButton?.lastUpdateAt) {
-            const [date, time] = data.waterButton.lastUpdateAt.split(' ');
-            setLastWaterDate(date);
-            setLastWaterTime(time);
+            const waterTimestamp = data.waterButton.lastUpdateAt;
+            if (typeof waterTimestamp === 'number') {
+              // New format: Unix timestamp
+              const date = new Date(waterTimestamp);
+              const formatted = date.toLocaleString('en-US', {
+                timeZone: 'Asia/Manila',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+              });
+              const [datePart, timePart] = formatted.split(', ');
+              setLastWaterDate(datePart);
+              setLastWaterTime(timePart);
+            } else {
+              // Old format: "MM/DD/YYYY HH:MM:SS"
+              const [datePart, timePart] = waterTimestamp.split(' ');
+              setLastWaterDate(datePart);
+              setLastWaterTime(timePart);
+            }
           }
+          
+          // Handle feed timestamp
           if (data.feedButton?.lastUpdateAt) {
-            const [date, time] = data.feedButton.lastUpdateAt.split(' ');
-            setLastFeedDate(date);
-            setLastFeedTime(time);
+            const feedTimestamp = data.feedButton.lastUpdateAt;
+            if (typeof feedTimestamp === 'number') {
+              // New format: Unix timestamp
+              const date = new Date(feedTimestamp);
+              const formatted = date.toLocaleString('en-US', {
+                timeZone: 'Asia/Manila',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+              });
+              const [datePart, timePart] = formatted.split(', ');
+              setLastFeedDate(datePart);
+              setLastFeedTime(timePart);
+            } else {
+              // Old format: "MM/DD/YYYY HH:MM:SS"
+              const [datePart, timePart] = feedTimestamp.split(' ');
+              setLastFeedDate(datePart);
+              setLastFeedTime(timePart);
+            }
           }
         }
       },

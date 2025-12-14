@@ -53,9 +53,11 @@ if [ -f "requirements.txt" ]; then
     echo "Cleaning requirements.txt (removing opencv-python)..."
     grep -v '^opencv-python' requirements.txt > /tmp/req_clean.txt
     sudo pip3 install -r /tmp/req_clean.txt --break-system-packages
-else
-    echo "No requirements.txt found — skipping Python package installation."
 fi
+
+# ---- pytz installation (ALWAYS) ----
+echo "Installing pytz..."
+sudo pip3 install pytz --break-system-packages
 
 echo "[6/6] Setup complete! Reboot recommended."
 

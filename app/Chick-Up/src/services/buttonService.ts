@@ -1,13 +1,13 @@
 // src/services/buttonService.ts
-import { ref, set, get, onValue, update, off } from 'firebase/database';
+import { ref, set, get, onValue, update, off, serverTimestamp } from 'firebase/database';
 import { database } from '../config/firebase.config';
 
 export interface ButtonData {
   waterButton?: {
-    lastUpdateAt: string;
+    lastUpdateAt: number | string; // Changed to accept both
   };
   feedButton?: {
-    lastUpdateAt: string;
+    lastUpdateAt: number | string; // Changed to accept both
   };
 }
 
@@ -21,15 +21,12 @@ class ButtonService {
       const snapshot = await get(buttonRef);
       
       if (!snapshot.exists()) {
-        const now = new Date();
-        const formattedDate = this.formatDateTime(now);
-        
         await set(buttonRef, {
           waterButton: {
-            lastUpdateAt: formattedDate
+            lastUpdateAt: serverTimestamp()
           },
           feedButton: {
-            lastUpdateAt: formattedDate
+            lastUpdateAt: serverTimestamp()
           }
         });
         
@@ -89,6 +86,7 @@ class ButtonService {
 
   /**
    * Update button timestamp when water is refilled or feed is dispensed
+   * Uses Firebase Server Timestamp to avoid timezone issues
    */
   async updateButtonTimestamp(
     userId: string,
@@ -96,17 +94,15 @@ class ButtonService {
     type: 'water' | 'feed'
   ): Promise<void> {
     try {
-      const now = new Date();
-      const formattedDate = this.formatDateTime(now);
-      
       const buttonPath = type === 'water' ? 'waterButton' : 'feedButton';
       const buttonRef = ref(database, `buttons/${userId}/${deviceId}/${buttonPath}`);
       
+      // Use Firebase Server Timestamp - this is timezone-independent
       await update(buttonRef, {
-        lastUpdateAt: formattedDate
+        lastUpdateAt: serverTimestamp()
       });
       
-      console.log(`${type} button timestamp updated for device:`, deviceId);
+      console.log(`${type} button timestamp updated using server timestamp`);
     } catch (error) {
       console.error(`Error updating ${type} button timestamp:`, error);
       throw error;
@@ -114,17 +110,25 @@ class ButtonService {
   }
 
   /**
-   * Format date and time as "MM/DD/YYYY HH:MM:SS"
+   * Helper to format timestamp for display (optional, for UI only)
    */
-  private formatDateTime(date: Date): string {
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-    
-    return `${month}/${day}/${year} ${hours}:${minutes}:${seconds}`;
+  formatTimestampForDisplay(timestamp: number, timezone: string = 'Asia/Manila'): string {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    } catch (error) {
+      console.error('Error formatting timestamp:', error);
+      return 'Invalid date';
+    }
   }
 }
 
