@@ -27,23 +27,37 @@ cd pigpio
 make
 sudo make install
 
-echo "[4a/6] Enabling and starting pigpio daemon..."
+echo "[4a/6] Creating and starting pigpio daemon service..."
+sudo bash -c 'cat > /etc/systemd/system/pigpiod.service <<EOF
+[Unit]
+Description=Daemon required to control GPIO pins via pigpio
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/pigpiod
+ExecStop=/bin/kill -s SIGTERM $MAINPID
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF'
+
+sudo systemctl daemon-reload
 sudo systemctl enable pigpiod
 sudo systemctl start pigpiod
+echo "pigpiod service is active ✅"
 
 echo "[5/6] Installing Python packages..."
-if [ ! -f "requirements.txt" ]; then
-    echo "ERROR: requirements.txt not found!"
-    exit 1
+if [ -f "requirements.txt" ]; then
+    echo "Cleaning requirements.txt (removing opencv-python)..."
+    grep -v '^opencv-python' requirements.txt > /tmp/req_clean.txt
+    sudo pip3 install -r /tmp/req_clean.txt --break-system-packages
+else
+    echo "No requirements.txt found — skipping Python package installation."
 fi
 
-# Block pip from installing an x86 OpenCV wheel on ARM
-echo "Cleaning requirements.txt (removing opencv-python)..."
-grep -v '^opencv-python' requirements.txt > /tmp/req_clean.txt
-
-sudo pip3 install -r /tmp/req_clean.txt --break-system-packages
-
-echo "[6/6] Setup complete! Reboot required."
+echo "[6/6] Setup complete! Reboot recommended."
 
 read -p "Reboot now? (y/n): " answer
 if [ "$answer" = "y" ]; then
