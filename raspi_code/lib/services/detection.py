@@ -1,5 +1,27 @@
 import cv2
+from . import utils
+from ultralytics import YOLO
 
+
+def init_YOLO_detection(CLASS_LIST_FILE: str, YOLO_MODEL_FILE: str) -> dict:
+    class_list = []
+    path = utils.normalize_path(CLASS_LIST_FILE)
+    with open(path, 'r') as f:
+        class_list = [line.strip() for line in f.readlines()]
+    
+    try:
+        path = utils.normalize_path(YOLO_MODEL_FILE)
+        yolo_model = YOLO(path)
+        return {
+            "status"    : "success",
+            "class_list": class_list,
+            "yolo_model": yolo_model
+        }
+    except Exception as e:
+        return {
+            "status"    : "error",
+            "message"   : f"{e}. Failed to load {YOLO_MODEL_FILE} to YOLO(). Source: {__name__}"
+        }
 
 def run(raw_frame: any, frame_dimension: dict, yolo_model: any, class_list: list, confidence: float = 0.25) -> list:
     boxes = _get_prediction_boxes(raw_frame=raw_frame, yolo_model=yolo_model, confidence=confidence)

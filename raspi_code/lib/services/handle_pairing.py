@@ -6,7 +6,7 @@ from lib.services import utils, firebase_rtdb
 from lib import logger_config
 import logging
 
-from raspi_code.lib.services import hardware
+from raspi_code.lib.services import hardware_old
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
@@ -62,7 +62,7 @@ def _ask_user_for_username_to_get_userUid() -> dict:
         time.sleep(0.1)
         
         # Ask for username
-        key = hardware.read_keypad_data()
+        key = hardware_old.read_keypad_data()
         if key == None:
             continue
         

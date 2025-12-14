@@ -1,7 +1,6 @@
 import cv2
 from multiprocessing import Event
-from raspi_code.lib.services.hardware import camera_controller
-from ultralytics import YOLO
+from lib.services.hardware import camera_controller
 import logging
 import time
 import queue
@@ -10,27 +9,6 @@ from lib.services import detection, utils
 from lib import logger_config
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
-
-
-def _init_YOLO_detection(CLASS_LIST_FILE: str, YOLO_MODEL_FILE: str) -> dict:
-    class_list = []
-    path = utils.normalize_path(CLASS_LIST_FILE)
-    with open(path, 'r') as f:
-        class_list = [line.strip() for line in f.readlines()]
-    
-    try:
-        path = utils.normalize_path(YOLO_MODEL_FILE)
-        yolo_model = YOLO(path)
-        return {
-            "status"    : "success",
-            "class_list": class_list,
-            "yolo_model": yolo_model
-        }
-    except Exception as e:
-        return {
-            "status"    : "error",
-            "message"   : f"{e}. Failed to load {YOLO_MODEL_FILE} to YOLO(). Source: {__name__}"
-        }
 
 
 def _check_points(FILE_PATHS: dict, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
@@ -48,7 +26,7 @@ def _check_points(FILE_PATHS: dict, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDE
     if config_result["status"] == "error":
         return config_result
         
-    init_result = _init_YOLO_detection(FILE_PATHS["CLASS_LIST_FILE"], FILE_PATHS["YOLO_MODEL_FILE"])
+    init_result = detection.init_YOLO_detection(FILE_PATHS["CLASS_LIST_FILE"], FILE_PATHS["YOLO_MODEL_FILE"])
     if init_result["status"] == "error":
         return init_result
 
