@@ -6,8 +6,6 @@ from lib.services import utils, firebase_rtdb
 from lib import logger_config
 import logging
 
-from raspi_code.lib.services import hardware_old
-
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 

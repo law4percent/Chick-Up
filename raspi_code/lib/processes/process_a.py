@@ -91,7 +91,7 @@ def process_A(**kwargs) -> None:
     else:
         capture = check_point_result["capture"]
         
-    window_name, window_visible_state = camera_controller.setup_windows(window_visible_state=SHOW_WINDOW)
+    window_name, window_visible_state = camera.setup_windows(window_visible_state=SHOW_WINDOW)
     
     ret         = None
     raw_frame   = None

@@ -8,7 +8,7 @@ import time
 from lib import logger_config
 
 import RPi.GPIO as GPIO
-from raspi_code.lib.services.hardware import (
+from lib.services.hardware import (
     keypad_controller as keypad,
     motor_controller as motor,
     ultrasonic_contoller as distance
@@ -128,14 +128,14 @@ def _refill_it(
 
 # ========================= WIP: LCD =========================
 def process_C(**kwargs) -> None:
-    process_C_args  = kwargs["process_C_args"]
-    TASK_NAME       = process_C_args["TASK_NAME"]
-    status_checker  = process_C_args["status_checker"]
-    live_status     = process_C_args["live_status"]
-    annotated_option= process_C_args["annotated_option"] # work in progress
-    USER_CREDENTIAL = process_C_args["USER_CREDENTIAL"]
-    PC_MODE         = True # process_C_args["PC_MODE"]
-    SAVE_LOGS       = process_C_args["SAVE_LOGS"]
+    process_C_args          = kwargs["process_C_args"]
+    TASK_NAME               = process_C_args["TASK_NAME"]
+    status_checker          = process_C_args["status_checker"]
+    live_status             = process_C_args["live_status"]
+    annotated_option        = process_C_args["annotated_option"] # work in progress
+    USER_CREDENTIAL         = process_C_args["USER_CREDENTIAL"]
+    PC_MODE                 = process_C_args["PC_MODE"]
+    SAVE_LOGS               = process_C_args["SAVE_LOGS"]
     DISPENSE_COUNTDOWN_TIME = process_C_args["DISPENSE_COUNTDOWN_TIME"] 
     
     print(f"{TASK_NAME} - Running✅")
@@ -148,13 +148,14 @@ def process_C(**kwargs) -> None:
             logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
         exit()
         
+        
+    user_uid    = USER_CREDENTIAL["userUid"]
+    device_uid  = USER_CREDENTIAL["deviceUid"]
+    
     database_ref = firebase_rtdb.setup_RTDB(
         user_uid    = user_uid,
         device_uid  = device_uid,
     )
-        
-    user_uid    = USER_CREDENTIAL["userUid"]
-    device_uid  = USER_CREDENTIAL["deviceUid"]
     
     keypad.setup_keypad()
     left_motor, right_motor = motor.setup_motors()
@@ -189,7 +190,7 @@ def process_C(**kwargs) -> None:
             
         time.sleep(0.1)
         # ================== GET ALL DATA FROM PINS ==================
-        pins_data_result = _read_pins_data()
+        pins_data_result = _read_pins_data(PC_MODE)
         if pins_data_result["status"] == "error":
             if SAVE_LOGS:
                 logger.error(f"{TASK_NAME} - {pins_data_result["message"]}")
