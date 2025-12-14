@@ -1,38 +1,66 @@
-from gpiozero import DistanceSensor
-from time import sleep
+import RPi.GPIO as GPIO
+import time
 
-# LEFT sensor
-# TRIG → 24
-# ECHO → 25
-
-# RIGHT sensor
-# TRIG → 8
-# ECHO → 7
-
-LEFT_TRIG  = 24
-LEFT_ECHO  = 25
-
+# ===== GPIO pins =====
+LEFT_TRIG = 24
+LEFT_ECHO = 25
 RIGHT_TRIG = 8
 RIGHT_ECHO = 7
 
-def setup_sensors():
-    left = DistanceSensor(echo=LEFT_ECHO, trigger=LEFT_TRIG, max_distance=2)
-    right = DistanceSensor(echo=RIGHT_ECHO, trigger=RIGHT_TRIG, max_distance=2)
-    return left, right
+# ===== Setup GPIO =====
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(LEFT_TRIG, GPIO.OUT)
+GPIO.setup(LEFT_ECHO, GPIO.IN)
+GPIO.setup(RIGHT_TRIG, GPIO.OUT)
+GPIO.setup(RIGHT_ECHO, GPIO.IN)
 
-def get_distances(left, right):
-    left_cm = left.distance * 100
-    right_cm = right.distance * 100
-    return round(left_cm, 2), round(right_cm, 2)
+# Ensure TRIG pins are low
+GPIO.output(LEFT_TRIG, False)
+GPIO.output(RIGHT_TRIG, False)
+time.sleep(0.5)  # Let sensors settle
 
-def main():
-    left_sensor, right_sensor = setup_sensors()
-    print("Ultrasonic sensors ready...")
+def measure_distance(TRIG, ECHO):
+    """Measure distance for a single sensor in cm."""
+    # Send 10µs pulse
+    GPIO.output(TRIG, True)
+    time.sleep(0.00001)
+    GPIO.output(TRIG, False)
 
+    # Wait for ECHO to go HIGH
+    start_time = time.time()
+    timeout = start_time + 0.04  # 40ms timeout (~6.8m max distance)
+    while GPIO.input(ECHO) == 0 and time.time() < timeout:
+        start = time.time()
+
+    if time.time() >= timeout:
+        return None  # Timeout, no echo received
+
+    # Wait for ECHO to go LOW
+    timeout = time.time() + 0.04
+    while GPIO.input(ECHO) == 1 and time.time() < timeout:
+        stop = time.time()
+
+    if time.time() >= timeout:
+        return None
+
+    # Calculate distance
+    elapsed = stop - start
+    distance = (elapsed * 33112) / 2  # speed of sound in cm/s
+    return round(distance, 2)
+
+try:
     while True:
-        left_d, right_d = get_distances(left_sensor, right_sensor)
-        print(f"Left: {left_d} cm | Right: {right_d} cm")
-        sleep(0.5)
+        left_distance = measure_distance(LEFT_TRIG, LEFT_ECHO)
+        right_distance = measure_distance(RIGHT_TRIG, RIGHT_ECHO)
 
-if __name__ == "__main__":
-    main()
+        left_str = f"{left_distance:.1f} cm" if left_distance else "---"
+        right_str = f"{right_distance:.1f} cm" if right_distance else "---"
+
+        print(f"Left: {left_str} | Right: {right_str}")
+        time.sleep(0.5)
+
+except KeyboardInterrupt:
+    print("\nExiting...")
+
+finally:
+    GPIO.cleanup()
