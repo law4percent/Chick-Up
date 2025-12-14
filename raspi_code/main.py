@@ -40,7 +40,7 @@ def main(**kargs) -> None:
 
 if __name__ == "__main__":
     # ===== MANUALLY TO ADJUST =====
-    PRODUCTION_MODE     = True
+    PRODUCTION_MODE     = False
     PC_MODE             = False
     SAVE_LOGS           = True
     DEVICE_UID          = "DEV_001"

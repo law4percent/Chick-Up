@@ -1,5 +1,5 @@
 from picamera2 import Picamera2
-from . import utils
+from .. import utils
 import cv2
 
 def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state: bool = True):

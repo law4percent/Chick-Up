@@ -1,10 +1,11 @@
 import time
 from firebase_admin import db
-from lib.services import firebase_rtdb, handle_hardware
+from lib.services import firebase_rtdb
 from datetime import datetime
 import logging
 
 from lib import logger_config
+from raspi_code.lib.services import hardware
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
@@ -53,7 +54,7 @@ def process_C(**kwargs) -> None:
     user_uid    = USER_CREDENTIAL["userUid"]
     device_uid  = USER_CREDENTIAL["deviceUid"]
     
-    feed_level_sensor, water_level_sensor = handle_hardware.setup_level_sensors(
+    feed_level_sensor, water_level_sensor = hardware.setup_level_sensors(
         feed_level_sensor_data= {
             "echo"          : 5,
             "trigger"       : 3,
@@ -66,7 +67,7 @@ def process_C(**kwargs) -> None:
         },
         is_pc_device = PC_MODE
     )
-    feed_physical_button, water_physical_button = handle_hardware.setup_physical_buttons(
+    feed_physical_button, water_physical_button = hardware.setup_physical_buttons(
         feed_physical_button_data = {
             "gpio"      : 12,
             "pull_up"   : True
@@ -78,7 +79,7 @@ def process_C(**kwargs) -> None:
         is_pc_device = PC_MODE
     )
     
-    keypad_pins = handle_hardware.setup_keypad(
+    keypad_pins = hardware.setup_keypad(
         keypad_pins_data    = {
             "row_pins": [20, 21, 22, 26],
             "col_pins": [16, 17, 18, 19]
@@ -91,7 +92,7 @@ def process_C(**kwargs) -> None:
         device_uid  = device_uid,
     )
     
-    lcd = handle_hardware.setup_lcd(
+    lcd = hardware.setup_lcd(
         is_pc_device= True, #PC_MODE,
         lcd_data    = {
             "i2c_driver"    : "PCF8574",
@@ -99,7 +100,7 @@ def process_C(**kwargs) -> None:
         }
     )
     
-    water_pump_relay = handle_hardware.setup_relay(
+    water_pump_relay = hardware.setup_relay(
         is_pc_device=PC_MODE,
         relay_data  ={
             "gpio"          : 12,        
@@ -108,7 +109,7 @@ def process_C(**kwargs) -> None:
         }
     )
 
-    feed_motor_relay = handle_hardware.setup_relay(
+    feed_motor_relay = hardware.setup_relay(
         is_pc_device=PC_MODE,
         relay_data  ={
             "gpio"          : 13,        
@@ -157,7 +158,7 @@ def process_C(**kwargs) -> None:
             exit()
             
         time.sleep(0.1)
-        pins_data_result = handle_hardware.read_pins_data(
+        pins_data_result = hardware.read_pins_data(
             feed_physical_button    = feed_physical_button, 
             water_physical_button   = water_physical_button,
             feed_level_sensor       = feed_level_sensor,

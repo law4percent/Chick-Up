@@ -1,5 +1,4 @@
-from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice, PWMOutputDevice
-from firebase_admin import db
+from gpiozero import DistanceSensor, Button, DigitalOutputDevice, DigitalInputDevice
 from RPLCD import CharLCD
 
 def measure_cm(sensor) -> float:

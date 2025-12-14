@@ -1,12 +1,12 @@
 import cv2
-from multiprocessing import Queue, Event
+from multiprocessing import Event
+from raspi_code.lib.services.hardware import camera_controller
 from ultralytics import YOLO
-import os
 import logging
 import time
 import queue
 
-from lib.services import detection, utils, camera
+from lib.services import detection, utils
 from lib import logger_config
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
@@ -44,7 +44,7 @@ def _check_points(FILE_PATHS: dict, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDE
     capture = None
     VIDEO_PATH = FILE_PATHS["VIDEO_FILE"]
     
-    config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
+    config_result = camera_controller.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":
         return config_result
         
@@ -113,7 +113,7 @@ def process_A(**kwargs) -> None:
     else:
         capture = check_point_result["capture"]
         
-    window_name, window_visible_state = camera.setup_windows(window_visible_state=SHOW_WINDOW)
+    window_name, window_visible_state = camera_controller.setup_windows(window_visible_state=SHOW_WINDOW)
     
     ret         = None
     raw_frame   = None
@@ -132,7 +132,7 @@ def process_A(**kwargs) -> None:
                 if SAVE_LOGS:
                     logging.error(f"{TASK_NAME}Error: Check the hardware camera.")
                 status_checker.clear()
-                camera.clean_up_camera(capture, PC_MODE)
+                camera_controller.clean_up_camera(capture, PC_MODE)
                 exit()
                         
                 time.sleep(5)
@@ -190,7 +190,7 @@ def process_A(**kwargs) -> None:
             # Press C → close/hide the window
             elif key == ord('c'):
                 if window_visible_state:
-                    camera.clean_up_camera(capture, PC_MODE)
+                    camera_controller.clean_up_camera(capture, PC_MODE)
                     window_visible_state = False
 
             # Press W → show the window again
@@ -199,4 +199,4 @@ def process_A(**kwargs) -> None:
                     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
                     window_visible_state = True
 
-    camera.clean_up_camera(capture, PC_MODE)
+    camera_controller.clean_up_camera(capture, PC_MODE)
