@@ -98,6 +98,7 @@ def process_A(**kwargs) -> None:
     try:
         while True:
             if not status_checker.is_set():
+                camera.clean_up_camera(capture, PC_MODE)
                 logger.error(f"{TASK_NAME} - One of the processes got error.")
                 exit()
             
