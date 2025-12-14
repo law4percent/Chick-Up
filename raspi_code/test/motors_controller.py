@@ -1,63 +1,48 @@
-from gpiozero import Motor
-from time import sleep
+import RPi.GPIO as GPIO
 
-# LEFT motor
-# IN1 → 17
-# IN2 → 27
-
-# RIGHT motor
-# IN3 → 22
-# IN4 → 23
-
-# LEFT motor
+# ================= PIN DEFINITIONS =================
 LEFT_IN1 = 17
 LEFT_IN2 = 27
 
-# RIGHT motor
 RIGHT_IN1 = 22
 RIGHT_IN2 = 23
 
-def setup_motors():
-    left = Motor(forward=LEFT_IN1, backward=LEFT_IN2)
-    right = Motor(forward=RIGHT_IN1, backward=RIGHT_IN2)
-    return left, right
 
-def forward(left, right):
-    left.forward()
-    right.forward()
+# ================= SETUP =================
+def setup_motors() -> None:
+    GPIO.setmode(GPIO.BCM)
 
-def backward(left, right):
-    left.backward()
-    right.backward()
+    GPIO.setup(LEFT_IN1, GPIO.OUT)
+    GPIO.setup(LEFT_IN2, GPIO.OUT)
+    GPIO.setup(RIGHT_IN1, GPIO.OUT)
+    GPIO.setup(RIGHT_IN2, GPIO.OUT)
 
-def turn_left(left, right):
-    left.stop()
-    right.forward()
+    stop_all_motors()
 
-def turn_right(left, right):
-    left.forward()
-    right.stop()
 
-def stop(left, right):
-    left.stop()
-    right.stop()
+# ================= LEFT MOTOR =================
+def run_left_motor() -> None:
+    GPIO.output(LEFT_IN1, GPIO.HIGH)
+    GPIO.output(LEFT_IN2, GPIO.LOW)
 
-def main():
-    left, right = setup_motors()
 
-    forward(left, right)
-    sleep(2)
+def stop_left_motor() -> None:
+    GPIO.output(LEFT_IN1, GPIO.LOW)
+    GPIO.output(LEFT_IN2, GPIO.LOW)
 
-    turn_left(left, right)
-    sleep(1)
 
-    turn_right(left, right)
-    sleep(1)
+# ================= RIGHT MOTOR =================
+def run_right_motor() -> None:
+    GPIO.output(RIGHT_IN1, GPIO.HIGH)
+    GPIO.output(RIGHT_IN2, GPIO.LOW)
 
-    backward(left, right)
-    sleep(2)
 
-    stop(left, right)
+def stop_right_motor() -> None:
+    GPIO.output(RIGHT_IN1, GPIO.LOW)
+    GPIO.output(RIGHT_IN2, GPIO.LOW)
 
-if __name__ == "__main__":
-    main()
+
+# ================= SAFETY =================
+def stop_all_motors() -> None:
+    stop_left_motor()
+    stop_right_motor()

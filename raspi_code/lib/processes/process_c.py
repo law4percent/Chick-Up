@@ -157,6 +157,7 @@ def process_C(**kwargs) -> None:
     )
     
     keypad.setup_keypad()
+    motor.setup_motors()
     distance.setup_ultrasonics()
     
     current_feed_level                  = 0
@@ -186,6 +187,7 @@ def process_C(**kwargs) -> None:
                 if SAVE_LOGS:
                     logger.error(f"{TASK_NAME} - One of the processes got error.")
                 GPIO.cleanup()
+                motor.stop_all_motors()
                 exit()
                 
             time.sleep(0.1)
@@ -283,5 +285,5 @@ def process_C(**kwargs) -> None:
     except KeyboardInterrupt:
         logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
         status_checker.clear()
-        
-    GPIO.cleanup()
+        motor.stop_all_motors()
+        GPIO.cleanup()
