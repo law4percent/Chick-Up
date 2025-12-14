@@ -15,14 +15,14 @@ from lib.services.hardware import (
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 # ================= HELPER FUNCTIONS =================
-def _handle_feed_dispense(state: bool) -> None:
+def _handle_water_refill(state: bool) -> None:
     if state:
         motor.run_left_motor()
     else:
         motor.stop_left_motor()
 
 
-def _handle_water_refill(state: bool) -> None:
+def _handle_feed_dispense(state: bool) -> None:
     if state:
         motor.run_right_motor()
     else:
@@ -53,9 +53,9 @@ def _read_pins_data(PC_MODE: bool):
         elif key == '#':
             current_water_physical_button_state = True
     
-    feed_level = distance.read_right_distance()
+    feed_level = distance.read_left_distance()
     percentage_feed_level = _convert_to_percentage(feed_level)
-    water_level = distance.read_left_distance()
+    water_level = distance.read_right_distance()
     percentage_water_level = _convert_to_percentage(water_level)
     return {
         "status"                                : "success",
