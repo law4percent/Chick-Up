@@ -178,7 +178,7 @@ def livestream_on(value) -> bool:
     return v in ["1", "true", "yes", "on"]
 
 
-def read_RTDB(database_ref: dict) -> dict:
+def read_RTDB(database_ref: dict, min_to_stop: int = 1) -> dict:
     """
     Read data from Firebase RTDB.
     
@@ -197,8 +197,8 @@ def read_RTDB(database_ref: dict) -> dict:
     auto_refill_water_enabled   = settings_ref.get("water", {}).get("autoRefillEnabled")
 
     return {
-        "current_feed_app_button_state" : is_fresh(df_datetime, min_to_stop=3),
-        "current_water_app_button_state": is_fresh(wr_datetime, min_to_stop=3),
+        "current_feed_app_button_state" : is_fresh(df_datetime, min_to_stop=min_to_stop),
+        "current_water_app_button_state": is_fresh(wr_datetime, min_to_stop=min_to_stop),
         "current_feed_schedule_state"   : is_schedule_triggered(feed_schedule),
         "current_live_button_state"     : livestream_on(live_status),
         "current_user_settings"         : {

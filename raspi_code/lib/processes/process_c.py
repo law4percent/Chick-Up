@@ -202,8 +202,6 @@ def process_C(**kwargs) -> None:
             time.sleep(0.1)
             # ================== GET ALL DATA FROM PINS ==================
             pins_data_result = _read_pins_data(PC_MODE)
-            # print("pins_data_result:\n", pins_data_result)
-            # print("==================================")
             if pins_data_result["status"] == "error":
                 if SAVE_LOGS:
                     logger.error(f"{TASK_NAME} - {pins_data_result['message']}")
@@ -221,7 +219,6 @@ def process_C(**kwargs) -> None:
                 current_live_button_state       = database_data["current_live_button_state"]
             
                 current_user_settings                   = database_data["current_user_settings"]
-                print("database_data:\n", database_data)
                 current_feed_threshold_warning          = current_user_settings["feed_threshold_warning"]
                 current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"]
                 current_water_threshold_warning         = current_user_settings["water_threshold_warning"]
@@ -273,10 +270,6 @@ def process_C(**kwargs) -> None:
                 MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
                 refill_active                           = refill_active
             )
-            
-            print("dispense_active:", dispense_active)
-            print("refill_active:", refill_active)
-            
             
             # ================= UPDATE ALL DATA TO DB =================
             try:
