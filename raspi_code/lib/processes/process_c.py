@@ -53,9 +53,9 @@ def _read_pins_data(PC_MODE: bool):
         elif key == '#':
             current_water_physical_button_state = True
     
-    feed_level = distance.read_left_distance()
+    feed_level = distance.read_right_distance()
     percentage_feed_level = _convert_to_percentage(feed_level)
-    water_level = distance.read_right_distance()  # FIXED: was read_left_distance()
+    water_level = distance.read_left_distance()
     percentage_water_level = _convert_to_percentage(water_level)
     return {
         "status"                                : "success",
