@@ -164,11 +164,8 @@ def process_A(**kwargs) -> None:
 
                 key = cv2.waitKey(1) & 0xFF
 
-                if key == ord('q'):
-                    break
-
                 # Press C → close/hide the window
-                elif key == ord('c'):
+                if key == ord('c'):
                     if window_visible_state:
                         camera.clean_up_camera(capture, PC_MODE)
                         window_visible_state = False
@@ -181,7 +178,5 @@ def process_A(**kwargs) -> None:
                         
     except KeyboardInterrupt:
         logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
-        
-    finally:
         status_checker.clear()
         camera.clean_up_camera(capture, PC_MODE)

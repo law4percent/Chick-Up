@@ -90,6 +90,4 @@ def process_B(**kwargs) -> None:
             
     except KeyboardInterrupt:
         logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
-        
-    finally:
         status_checker.clear()

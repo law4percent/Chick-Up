@@ -193,7 +193,6 @@ def process_C(**kwargs) -> None:
             time.sleep(0.1)
             # ================== GET ALL DATA FROM PINS ==================
             pins_data_result = _read_pins_data(PC_MODE)
-            print("==================================")
             print("pins_data_result:\n", pins_data_result)
             print("==================================")
             if pins_data_result["status"] == "error":
@@ -279,7 +278,6 @@ def process_C(**kwargs) -> None:
 
     except KeyboardInterrupt:
         logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
-    
-    finally:
         status_checker.clear()
-        GPIO.cleanup()
+        
+    GPIO.cleanup()
