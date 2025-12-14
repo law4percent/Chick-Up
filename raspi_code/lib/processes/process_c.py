@@ -15,16 +15,16 @@ from lib.services.hardware import (
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 # ================= HELPER FUNCTIONS =================
-def _handle_feed_dispense(left_motor: any, state: bool) -> None:
+def _handle_feed_dispense(state: bool) -> None:
     if state:
-        motor.run_left_motor(left_motor)
-    motor.stop_left_motor(left_motor)
+        motor.run_left_motor()
+    motor.stop_left_motor()
     
     
-def _handle_water_refill(right_motor: any, state: bool) -> None:
+def _handle_water_refill(state: bool) -> None:
     if state:
-        motor.run_right_motor(right_motor)
-    motor.stop_right_motor(right_motor)
+        motor.run_right_motor()
+    motor.stop_right_motor()
 
 
 def _read_pins_data(PC_MODE: bool):
@@ -82,8 +82,7 @@ def _dispense_it(
         feed_button_state: bool,
         dispense_active: bool,
         dispense_countdown_start: int,
-        DISPENSE_COUNTDOWN_TIME: int,
-        left_motor
+        DISPENSE_COUNTDOWN_TIME: int
     ):
     now = _current_millis()
 
@@ -97,7 +96,7 @@ def _dispense_it(
         if elapsed >= DISPENSE_COUNTDOWN_TIME:
             dispense_active = False
 
-    _handle_feed_dispense(left_motor, dispense_active)
+    _handle_feed_dispense(dispense_active)
     return dispense_active, dispense_countdown_start
 
     
@@ -106,8 +105,7 @@ def _refill_it(
         current_water_level: float, 
         current_water_threshold_warning: int, 
         water_button_state: bool, 
-        MAX_REFILL_LEVEL: int, 
-        right_motor: any, 
+        MAX_REFILL_LEVEL: int,
         refill_active: bool
     ) -> bool:
     if current_auto_refill_water_enabled_state:
@@ -120,7 +118,7 @@ def _refill_it(
     if current_water_level >= MAX_REFILL_LEVEL and refill_active:
         refill_active = False
     
-    _handle_water_refill(right_motor, refill_active)
+    _handle_water_refill(refill_active)
     return refill_active
         
 
@@ -157,7 +155,7 @@ def process_C(**kwargs) -> None:
     )
     
     keypad.setup_keypad()
-    left_motor, right_motor = motor.setup_motors()
+    motor.setup_motors()
     distance.setup_ultrasonics()
     
     current_feed_level                  = 0
@@ -252,8 +250,7 @@ def process_C(**kwargs) -> None:
                 ),
                 dispense_active             = dispense_active, 
                 dispense_countdown_start    = dispense_countdown_start, 
-                DISPENSE_COUNTDOWN_TIME     = DISPENSE_COUNTDOWN_TIME, 
-                left_motor                  = left_motor
+                DISPENSE_COUNTDOWN_TIME     = DISPENSE_COUNTDOWN_TIME,
             )
             
             # Refill it!
@@ -263,7 +260,6 @@ def process_C(**kwargs) -> None:
                 current_water_threshold_warning         = current_water_threshold_warning,
                 water_button_state                      = current_water_physical_button_state or current_water_app_button_state,
                 MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
-                right_motor                             = right_motor,
                 refill_active                           = refill_active
             )
             
