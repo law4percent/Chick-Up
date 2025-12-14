@@ -2,10 +2,10 @@ import RPi.GPIO as GPIO
 import time
 
 # ===== GPIO pins =====
-LEFT_TRIG = 24
-LEFT_ECHO = 25
-RIGHT_TRIG = 8
-RIGHT_ECHO = 7
+LEFT_TRIG = 25
+LEFT_ECHO = 24
+RIGHT_TRIG = 7
+RIGHT_ECHO = 8
 
 # ===== Setup GPIO =====
 GPIO.setmode(GPIO.BCM)
@@ -26,21 +26,23 @@ def measure_distance(TRIG, ECHO):
     time.sleep(0.00001)
     GPIO.output(TRIG, False)
 
+    start = None
+    stop = None
+
     # Wait for ECHO to go HIGH
-    start_time = time.time()
-    timeout = start_time + 0.04  # 40ms timeout (~6.8m max distance)
+    timeout = time.time() + 0.04  # 40ms timeout (~6.8m max distance)
     while GPIO.input(ECHO) == 0 and time.time() < timeout:
         start = time.time()
 
-    if time.time() >= timeout:
-        return None  # Timeout, no echo received
+    if start is None:  # No echo received
+        return None
 
     # Wait for ECHO to go LOW
     timeout = time.time() + 0.04
     while GPIO.input(ECHO) == 1 and time.time() < timeout:
         stop = time.time()
 
-    if time.time() >= timeout:
+    if stop is None:  # Echo never went LOW
         return None
 
     # Calculate distance
