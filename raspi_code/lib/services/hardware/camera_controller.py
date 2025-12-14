@@ -9,10 +9,32 @@ def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state:
   return [window_name, window_visible_state]
   
 
-def clean_up_camera(capture: any, PC_MODE: bool) -> None:
-  if PC_MODE:
-      capture.release()
-  cv2.destroyAllWindows()
+def clean_up_camera(capture: any, PC_MODE: bool) -> dict:
+    """
+    Properly release or stop the camera depending on the mode.
+    
+    Args:
+        capture: The camera object (cv2.VideoCapture or Picamera2 instance)
+        PC_MODE: True if running on PC (OpenCV), False if running on Raspberry Pi (Picamera2)
+    """
+    try:
+        if PC_MODE:
+            if capture.isOpened():
+                capture.release()
+        else:
+            # For Picamera2
+            if capture:
+                capture.stop()
+                capture.close()
+    except Exception as e:
+      cv2.destroyAllWindows()
+      return {
+        "status"  : "error",
+        "message" : f"{e} Error cleaning up camera. Source: {__name__}"
+      }
+    finally:
+      cv2.destroyAllWindows()
+      return {"status": "success"}
     
     
 def config_camera(PC_MODE: bool, IS_WEB_CAM: bool, VIDEO_PATH: str, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:

@@ -3,6 +3,7 @@ from multiprocessing import Process, Queue, Event
 from lib.services import handle_pairing
 from lib import logger_config
 import logging
+from RPi.GPIO import GPIO
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
@@ -33,9 +34,22 @@ def main(**kargs) -> None:
     task_B.start()
     task_C.start()
 
-    task_A.join()
-    task_B.join()
-    task_C.join()
+    try:
+        # Keep main process alive until children finish
+        task_A.join()
+        task_B.join()
+        task_C.join()
+    except KeyboardInterrupt:
+        print("Stopping all processes...")
+    finally:
+        # Terminate any alive processes
+        for task in [task_A, task_B, task_C]:
+            if task.is_alive():
+                task.terminate()
+                task.join()
+        # Clean up GPIO to prevent allocation errors next run
+        GPIO.cleanup()
+        print("All processes stopped and GPIO cleaned up.")
 
 
 if __name__ == "__main__":
@@ -88,7 +102,6 @@ if __name__ == "__main__":
             "live_status"           : live_status,
             "number_of_instances"   : number_of_instances,
             "USER_CREDENTIAL"       : {},
-            "PC_MODE"               : PC_MODE,
             "SAVE_LOGS"             : SAVE_LOGS
         },
         process_C_args  = {

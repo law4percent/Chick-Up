@@ -2,10 +2,9 @@ import time
 from lib.services import firebase_rtdb
 from datetime import datetime
 import logging
+import RPi.GPIO as GPIO
 
 from lib import logger_config
-
-import RPi.GPIO as GPIO
 from lib.services.hardware import (
     keypad_controller as keypad,
     motor_controller as motor,
@@ -138,7 +137,8 @@ def process_C(**kwargs) -> None:
     DISPENSE_COUNTDOWN_TIME = process_C_args["DISPENSE_COUNTDOWN_TIME"] 
     
     print(f"{TASK_NAME} - Running✅")
-    logger.info(f"{TASK_NAME} - Running✅")
+    if SAVE_LOGS:
+        logger.info(f"{TASK_NAME} - Running✅")
     
     if not PC_MODE:
         GPIO.setmode(GPIO.BCM)
@@ -273,8 +273,8 @@ def process_C(**kwargs) -> None:
             
             # ================= UPDATE ALL DATA TO DB =================
             try:
-                sensors_ref = database_ref["sensors_ref"].get()
-                sensors_ref.update({
+                sensors_ref_object = database_ref["sensors_ref"]
+                sensors_ref_object.update({
                     "feedLevel" : current_feed_level,
                     "waterLevel": current_water_level,
                     "updatedAt" : datetime.now().strftime('%m/%d/%Y %H:%M:%S')
@@ -284,13 +284,15 @@ def process_C(**kwargs) -> None:
                     logger.warning(f"{TASK_NAME} - {e}. Skip update feedLevel and waterLevel to database. No internet.")
 
     except KeyboardInterrupt:
-        logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+        if SAVE_LOGS:
+            logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
         status_checker.clear()
         if not PC_MODE:
             motor.stop_all_motors()
             GPIO.cleanup()
     except Exception as e:
-        logger.error(f"{TASK_NAME} - Unexpected error: {e}")
+        if SAVE_LOGS:
+            logger.error(f"{TASK_NAME} - Unexpected error: {e}")
         status_checker.clear()
         if not PC_MODE:
             motor.stop_all_motors()

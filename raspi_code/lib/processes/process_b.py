@@ -18,11 +18,11 @@ def process_B(**kwargs) -> None:
     live_status         = process_B_args["live_status"]
     number_of_instances = process_B_args["number_of_instances"]
     USER_CREDENTIAL     = process_B_args["USER_CREDENTIAL"]
-    PC_MODE             = process_B_args["PC_MODE"]
     SAVE_LOGS           = process_B_args["SAVE_LOGS"]
     
     print(f"{TASK_NAME} - Running✅")
-    logger.info(f"{TASK_NAME} - Running✅")
+    if SAVE_LOGS:
+        logger.info(f"{TASK_NAME} - Running✅")
     
     init_result = firebase_rtdb.initialize_firebase()
     if init_result["status"] == "error":
@@ -89,5 +89,6 @@ def process_B(**kwargs) -> None:
             time.sleep(0.1)
             
     except KeyboardInterrupt:
-        logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+        if SAVE_LOGS:
+            logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
         status_checker.clear()
