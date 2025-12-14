@@ -110,7 +110,7 @@ def process_A(**kwargs) -> None:
                 if SAVE_LOGS:
                     logging.error(f"{TASK_NAME}Error: Check the hardware camera.")
                 status_checker.clear()
-                camera_controller.clean_up_camera(capture, PC_MODE)
+                camera.clean_up_camera(capture, PC_MODE)
                 exit()
                         
                 time.sleep(5)
@@ -168,7 +168,7 @@ def process_A(**kwargs) -> None:
             # Press C → close/hide the window
             elif key == ord('c'):
                 if window_visible_state:
-                    camera_controller.clean_up_camera(capture, PC_MODE)
+                    camera.clean_up_camera(capture, PC_MODE)
                     window_visible_state = False
 
             # Press W → show the window again
@@ -177,4 +177,4 @@ def process_A(**kwargs) -> None:
                     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
                     window_visible_state = True
 
-    camera_controller.clean_up_camera(capture, PC_MODE)
+    camera.clean_up_camera(capture, PC_MODE)

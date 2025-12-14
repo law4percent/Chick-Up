@@ -37,7 +37,7 @@ def _measure_distance(TRIG, ECHO):
         start = time.time()
 
     if start is None:  # No echo received
-        return None
+        return 0.0
 
     # Wait for ECHO to go LOW
     timeout = time.time() + 0.04
@@ -45,7 +45,7 @@ def _measure_distance(TRIG, ECHO):
         stop = time.time()
 
     if stop is None:  # Echo never went LOW
-        return None
+        return 0.0
 
     # Calculate distance
     elapsed = stop - start
@@ -62,7 +62,6 @@ def read_right_distance() -> float:
 
 
 if __name__ == "__main__":
-
     try:
         while True:
             left_distance = _measure_distance(LEFT_TRIG, LEFT_ECHO)
