@@ -2,7 +2,7 @@ from firebase_admin import db
 from datetime import datetime
 import time
 
-from lib.services import utils, handle_hardware, firebase_rtdb
+from lib.services import utils, firebase_rtdb
 from lib import logger_config
 import logging
 
@@ -14,10 +14,10 @@ def _write_credentials_to_file(CREDENTIALS: dict, FULL_PATH: str) -> None:
     now = datetime.now()
     created_at = now.strftime('%m/%d/%Y at %H:%M:%S')
     data = (
-        f"username  : {CREDENTIALS["username"]}\n"
-        f"userUid   : {CREDENTIALS["userUid"]}\n"
-        f"deviceUid : {CREDENTIALS["deviceUid"]}\n"
-        f"createdAt : {created_at}"
+        f"username: {CREDENTIALS["username"]}\n"
+        f"userUid: {CREDENTIALS["userUid"]}\n"
+        f"deviceUid: {CREDENTIALS["deviceUid"]}\n"
+        f"createdAt: {created_at}"
     )
     
     with open(FULL_PATH, "w") as f:
@@ -60,7 +60,7 @@ def _ask_user_for_username_to_get_userUid() -> dict:
         time.sleep(0.1)
         
         # Ask for username
-        key = handle_hardware.read_keypad_data()
+        key = hardware_old.read_keypad_data()
         if key == None:
             continue
         
@@ -126,31 +126,18 @@ def pair_it(
             FULL_PATH   = USER_CRED_FULL_PATH
         )
         user_credentials = _read_txt_and_return_dict(USER_CRED_FULL_PATH)
-        print(
-            "Info: --------------------------------\n"
-            "Info: PC mode user credentials info:\n"
-            f"Info: - Username   : {user_credentials["username"]}\n"
-            f"Info: - User UID   : {user_credentials["userUid"]}\n"
-            f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
-            "Info: --------------------------------"
-        )
         if SAVE_LOGS:
             logging.info(            
-                "Info: --------------------------------\n"
-                "Info: PC mode user credentials info:\n"
-                f"Info: - Username   : {user_credentials["username"]}\n"
-                f"Info: - User UID   : {user_credentials["userUid"]}\n"
-                f"Info: - Device UID : {user_credentials["deviceUid"]}\n"
-                "Info: --------------------------------"
+                "===============================\n"
+                "PC mode user credentials info:\n"
+                f"user_credentials: {user_credentials}\n"
+                "==============================="
             )
         return user_credentials
     
-    
-    # Check the file existence else create one with empty data
     check_point_result = utils.file_existence_check_point(USER_CRED_FULL_PATH, __name__)
     if check_point_result["status"] == "error":
         ask_result = _ask_user_for_username_to_get_userUid()
-        
         if ask_result["status"] == "error":
             if SAVE_LOGS:
                 logger.error(ask_result["message"])

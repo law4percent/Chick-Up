@@ -1,18 +1,18 @@
 from picamera2 import Picamera2
-from . import utils
+from .. import utils
 import cv2
 
-def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state: bool = True):
-    window_name = window_name
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    window_visible_state = window_visible_state
-    return [window_name, window_visible_state]
+def setup_windows(window_name: str = "Chick-Up Streaming", window_visible_state: bool = True) -> list:
+  window_name = window_name
+  cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+  window_visible_state = window_visible_state
+  return [window_name, window_visible_state]
   
 
 def clean_up_camera(capture: any, PC_MODE: bool) -> None:
-    if PC_MODE:
-        capture.release()
-    cv2.destroyAllWindows()
+  if PC_MODE:
+      capture.release()
+  cv2.destroyAllWindows()
     
     
 def config_camera(PC_MODE: bool, IS_WEB_CAM: bool, VIDEO_PATH: str, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
@@ -59,11 +59,11 @@ def config_camera(PC_MODE: bool, IS_WEB_CAM: bool, VIDEO_PATH: str, CAMERA_INDEX
     picam2.configure(config)
 
     # Optional tuning
-    picam2.set_controls({
-        "AwbMode": "auto",           # Auto white balance
-        "ExposureTime": 10000,       # Adjust if needed
-        "AnalogueGain": 1.0,         # Adjust for brightness
-    })
+    #picam2.set_controls({
+    #    "AwbMode": "auto",           # Auto white balance
+    #    "ExposureTime": 10000,       # Adjust if needed
+    #    "AnalogueGain": 1.0,         # Adjust for brightness
+    #})
 
     return {
       "status"  : "success",

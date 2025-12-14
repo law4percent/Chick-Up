@@ -1,50 +1,32 @@
 import cv2
-from multiprocessing import Queue, Event
-from ultralytics import YOLO
-import os
+from multiprocessing import Event
+from lib.services.hardware import camera_controller as camera
 import logging
 import time
 import queue
 
-from lib.services import detection, utils, camera
+from lib.services import detection, utils
 from lib import logger_config
 
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 
-def _init_YOLO_detection(CLASS_LIST_FILE: str, YOLO_MODEL_FILE: str) -> dict:
-    class_list = []
-    with open(CLASS_LIST_FILE, 'r') as f:
-        class_list = [line.strip() for line in f.readlines()]
-    
-    try:    
-        yolo_model = YOLO(YOLO_MODEL_FILE)
-        return {
-            "status"    : "success",
-            "class_list": class_list,
-            "yolo_model": yolo_model
-        }
-    except Exception as e:
-        return {
-            "status"    : "error",
-            "message"   : f"{e}. Failed to load {YOLO_MODEL_FILE} to YOLO(). Source: {__name__}"
-        }
-
-
 def _check_points(FILE_PATHS: dict, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
+    count = 0
     for FILE_PATH in FILE_PATHS.values():    
         check_point_result = utils.file_existence_check_point(FILE_PATH, __name__)
-        if check_point_result["status"] == "error":
+        if check_point_result["status"] == "error" and count < 2:
             return check_point_result
+        count += 1
     
     capture = None
-    VIDEO_PATH = FILE_PATHS["VIDEO_PATH"]
+    VIDEO_PATH = FILE_PATHS["VIDEO_FILE"]
     
     config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":
         return config_result
         
-    init_result = _init_YOLO_detection(FILE_PATHS["CLASS_LIST_FILE"], FILE_PATHS["YOLO_MODEL_FILE"])
+    init_result = detection.init_YOLO_detection(FILE_PATHS["CLASS_LIST_FILE"], FILE_PATHS["YOLO_MODEL_FILE"])
     if init_result["status"] == "error":
         return init_result
 
@@ -113,86 +95,88 @@ def process_A(**kwargs) -> None:
     
     ret         = None
     raw_frame   = None
-    while True:
-        if not status_checker.is_set():
-            logger.error(f"{TASK_NAME} - One of the processes got error.")
-            exit()
-        
-        if PC_MODE:
-            ret, raw_frame = capture.read()
-            if not ret:
-                if not IS_WEB_CAM:
-                    capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-                
-                if SAVE_LOGS:
-                    logging.error(f"{TASK_NAME}Error: Check the hardware camera.")
-                status_checker.clear()
+    try:
+        while True:
+            if not status_checker.is_set():
                 camera.clean_up_camera(capture, PC_MODE)
+                logger.error(f"{TASK_NAME} - One of the processes got error.")
                 exit()
-                        
-                time.sleep(5)
-                continue
-        else:
-            raw_frame = capture.capture_array()
-        
-        raw_frame = cv2.resize(raw_frame, (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"]))
-        annotated_frame, number_of_chickens, number_of_intruders = detection.run(
-            raw_frame       = raw_frame, 
-            yolo_model      = yolo_model, 
-            confidence      = YOLO_CONFIDENCE, 
-            class_list      = class_list, 
-            frame_dimension = FRAME_DIMENSION
-        )
-                
-        if live_status.is_set():
-            if queue_frame.full():
+            
+            if PC_MODE:
+                ret, raw_frame = capture.read()
+                if not ret:
+                    if not IS_WEB_CAM:
+                        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    
+                    if SAVE_LOGS:
+                        logging.error(f"{TASK_NAME}Error: Check the hardware camera.")
+                    status_checker.clear()
+                    camera.clean_up_camera(capture, PC_MODE)
+                    exit()
+                            
+                    time.sleep(5)
+                    continue
+            else:
+                raw_frame = capture.capture_array()
+            
+            raw_frame = cv2.resize(raw_frame, (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"]))
+            annotated_frame, number_of_chickens, number_of_intruders = detection.run(
+                raw_frame       = raw_frame, 
+                yolo_model      = yolo_model, 
+                confidence      = YOLO_CONFIDENCE, 
+                class_list      = class_list, 
+                frame_dimension = FRAME_DIMENSION
+            )
+                    
+            if live_status.is_set():
+                if queue_frame.full():
+                    try:
+                        queue_frame.get_nowait()  # remove old frame
+                    except queue.Empty:
+                        pass
+
                 try:
-                    queue_frame.get_nowait()  # remove old frame
-                except queue.Empty:
-                    pass
+                    if annotated_option.is_set():
+                        queue_frame.put_nowait(annotated_frame)
+                    else:
+                        queue_frame.put_nowait(raw_frame)
+                except queue.Full:
+                    pass  # skip frame if queue is full
 
             try:
-                if annotated_option.is_set():
-                    queue_frame.put_nowait(annotated_frame)
-                else:
-                    queue_frame.put_nowait(raw_frame)
+                if number_of_instances.full():
+                    number_of_instances.get_nowait()  # remove old data
+            except queue.Empty:
+                pass  # queue was unexpectedly empty
+
+            try:
+                number_of_instances.put_nowait({
+                    "chickens": number_of_chickens,
+                    "intruders": number_of_intruders
+                })
             except queue.Full:
-                pass  # skip frame if queue is full
+                pass  # queue is still full, skip this update
 
-        try:
-            if number_of_instances.full():
-                number_of_instances.get_nowait()  # remove old data
-        except queue.Empty:
-            pass  # queue was unexpectedly empty
-
-        try:
-            number_of_instances.put_nowait({
-                "chickens": number_of_chickens,
-                "intruders": number_of_intruders
-            })
-        except queue.Full:
-            pass  # queue is still full, skip this update
-
-        if SHOW_WINDOW:
-            if window_visible_state:
-                cv2.imshow(window_name, annotated_frame)
-
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord('q'):
-                break
-
-            # Press C → close/hide the window
-            elif key == ord('c'):
+            if SHOW_WINDOW:
                 if window_visible_state:
-                    camera.clean_up_camera(capture, PC_MODE)
-                    window_visible_state = False
+                    cv2.imshow(window_name, annotated_frame)
 
-            # Press W → show the window again
-            elif key == ord('w'):
-                if not window_visible_state:
-                    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-                    window_visible_state = True
+                key = cv2.waitKey(1) & 0xFF
 
-    camera.clean_up_camera(capture, PC_MODE)
+                # Press C → close/hide the window
+                if key == ord('c'):
+                    if window_visible_state:
+                        camera.clean_up_camera(capture, PC_MODE)
+                        window_visible_state = False
+
+                # Press W → show the window again
+                elif key == ord('w'):
+                    if not window_visible_state:
+                        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+                        window_visible_state = True
+                        
+    except KeyboardInterrupt:
+        logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+        status_checker.clear()
+        camera.clean_up_camera(capture, PC_MODE)
