@@ -55,7 +55,7 @@ def _read_pins_data(PC_MODE: bool):
     
     feed_level = distance.read_left_distance()
     percentage_feed_level = _convert_to_percentage(feed_level)
-    water_level = distance.read_left_distance()
+    water_level = distance.read_right_distance()  # FIXED: was read_left_distance()
     percentage_water_level = _convert_to_percentage(water_level)
     return {
         "status"                                : "success",
@@ -114,7 +114,7 @@ def _refill_it(
         if current_water_level <= current_water_threshold_warning:
             refill_active = True
             
-    if not refill_active and water_button_state:#
+    if not refill_active and water_button_state:
         refill_active = True
             
     if current_water_level >= MAX_REFILL_LEVEL and refill_active:
@@ -140,11 +140,17 @@ def process_C(**kwargs) -> None:
     print(f"{TASK_NAME} - Running✅")
     logger.info(f"{TASK_NAME} - Running✅")
     
+    if not PC_MODE:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+    
     init_result = firebase_rtdb.initialize_firebase()
     if init_result["status"] == "error":
         status_checker.clear()
         if SAVE_LOGS:
-            logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
+            logger.error(f"{TASK_NAME} - {init_result['message']}. Source: {__name__}")
+        if not PC_MODE:
+            GPIO.cleanup()
         exit()
         
         
@@ -156,9 +162,11 @@ def process_C(**kwargs) -> None:
         device_uid  = device_uid,
     )
     
-    keypad.setup_keypad()
-    motor.setup_motors()
-    distance.setup_ultrasonics()
+    # Setup hardware only if not in PC_MODE
+    if not PC_MODE:
+        keypad.setup_keypad()
+        motor.setup_motors()
+        distance.setup_ultrasonics()
     
     current_feed_level                  = 0
     current_water_level                 = 0
@@ -186,8 +194,9 @@ def process_C(**kwargs) -> None:
             if not status_checker.is_set():
                 if SAVE_LOGS:
                     logger.error(f"{TASK_NAME} - One of the processes got error.")
-                GPIO.cleanup()
-                motor.stop_all_motors()
+                if not PC_MODE:
+                    GPIO.cleanup()
+                    motor.stop_all_motors()
                 exit()
                 
             time.sleep(0.1)
@@ -197,7 +206,7 @@ def process_C(**kwargs) -> None:
             # print("==================================")
             if pins_data_result["status"] == "error":
                 if SAVE_LOGS:
-                    logger.error(f"{TASK_NAME} - {pins_data_result["message"]}")
+                    logger.error(f"{TASK_NAME} - {pins_data_result['message']}")
             current_feed_level                  = pins_data_result["current_feed_level"]
             current_water_level                 = pins_data_result["current_water_level"]
             current_feed_physical_button_state  = pins_data_result["current_feed_physical_button_state"]
@@ -285,5 +294,13 @@ def process_C(**kwargs) -> None:
     except KeyboardInterrupt:
         logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
         status_checker.clear()
-        motor.stop_all_motors()
-        GPIO.cleanup()
+        if not PC_MODE:
+            motor.stop_all_motors()
+            GPIO.cleanup()
+    except Exception as e:
+        logger.error(f"{TASK_NAME} - Unexpected error: {e}")
+        status_checker.clear()
+        if not PC_MODE:
+            motor.stop_all_motors()
+            GPIO.cleanup()
+        raise
