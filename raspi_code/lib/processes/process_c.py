@@ -1,9 +1,7 @@
 import time
-from firebase_admin import db
 from lib.services import firebase_rtdb
 from datetime import datetime
 import logging
-import time
 
 from lib import logger_config
 
@@ -67,8 +65,7 @@ def _read_pins_data(PC_MODE: bool):
             
 
 def _current_millis():
-    start_time = time.monotonic()
-    return int((time.monotonic() - start_time) * 1000)
+    return int(time.monotonic() * 1000)
 
 
 def _convert_to_percentage(distance_cm, min_dist=10, max_dist=300) -> float:
@@ -82,22 +79,24 @@ def _convert_to_percentage(distance_cm, min_dist=10, max_dist=300) -> float:
 
 
 def _dispense_it(
-        feed_button_state: bool, 
-        dispense_active: bool, 
-        dispense_countdown_start: int, 
-        DISPENSE_COUNTDOWN_TIME: int, 
+        feed_button_state: bool,
+        dispense_active: bool,
+        dispense_countdown_start: int,
+        DISPENSE_COUNTDOWN_TIME: int,
         left_motor
-    ) -> list:
-    if feed_button_state:
-        dispense_active             = True
-        dispense_countdown_start    = _current_millis()
-            
+    ):
+    now = _current_millis()
+
+    # Start countdown ONLY once
+    if feed_button_state and not dispense_active:
+        dispense_active = True
+        dispense_countdown_start = now
+
     if dispense_active:
-        elapsed         = _current_millis() - dispense_countdown_start
-        remaining_time  = DISPENSE_COUNTDOWN_TIME - elapsed
-        if remaining_time < 0:
+        elapsed = now - dispense_countdown_start
+        if elapsed >= DISPENSE_COUNTDOWN_TIME:
             dispense_active = False
-        
+
     _handle_feed_dispense(left_motor, dispense_active)
     return dispense_active, dispense_countdown_start
 
@@ -193,8 +192,8 @@ def process_C(**kwargs) -> None:
             time.sleep(0.1)
             # ================== GET ALL DATA FROM PINS ==================
             pins_data_result = _read_pins_data(PC_MODE)
-            print("pins_data_result:\n", pins_data_result)
-            print("==================================")
+            # print("pins_data_result:\n", pins_data_result)
+            # print("==================================")
             if pins_data_result["status"] == "error":
                 if SAVE_LOGS:
                     logger.error(f"{TASK_NAME} - {pins_data_result["message"]}")
@@ -245,7 +244,12 @@ def process_C(**kwargs) -> None:
             
             # Dispense it!
             dispense_active, dispense_countdown_start = _dispense_it(
-                feed_button_state          = current_feed_physical_button_state or current_feed_app_button_state or current_feed_schedule_state and not dispense_active, 
+                feed_button_state = (
+                    (current_feed_physical_button_state or
+                    current_feed_app_button_state or
+                    current_feed_schedule_state)
+                    and not dispense_active
+                ),
                 dispense_active             = dispense_active, 
                 dispense_countdown_start    = dispense_countdown_start, 
                 DISPENSE_COUNTDOWN_TIME     = DISPENSE_COUNTDOWN_TIME, 
@@ -262,6 +266,9 @@ def process_C(**kwargs) -> None:
                 right_motor                             = right_motor,
                 refill_active                           = refill_active
             )
+            
+            print("dispense_active:", dispense_active)
+            print("refill_active:", refill_active)
             
             
             # ================= UPDATE ALL DATA TO DB =================
