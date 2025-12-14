@@ -1,7 +1,11 @@
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime, timedelta
+import pytz  # Add this to requirements.txt if not present
 from . import utils
+
+# Define Philippine timezone
+PH_TIMEZONE = pytz.timezone('Asia/Manila')
 
 def initialize_firebase() -> dict:
     SERVICE_ACC_KEY_PATH    = "credentials",
@@ -46,38 +50,111 @@ def setup_RTDB(user_uid: str, device_uid: str) -> dict:
     }
 
 
-def is_fresh(datetime_string: str, min_to_stop: int) -> bool:
-        dt = datetime.strptime(datetime_string, "%m/%d/%Y %H:%M:%S")
+def get_current_time_ph() -> datetime:
+    """Get current time in Philippine timezone"""
+    return datetime.now(PH_TIMEZONE)
 
-        return (datetime.now() - dt) <= timedelta(minutes=min_to_stop)
+
+# Global tracking for schedule triggers (maintains state between calls)
+_last_triggered_schedules = {}
+
+
+def is_fresh(datetime_string: str, min_to_stop: int) -> bool:
+    """
+    Check if a timestamp is fresh (within min_to_stop minutes)
+    Uses Philippine timezone for consistency
+    """
+    try:
+        # Parse the datetime string (assuming it's in PH time)
+        dt = datetime.strptime(datetime_string, "%m/%d/%Y %H:%M:%S")
+        # Make it timezone-aware (PH timezone)
+        dt_ph = PH_TIMEZONE.localize(dt)
+        
+        # Get current time in PH timezone
+        now_ph = get_current_time_ph()
+        
+        # Calculate difference
+        time_diff = now_ph - dt_ph
+        
+        # Optional: Uncomment for debugging
+        # print(f"[DEBUG] Checking freshness:")
+        # print(f"  Button timestamp: {dt_ph}")
+        # print(f"  Current time (PH): {now_ph}")
+        # print(f"  Time difference: {time_diff}")
+        # print(f"  Is fresh (< {min_to_stop} min)? {time_diff <= timedelta(minutes=min_to_stop)}")
+        
+        return time_diff <= timedelta(minutes=min_to_stop)
+    except Exception as e:
+        print(f"[ERROR] is_fresh failed: {e}")
+        return False
 
 
 def is_schedule_triggered(schedule_data: dict) -> bool:
+    """
+    Check if any schedule should trigger right now.
+    Returns True if at least one schedule is triggered.
+    
+    MAINTAINS ORIGINAL RETURN FORMAT: Returns bool only
+    """
+    global _last_triggered_schedules
+    
     if not schedule_data:
         return False
 
-    now = datetime.now()
-    today_day_index = now.weekday()          # Monday = 0, Sunday = 6
+    # Use Philippine timezone
+    now = get_current_time_ph()
+    today_day_index = now.weekday()  # Monday = 0, Sunday = 6
     now_time = now.strftime("%H:%M")
+    
+    # Optional: Uncomment for debugging
+    # print(f"[DEBUG] Schedule check - Current PH time: {now}, Day: {today_day_index}, Time: {now_time}")
+    
+    is_triggered = False
 
     # Loop over the actual schedule objects
-    for schedule in schedule_data.values():
+    for schedule_id, schedule in schedule_data.items():
         days = schedule.get("days", [])
         sched_time = schedule.get("time")
         enabled = schedule.get("enabled", False)
 
+        # Optional: Uncomment for debugging
+        # print(f"[DEBUG] Checking schedule {schedule_id}: enabled={enabled}, time={sched_time}, days={days}")
+
         if not enabled:
             continue
 
-        if sched_time != now_time:
-            continue
-
+        # Check if today is in the schedule
         if today_day_index not in days:
             continue
 
-        return True
+        # Check if current time matches schedule time
+        if sched_time != now_time:
+            # Reset tracking if we've passed the schedule time
+            if schedule_id in _last_triggered_schedules:
+                try:
+                    sched_dt = datetime.strptime(sched_time, "%H:%M")
+                    now_dt = datetime.strptime(now_time, "%H:%M")
+                    if now_dt < sched_dt:
+                        # New day, reset tracking
+                        del _last_triggered_schedules[schedule_id]
+                except Exception:
+                    pass
+            continue
 
-    return False
+        # Check if we've already triggered this schedule today
+        last_trigger = _last_triggered_schedules.get(schedule_id)
+        if last_trigger:
+            time_since_trigger = (now - last_trigger).total_seconds()
+            # Only trigger once per minute (60 seconds cooldown)
+            if time_since_trigger < 60:
+                continue
+
+        # This schedule should trigger!
+        print(f"[INFO] Schedule {schedule_id} triggered at {now_time}")
+        is_triggered = True
+        _last_triggered_schedules[schedule_id] = now
+
+    return is_triggered
 
 
 def livestream_on(value) -> bool:
@@ -92,7 +169,11 @@ def livestream_on(value) -> bool:
 
 
 def read_RTDB(database_ref: dict) -> dict:
-
+    """
+    Read data from Firebase RTDB.
+    
+    MAINTAINS ORIGINAL RETURN FORMAT - no changes to structure
+    """
     # Get actual values from RTDB
     df_datetime     = database_ref["df_app_button_ref"].get()
     wr_datetime     = database_ref["wr_app_button_ref"].get()
