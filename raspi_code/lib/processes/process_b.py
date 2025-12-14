@@ -1,8 +1,6 @@
 import time
 import cv2
 import base64
-import numpy as np
-from multiprocessing import Queue
 from lib.services import firebase_rtdb
 from firebase_admin import db
 from datetime import datetime
@@ -29,7 +27,8 @@ def process_B(**kwargs) -> None:
     init_result = firebase_rtdb.initialize_firebase()
     if init_result["status"] == "error":
         status_checker.clear()
-        logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
+        if SAVE_LOGS:
+            logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
         exit()
 
     user_uid    = USER_CREDENTIAL["userUid"]
@@ -40,7 +39,8 @@ def process_B(**kwargs) -> None:
 
     while True:
         if not status_checker.is_set():
-            logger.error(f"{TASK_NAME} - One of the processes got error.")
+            if SAVE_LOGS:
+                logger.error(f"{TASK_NAME} - One of the processes got error.")
             exit()
         
         if not live_status.is_set():
@@ -64,7 +64,8 @@ def process_B(**kwargs) -> None:
                         "lastUpdateAt": lastUpdateAt,
                     })
                 except Exception as e:
-                    logger.warning(f"{TASK_NAME} - {e}. Skip update base64 image to database. No internet.")
+                    if SAVE_LOGS:
+                        logger.warning(f"{TASK_NAME} - {e}. Skip update base64 image to database. No internet.")
 
 
         if not number_of_instances.empty():
@@ -80,7 +81,8 @@ def process_B(**kwargs) -> None:
                     "updatedAt": updatedAt
                 })
             except Exception as e:
-                logger.warning(f"{TASK_NAME} - {e}. Skip update numberOfChickens and numberOfIntruders to database. No internet.")
+                if SAVE_LOGS:
+                    logger.warning(f"{TASK_NAME} - {e}. Skip update numberOfChickens and numberOfIntruders to database. No internet.")
 
 
         time.sleep(0.1)
