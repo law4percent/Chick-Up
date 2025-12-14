@@ -181,96 +181,105 @@ def process_C(**kwargs) -> None:
     dispense_active             = False
     dispense_countdown_start    = 0
     MAX_REFILL_LEVEL            = 95
-    while True:
-        if not status_checker.is_set():
-            if SAVE_LOGS:
-                logger.error(f"{TASK_NAME} - One of the processes got error.")
-            GPIO.cleanup()
-            exit()
+    
+    try:
+        while True:
+            if not status_checker.is_set():
+                if SAVE_LOGS:
+                    logger.error(f"{TASK_NAME} - One of the processes got error.")
+                GPIO.cleanup()
+                exit()
+                
+            time.sleep(0.1)
+            # ================== GET ALL DATA FROM PINS ==================
+            pins_data_result = _read_pins_data(PC_MODE)
+            print("==================================")
+            print("pins_data_result:\n", pins_data_result)
+            print("==================================")
+            if pins_data_result["status"] == "error":
+                if SAVE_LOGS:
+                    logger.error(f"{TASK_NAME} - {pins_data_result["message"]}")
+            current_feed_level                  = pins_data_result["current_feed_level"]
+            current_water_level                 = pins_data_result["current_water_level"]
+            current_feed_physical_button_state  = pins_data_result["current_feed_physical_button_state"]
+            current_water_physical_button_state = pins_data_result["current_water_physical_button_state"]
             
-        time.sleep(0.1)
-        # ================== GET ALL DATA FROM PINS ==================
-        pins_data_result = _read_pins_data(PC_MODE)
-        print("==================================")
-        print("pins_data_result:\n", pins_data_result)
-        print("==================================")
-        if pins_data_result["status"] == "error":
-            if SAVE_LOGS:
-                logger.error(f"{TASK_NAME} - {pins_data_result["message"]}")
-        current_feed_level                  = pins_data_result["current_feed_level"]
-        current_water_level                 = pins_data_result["current_water_level"]
-        current_feed_physical_button_state  = pins_data_result["current_feed_physical_button_state"]
-        current_water_physical_button_state = pins_data_result["current_water_physical_button_state"]
-        
-        # ================== GET ALL DATA FROM DB ==================
-        try:
-            database_data                   = firebase_rtdb.read_RTDB(database_ref=database_ref)
-            current_feed_app_button_state   = database_data["current_feed_app_button_state"]
-            current_water_app_button_state  = database_data["current_water_app_button_state"]
-            current_feed_schedule_state     = database_data["current_feed_schedule_state"]
-            current_live_button_state       = database_data["current_live_button_state"]
-        
-            current_user_settings                   = database_data["current_user_settings"]
-            current_feed_threshold_warning          = current_user_settings["feed_threshold_warning"]
-            current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"]
-            current_water_threshold_warning         = current_user_settings["water_threshold_warning"]
-            current_auto_refill_water_enabled_state = current_user_settings["auto_refill_water_enabled"]
-        except Exception as e:
-            if SAVE_LOGS:
-                logger.warning(f"{TASK_NAME} - {e}. Skip reading buttons from RTDB. No internet.")
-        
-        # ================== TAKE ACTIONS ==================
-        # Modify Live Stream Status
-        if current_live_button_state:
-            live_status.set()
-        else:
-            live_status.clear()
-        
+            # ================== GET ALL DATA FROM DB ==================
+            try:
+                database_data                   = firebase_rtdb.read_RTDB(database_ref=database_ref)
+                current_feed_app_button_state   = database_data["current_feed_app_button_state"]
+                current_water_app_button_state  = database_data["current_water_app_button_state"]
+                current_feed_schedule_state     = database_data["current_feed_schedule_state"]
+                current_live_button_state       = database_data["current_live_button_state"]
+            
+                current_user_settings                   = database_data["current_user_settings"]
+                current_feed_threshold_warning          = current_user_settings["feed_threshold_warning"]
+                current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"]
+                current_water_threshold_warning         = current_user_settings["water_threshold_warning"]
+                current_auto_refill_water_enabled_state = current_user_settings["auto_refill_water_enabled"]
+            except Exception as e:
+                if SAVE_LOGS:
+                    logger.warning(f"{TASK_NAME} - {e}. Skip reading buttons from RTDB. No internet.")
+            
+            # ================== TAKE ACTIONS ==================
+            # Modify Live Stream Status
+            if current_live_button_state:
+                live_status.set()
+            else:
+                live_status.clear()
+            
 
-        
-        # ================== WIP ==================
-        # Warn it!
-        if current_feed_level <= current_feed_threshold_warning:
-            # print("FEED LEVEL LOW!")
-            # handle_hardware.lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
-            pass
-        
-        # ================== WIP ==================
-        # Warn it!
-        if current_water_level <= current_water_threshold_warning:
-            # print("WATER LEVEL LOW!")
-            # handle_hardware.lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
-            pass
-        
-        # Dispense it!
-        dispense_active, dispense_countdown_start = _dispense_it(
-            feed_button_state          = current_feed_physical_button_state or current_feed_app_button_state or current_feed_schedule_state and not dispense_active, 
-            dispense_active             = dispense_active, 
-            dispense_countdown_start    = dispense_countdown_start, 
-            DISPENSE_COUNTDOWN_TIME     = DISPENSE_COUNTDOWN_TIME, 
-            left_motor                  = left_motor
-        )
-        
-        # Refill it!
-        refill_active = _refill_it(
-            current_auto_refill_water_enabled_state = current_auto_refill_water_enabled_state,
-            current_water_level                     = current_water_level,
-            current_water_threshold_warning         = current_water_threshold_warning,
-            water_button_state                      = current_water_physical_button_state or current_water_app_button_state,
-            MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
-            right_motor                             = right_motor,
-            refill_active                           = refill_active
-        )
-        
-        
-        # ================= UPDATE ALL DATA TO DB =================
-        try:
-            sensors_ref = database_ref["sensors_ref"].get()
-            sensors_ref.update({
-                "feedLevel" : current_feed_level,
-                "waterLevel": current_water_level,
-                "updatedAt" : datetime.now().strftime('%m/%d/%Y %H:%M:%S')
-            })
-        except Exception as e:
-            if SAVE_LOGS:
-                logger.warning(f"{TASK_NAME} - {e}. Skip update feedLevel and waterLevel to database. No internet.")
+            
+            # ================== WIP ==================
+            # Warn it!
+            if current_feed_level <= current_feed_threshold_warning:
+                # print("FEED LEVEL LOW!")
+                # handle_hardware.lcd_print(lcd, "FEED LOW", f"Level: {feed_level}%")
+                pass
+            
+            # ================== WIP ==================
+            # Warn it!
+            if current_water_level <= current_water_threshold_warning:
+                # print("WATER LEVEL LOW!")
+                # handle_hardware.lcd_print(lcd, "WATER LOW", f"Level: {water_level}%") 
+                pass
+            
+            # Dispense it!
+            dispense_active, dispense_countdown_start = _dispense_it(
+                feed_button_state          = current_feed_physical_button_state or current_feed_app_button_state or current_feed_schedule_state and not dispense_active, 
+                dispense_active             = dispense_active, 
+                dispense_countdown_start    = dispense_countdown_start, 
+                DISPENSE_COUNTDOWN_TIME     = DISPENSE_COUNTDOWN_TIME, 
+                left_motor                  = left_motor
+            )
+            
+            # Refill it!
+            refill_active = _refill_it(
+                current_auto_refill_water_enabled_state = current_auto_refill_water_enabled_state,
+                current_water_level                     = current_water_level,
+                current_water_threshold_warning         = current_water_threshold_warning,
+                water_button_state                      = current_water_physical_button_state or current_water_app_button_state,
+                MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
+                right_motor                             = right_motor,
+                refill_active                           = refill_active
+            )
+            
+            
+            # ================= UPDATE ALL DATA TO DB =================
+            try:
+                sensors_ref = database_ref["sensors_ref"].get()
+                sensors_ref.update({
+                    "feedLevel" : current_feed_level,
+                    "waterLevel": current_water_level,
+                    "updatedAt" : datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+                })
+            except Exception as e:
+                if SAVE_LOGS:
+                    logger.warning(f"{TASK_NAME} - {e}. Skip update feedLevel and waterLevel to database. No internet.")
+
+    except KeyboardInterrupt:
+        logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+    
+    finally:
+        status_checker.clear()
+        GPIO.cleanup()

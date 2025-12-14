@@ -37,52 +37,59 @@ def process_B(**kwargs) -> None:
     livestream_ref  = db.reference(f"liveStream/{user_uid}/{device_uid}")
     detection_ref   = db.reference(f"detection/{user_uid}/{device_uid}")
 
-    while True:
-        if not status_checker.is_set():
-            if SAVE_LOGS:
-                logger.error(f"{TASK_NAME} - One of the processes got error.")
-            exit()
-        
-        if not live_status.is_set():
-            time.sleep(0.1)
-            continue
-
-        if not queue_frame.empty():
-            frame = queue_frame.get()
+    try:
+        while True:
+            if not status_checker.is_set():
+                if SAVE_LOGS:
+                    logger.error(f"{TASK_NAME} - One of the processes got error.")
+                exit()
             
-            ret, buffer = cv2.imencode(".jpg", frame)
-            if not ret:
-                print("Error: Failed to encode frame.")
-            else:
-                jpg_text = base64.b64encode(buffer).decode("utf-8")
-                now = datetime.now()
-                lastUpdateAt = now.strftime('%m/%d/%Y %H:%M:%S')
+            if not live_status.is_set():
+                time.sleep(0.1)
+                continue
+
+            if not queue_frame.empty():
+                frame = queue_frame.get()
+                
+                ret, buffer = cv2.imencode(".jpg", frame)
+                if not ret:
+                    print("Error: Failed to encode frame.")
+                else:
+                    jpg_text = base64.b64encode(buffer).decode("utf-8")
+                    now = datetime.now()
+                    lastUpdateAt = now.strftime('%m/%d/%Y %H:%M:%S')
+
+                    try:
+                        livestream_ref.update({
+                            "base64": jpg_text,
+                            "lastUpdateAt": lastUpdateAt,
+                        })
+                    except Exception as e:
+                        if SAVE_LOGS:
+                            logger.warning(f"{TASK_NAME} - {e}. Skip update base64 image to database. No internet.")
+
+
+            if not number_of_instances.empty():
+                class_counts = number_of_instances.get()
+                number_of_chickens = class_counts.get("chickens", 0)
+                number_of_intruders = class_counts.get("intruders", 0)
 
                 try:
-                    livestream_ref.update({
-                        "base64": jpg_text,
-                        "lastUpdateAt": lastUpdateAt,
+                    updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
+                    detection_ref.update({
+                        "numberOfChickens": number_of_chickens,
+                        "numberOfIntruders": number_of_intruders,
+                        "updatedAt": updatedAt
                     })
                 except Exception as e:
                     if SAVE_LOGS:
-                        logger.warning(f"{TASK_NAME} - {e}. Skip update base64 image to database. No internet.")
+                        logger.warning(f"{TASK_NAME} - {e}. Skip update numberOfChickens and numberOfIntruders to database. No internet.")
 
 
-        if not number_of_instances.empty():
-            class_counts = number_of_instances.get()
-            number_of_chickens = class_counts.get("chickens", 0)
-            number_of_intruders = class_counts.get("intruders", 0)
-
-            try:
-                updatedAt = datetime.now().strftime('%m/%d/%Y %H:%M:%S')
-                detection_ref.update({
-                    "numberOfChickens": number_of_chickens,
-                    "numberOfIntruders": number_of_intruders,
-                    "updatedAt": updatedAt
-                })
-            except Exception as e:
-                if SAVE_LOGS:
-                    logger.warning(f"{TASK_NAME} - {e}. Skip update numberOfChickens and numberOfIntruders to database. No internet.")
-
-
-        time.sleep(0.1)
+            time.sleep(0.1)
+            
+    except KeyboardInterrupt:
+        logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+        
+    finally:
+        status_checker.clear()

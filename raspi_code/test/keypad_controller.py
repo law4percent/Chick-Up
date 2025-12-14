@@ -3,7 +3,17 @@ import time
 
 ROW_PINS = [19, 21, 20, 16] #[5, 6, 13, 12]  # Row pins: 5, 6, 13, 12 1 2 3 4
 COL_PINS = [12, 13, 6, 5] # [16, 20, 21, 19] # Column pins: 16, 20, 21, 19 1 2 3 4
+# LEFT motor
+LEFT_IN1 = 17
+LEFT_IN2 = 27
 
+# RIGHT motor
+RIGHT_IN1 = 22
+RIGHT_IN2 = 23
+LEFT_TRIG = 25
+LEFT_ECHO = 24
+RIGHT_TRIG = 7
+RIGHT_ECHO = 8
 MATRIX = [
     ['1','2','3','A'],
     ['4','5','6','B'],
