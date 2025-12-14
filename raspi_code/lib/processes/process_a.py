@@ -1,6 +1,6 @@
 import cv2
 from multiprocessing import Event
-from lib.services.hardware import camera_controller
+from lib.services.hardware import camera_controller as camera
 import logging
 import time
 import queue
@@ -22,7 +22,7 @@ def _check_points(FILE_PATHS: dict, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDE
     capture = None
     VIDEO_PATH = FILE_PATHS["VIDEO_FILE"]
     
-    config_result = camera_controller.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
+    config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":
         return config_result
         
