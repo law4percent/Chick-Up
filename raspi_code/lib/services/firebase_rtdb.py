@@ -1,11 +1,8 @@
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime, timedelta
-import pytz  # Add this to requirements.txt if not present
+import time
 from . import utils
-
-# Define Philippine timezone
-PH_TIMEZONE = pytz.timezone('Asia/Manila')
 
 def initialize_firebase() -> dict:
     SERVICE_ACC_KEY_PATH    = "credentials",
@@ -50,42 +47,55 @@ def setup_RTDB(user_uid: str, device_uid: str) -> dict:
     }
 
 
-def get_current_time_ph() -> datetime:
-    """Get current time in Philippine timezone"""
-    return datetime.now(PH_TIMEZONE)
-
-
 # Global tracking for schedule triggers (maintains state between calls)
 _last_triggered_schedules = {}
 
 
-def is_fresh(datetime_string: str, min_to_stop: int) -> bool:
+def is_fresh(timestamp_value, min_to_stop: int) -> bool:
     """
     Check if a timestamp is fresh (within min_to_stop minutes)
-    Uses Philippine timezone for consistency
+    Handles both Unix timestamps (from Firebase serverTimestamp) and datetime strings
+    
+    Args:
+        timestamp_value: Either a Unix timestamp (int/float in milliseconds) or datetime string
+        min_to_stop: Number of minutes to consider "fresh"
+    
+    Returns:
+        bool: True if timestamp is within the time window
     """
     try:
-        # Parse the datetime string (assuming it's in PH time)
-        dt = datetime.strptime(datetime_string, "%m/%d/%Y %H:%M:%S")
-        # Make it timezone-aware (PH timezone)
-        dt_ph = PH_TIMEZONE.localize(dt)
+        # Get current time in milliseconds
+        now_ms = time.time() * 1000
         
-        # Get current time in PH timezone
-        now_ph = get_current_time_ph()
+        # Handle different timestamp formats
+        if isinstance(timestamp_value, (int, float)):
+            # Firebase serverTimestamp - Unix timestamp in milliseconds
+            timestamp_ms = float(timestamp_value)
+        elif isinstance(timestamp_value, str):
+            # Legacy string format "MM/DD/YYYY HH:MM:SS"
+            dt = datetime.strptime(timestamp_value, "%m/%d/%Y %H:%M:%S")
+            timestamp_ms = dt.timestamp() * 1000
+        else:
+            print(f"[ERROR] Unknown timestamp format: {type(timestamp_value)}")
+            return False
         
-        # Calculate difference
-        time_diff = now_ph - dt_ph
+        # Calculate time difference in milliseconds
+        time_diff_ms = now_ms - timestamp_ms
+        time_diff_minutes = time_diff_ms / (1000 * 60)
+        
+        is_fresh_result = time_diff_minutes <= min_to_stop
         
         # Optional: Uncomment for debugging
         # print(f"[DEBUG] Checking freshness:")
-        # print(f"  Button timestamp: {dt_ph}")
-        # print(f"  Current time (PH): {now_ph}")
-        # print(f"  Time difference: {time_diff}")
-        # print(f"  Is fresh (< {min_to_stop} min)? {time_diff <= timedelta(minutes=min_to_stop)}")
+        # print(f"  Timestamp (ms): {timestamp_ms}")
+        # print(f"  Current time (ms): {now_ms}")
+        # print(f"  Time difference (minutes): {time_diff_minutes:.2f}")
+        # print(f"  Is fresh (< {min_to_stop} min)? {is_fresh_result}")
         
-        return time_diff <= timedelta(minutes=min_to_stop)
+        return is_fresh_result
+        
     except Exception as e:
-        print(f"[ERROR] is_fresh failed: {e}")
+        print(f"[ERROR] is_fresh failed: {e}, value: {timestamp_value}")
         return False
 
 
@@ -101,13 +111,13 @@ def is_schedule_triggered(schedule_data: dict) -> bool:
     if not schedule_data:
         return False
 
-    # Use Philippine timezone
-    now = get_current_time_ph()
+    # Use system time
+    now = datetime.now()
     today_day_index = now.weekday()  # Monday = 0, Sunday = 6
     now_time = now.strftime("%H:%M")
     
     # Optional: Uncomment for debugging
-    # print(f"[DEBUG] Schedule check - Current PH time: {now}, Day: {today_day_index}, Time: {now_time}")
+    # print(f"[DEBUG] Schedule check - Current time: {now}, Day: {today_day_index}, Time: {now_time}")
     
     is_triggered = False
 
@@ -173,6 +183,7 @@ def read_RTDB(database_ref: dict) -> dict:
     Read data from Firebase RTDB.
     
     MAINTAINS ORIGINAL RETURN FORMAT - no changes to structure
+    Now handles both Firebase serverTimestamp and legacy datetime strings
     """
     # Get actual values from RTDB
     df_datetime     = database_ref["df_app_button_ref"].get()
