@@ -92,14 +92,14 @@ if __name__ == "__main__":
             "SAVE_LOGS"             : SAVE_LOGS
         },
         process_C_args  = {
-            "TASK_NAME"         : "Process C",
-            "FEED_DELAY"        : 5,
-            "status_checker"    : status_checker,
-            "live_status"       : live_status,
-            "annotated_option"  : annotated_option,
-            "USER_CREDENTIAL"   : {},
-            "PC_MODE"           : PC_MODE,
-            "SAVE_LOGS"         : SAVE_LOGS
+            "TASK_NAME"                 : "Process C",
+            "DISPENSE_COUNTDOWN_TIME"   : 5000,
+            "status_checker"            : status_checker,
+            "live_status"               : live_status,
+            "annotated_option"          : annotated_option,
+            "USER_CREDENTIAL"           : {},
+            "PC_MODE"                   : PC_MODE,
+            "SAVE_LOGS"                 : SAVE_LOGS
         }
     )
     

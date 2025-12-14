@@ -31,16 +31,20 @@ def initialize_firebase() -> dict:
 
 
 def setup_RTDB(user_uid: str, device_uid: str) -> dict:
-    df_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt")
-    wr_app_button_ref = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt")
-    feed_schedule_ref = db.reference(f"schedules/{user_uid}")
-    live_button_status_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
+    df_app_button_ref       = db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt")
+    wr_app_button_ref       = db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt")
+    feed_schedule_ref       = db.reference(f"schedules/{user_uid}")
+    live_button_status_ref  = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
+    user_settings_ref       = db.reference(f"settings/{user_uid}")
+    sensors_ref             = db.reference(f"sensors/{user_uid}/{device_uid}")
     
     return {
-        "df_app_button_ref": df_app_button_ref,
-        "wr_app_button_ref": wr_app_button_ref,
-        "feed_schedule_ref": feed_schedule_ref,
+        "df_app_button_ref"     : df_app_button_ref,
+        "wr_app_button_ref"     : wr_app_button_ref,
+        "feed_schedule_ref"     : feed_schedule_ref,
         "live_button_status_ref": live_button_status_ref,
+        "user_settings_ref"     : user_settings_ref,
+        "sensors_ref"           : sensors_ref
     }
 
 
@@ -89,17 +93,28 @@ def livestream_on(value) -> bool:
     return v in ["1", "true", "yes", "on"]
 
 
-def read_RTDB(database: dict) -> dict:
+def read_RTDB(database_ref: dict) -> dict:
 
     # Get actual values from RTDB
-    df_datetime     = database["df_app_button_ref"].get()
-    wr_datetime     = database["wr_app_button_ref"].get()
-    feed_schedule   = database["feed_schedule_ref"].get()
-    live_status     = database["live_button_status_ref"].get()
+    df_datetime     = database_ref["df_app_button_ref"].get()
+    wr_datetime     = database_ref["wr_app_button_ref"].get()
+    feed_schedule   = database_ref["feed_schedule_ref"].get()
+    live_status     = database_ref["live_button_status_ref"].get()
+    settings_ref                = database_ref["user_settings_ref"].get()
+    feed_threshold_warning      = settings_ref.get("feed", {}).get("thresholdPercent")
+    dispense_volume_percent     = settings_ref.get("feed", {}).get("dispenseVolumePercent") # Work in progress
+    water_threshold_warning     = settings_ref.get("water", {}).get("thresholdPercent")
+    auto_refill_water_enabled   = settings_ref.get("water", {}).get("autoRefillEnabled")
 
     return {
         "current_feed_app_button_state" : is_fresh(df_datetime, min_to_stop=3),
         "current_water_app_button_state": is_fresh(wr_datetime, min_to_stop=3),
         "current_feed_schedule_state"   : is_schedule_triggered(feed_schedule),
         "current_live_button_state"     : livestream_on(live_status),
+        "current_user_settings"         : {
+            "feed_threshold_warning"    : feed_threshold_warning,
+            "dispense_volume_percent"   : dispense_volume_percent,
+            "water_threshold_warning"   : water_threshold_warning,
+            "auto_refill_water_enabled" : auto_refill_water_enabled
+        }
     }
