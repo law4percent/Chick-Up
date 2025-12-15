@@ -92,3 +92,8 @@ def process_B(**kwargs) -> None:
         if SAVE_LOGS:
             logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
         status_checker.clear()
+
+    except Exception as e:
+        if SAVE_LOGS:
+            logger.warning(f"{TASK_NAME} - {e} {__name__}")
+        status_checker.clear()

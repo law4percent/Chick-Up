@@ -130,7 +130,7 @@ def process_C(**kwargs) -> None:
     TASK_NAME               = process_C_args["TASK_NAME"]
     status_checker          = process_C_args["status_checker"]
     live_status             = process_C_args["live_status"]
-    annotated_option        = process_C_args["annotated_option"] # work in progress
+    annotated_option        = process_C_args["annotated_option"] # WIP
     USER_CREDENTIAL         = process_C_args["USER_CREDENTIAL"]
     PC_MODE                 = process_C_args["PC_MODE"]
     SAVE_LOGS               = process_C_args["SAVE_LOGS"]
@@ -162,7 +162,6 @@ def process_C(**kwargs) -> None:
         device_uid  = device_uid,
     )
     
-    # Setup hardware only if not in PC_MODE
     if not PC_MODE:
         keypad.setup_keypad()
         motor.setup_motors()
@@ -179,9 +178,9 @@ def process_C(**kwargs) -> None:
     current_live_button_state       = 0
     
     # ========== USER SETTINGS ==========
-    current_feed_threshold_warning          = 20 #minimun
-    current_dispense_volume_percent         = 0 # Work in progress
-    current_water_threshold_warning         = 20 #minimun
+    current_feed_threshold_warning          = 20    # minimun
+    current_dispense_volume_percent         = 0     # IP
+    current_water_threshold_warning         = 20    # minimun
     current_auto_refill_water_enabled_state = False
     
     refill_active               = False
@@ -220,7 +219,7 @@ def process_C(**kwargs) -> None:
             
                 current_user_settings                   = database_data["current_user_settings"]
                 current_feed_threshold_warning          = current_user_settings["feed_threshold_warning"]
-                current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"]
+                current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"] # WIP
                 current_water_threshold_warning         = current_user_settings["water_threshold_warning"]
                 current_auto_refill_water_enabled_state = current_user_settings["auto_refill_water_enabled"]
             except Exception as e:
@@ -298,4 +297,3 @@ def process_C(**kwargs) -> None:
         if not PC_MODE:
             motor.stop_all_motors()
             GPIO.cleanup()
-        raise

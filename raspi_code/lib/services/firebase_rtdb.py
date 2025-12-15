@@ -190,9 +190,10 @@ def read_RTDB(database_ref: dict, min_to_stop: int = 1) -> dict:
     wr_datetime     = database_ref["wr_app_button_ref"].get()
     feed_schedule   = database_ref["feed_schedule_ref"].get()
     live_status     = database_ref["live_button_status_ref"].get()
+
     settings_ref                = database_ref["user_settings_ref"].get()
     feed_threshold_warning      = settings_ref.get("feed", {}).get("thresholdPercent")
-    dispense_volume_percent     = settings_ref.get("feed", {}).get("dispenseVolumePercent") # Work in progress
+    dispense_volume_percent     = settings_ref.get("feed", {}).get("dispenseVolumePercent")
     water_threshold_warning     = settings_ref.get("water", {}).get("thresholdPercent")
     auto_refill_water_enabled   = settings_ref.get("water", {}).get("autoRefillEnabled")
 

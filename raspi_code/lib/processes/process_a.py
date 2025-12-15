@@ -81,7 +81,6 @@ def process_A(**kwargs) -> None:
         status_checker.clear()
         exit()
         
-    capture     = check_point_result["capture"]
     class_list  = check_point_result["class_list"]
     yolo_model  = check_point_result["yolo_model"]
     
@@ -192,6 +191,15 @@ def process_A(**kwargs) -> None:
         clean_result = camera.clean_up_camera(capture, PC_MODE)
         if SAVE_LOGS:
             logger.warning(f"{TASK_NAME} - Keyboard interrupt detected at {__name__}")
+        if clean_result["status"] == "error":
+            if SAVE_LOGS:
+                logger.error(f"{TASK_NAME} - {clean_result["message"]}")
+
+    except Exception as e:
+        status_checker.clear()
+        clean_result = camera.clean_up_camera(capture, PC_MODE)
+        if SAVE_LOGS:
+            logger.warning(f"{TASK_NAME} - {e} {__name__}")
         if clean_result["status"] == "error":
             if SAVE_LOGS:
                 logger.error(f"{TASK_NAME} - {clean_result["message"]}")
