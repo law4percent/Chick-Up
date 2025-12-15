@@ -52,10 +52,10 @@ def _read_pins_data(PC_MODE: bool):
         elif key == '#':
             current_water_physical_button_state = True
     
-    feed_level = distance.read_left_distance()
-    percentage_feed_level = _convert_to_percentage(feed_level)
-    water_level = distance.read_right_distance()
-    percentage_water_level = _convert_to_percentage(water_level)
+    feed_level              = distance.read_left_distance()
+    percentage_feed_level   = _convert_to_percentage(feed_level)
+    water_level             = distance.read_right_distance()
+    percentage_water_level  = _convert_to_percentage(water_level)
     return {
         "status"                                : "success",
         "current_feed_level"                    : percentage_feed_level,
@@ -88,7 +88,7 @@ def _dispense_it(
     now = _current_millis()
 
     # Start countdown ONLY once
-    if feed_button_state and not dispense_active:
+    if feed_button_state:
         dispense_active = True
         dispense_countdown_start = now
 
@@ -130,7 +130,7 @@ def process_C(**kwargs) -> None:
     TASK_NAME               = process_C_args["TASK_NAME"]
     status_checker          = process_C_args["status_checker"]
     live_status             = process_C_args["live_status"]
-    annotated_option        = process_C_args["annotated_option"] # work in progress
+    annotated_option        = process_C_args["annotated_option"] # WIP
     USER_CREDENTIAL         = process_C_args["USER_CREDENTIAL"]
     PC_MODE                 = process_C_args["PC_MODE"]
     SAVE_LOGS               = process_C_args["SAVE_LOGS"]
@@ -162,7 +162,6 @@ def process_C(**kwargs) -> None:
         device_uid  = device_uid,
     )
     
-    # Setup hardware only if not in PC_MODE
     if not PC_MODE:
         keypad.setup_keypad()
         motor.setup_motors()
@@ -179,9 +178,9 @@ def process_C(**kwargs) -> None:
     current_live_button_state       = 0
     
     # ========== USER SETTINGS ==========
-    current_feed_threshold_warning          = 20 #minimun
-    current_dispense_volume_percent         = 0 # Work in progress
-    current_water_threshold_warning         = 20 #minimun
+    current_feed_threshold_warning          = 20    # minimun
+    current_dispense_volume_percent         = 0     # IP
+    current_water_threshold_warning         = 20    # minimun
     current_auto_refill_water_enabled_state = False
     
     refill_active               = False
@@ -204,7 +203,7 @@ def process_C(**kwargs) -> None:
             pins_data_result = _read_pins_data(PC_MODE)
             if pins_data_result["status"] == "error":
                 if SAVE_LOGS:
-                    logger.error(f"{TASK_NAME} - {pins_data_result['message']}")
+                    logger.warning(f"{TASK_NAME} - {pins_data_result['message']}")
             current_feed_level                  = pins_data_result["current_feed_level"]
             current_water_level                 = pins_data_result["current_water_level"]
             current_feed_physical_button_state  = pins_data_result["current_feed_physical_button_state"]
@@ -220,7 +219,7 @@ def process_C(**kwargs) -> None:
             
                 current_user_settings                   = database_data["current_user_settings"]
                 current_feed_threshold_warning          = current_user_settings["feed_threshold_warning"]
-                current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"]
+                current_dispense_volume_percent         = current_user_settings["dispense_volume_percent"] # WIP
                 current_water_threshold_warning         = current_user_settings["water_threshold_warning"]
                 current_auto_refill_water_enabled_state = current_user_settings["auto_refill_water_enabled"]
             except Exception as e:
@@ -290,6 +289,7 @@ def process_C(**kwargs) -> None:
         if not PC_MODE:
             motor.stop_all_motors()
             GPIO.cleanup()
+
     except Exception as e:
         if SAVE_LOGS:
             logger.error(f"{TASK_NAME} - Unexpected error: {e}")
@@ -297,4 +297,3 @@ def process_C(**kwargs) -> None:
         if not PC_MODE:
             motor.stop_all_motors()
             GPIO.cleanup()
-        raise
