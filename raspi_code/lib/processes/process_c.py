@@ -52,10 +52,10 @@ def _read_pins_data(PC_MODE: bool):
         elif key == '#':
             current_water_physical_button_state = True
     
-    feed_level = distance.read_left_distance()
-    percentage_feed_level = _convert_to_percentage(feed_level)
-    water_level = distance.read_right_distance()
-    percentage_water_level = _convert_to_percentage(water_level)
+    feed_level              = distance.read_left_distance()
+    percentage_feed_level   = _convert_to_percentage(feed_level)
+    water_level             = distance.read_right_distance()
+    percentage_water_level  = _convert_to_percentage(water_level)
     return {
         "status"                                : "success",
         "current_feed_level"                    : percentage_feed_level,
@@ -88,7 +88,7 @@ def _dispense_it(
     now = _current_millis()
 
     # Start countdown ONLY once
-    if feed_button_state and not dispense_active:
+    if feed_button_state:
         dispense_active = True
         dispense_countdown_start = now
 
@@ -204,7 +204,7 @@ def process_C(**kwargs) -> None:
             pins_data_result = _read_pins_data(PC_MODE)
             if pins_data_result["status"] == "error":
                 if SAVE_LOGS:
-                    logger.error(f"{TASK_NAME} - {pins_data_result['message']}")
+                    logger.warning(f"{TASK_NAME} - {pins_data_result['message']}")
             current_feed_level                  = pins_data_result["current_feed_level"]
             current_water_level                 = pins_data_result["current_water_level"]
             current_feed_physical_button_state  = pins_data_result["current_feed_physical_button_state"]
@@ -290,6 +290,7 @@ def process_C(**kwargs) -> None:
         if not PC_MODE:
             motor.stop_all_motors()
             GPIO.cleanup()
+
     except Exception as e:
         if SAVE_LOGS:
             logger.error(f"{TASK_NAME} - Unexpected error: {e}")
