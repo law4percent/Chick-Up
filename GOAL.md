@@ -1,0 +1,3 @@
+- Remove YOLO just pure camera monitoring
+- Remove Counting Algorithm
+- Remove App Icon found in the sidebar
