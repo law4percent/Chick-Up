@@ -1,14 +1,16 @@
 // src/screens/DashboardScreen.tsx
-import React, { useState, useEffect } from 'react';
-import { Modal, TextInput, View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { Modal, TextInput, View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
+import { RTCView } from 'react-native-webrtc';
+import type { MediaStream } from 'react-native-webrtc';
 import { MainDrawerParamList } from '../types/types';
 import sensorService from '../services/sensorService';
 import buttonService from '../services/buttonService';
 import settingsService from '../services/settingsService';
 import analyticsService from '../services/analyticsService';
-import liveStreamService from '../services/liveStreamService';
+import webrtcService from '../services/webrtcService';
 import { auth } from '../config/firebase.config';
 import deviceService from '../services/deviceService';
 
@@ -48,34 +50,12 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [verifying, setVerifying] = useState(false);
   const [deviceExists, setDeviceExists] = useState<boolean | null>(null);
 
+  // WebRTC states
   const [isStreaming, setIsStreaming] = useState(false);
-  const [streamImage, setStreamImage] = useState<string | null>(null);
   const [showStreamModal, setShowStreamModal] = useState(false);
-
-  // Subscribe to live stream data
-  useEffect(() => {
-    if (!linkedDeviceUid) return;
-
-    const userId = auth.currentUser?.uid;
-    if (!userId) return;
-
-    const unsubscribeStream = liveStreamService.subscribeLiveStream(
-      userId,
-      linkedDeviceUid,
-      (data) => {
-        if (data) {
-          setIsStreaming(data.liveStreamButton);
-          setStreamImage(data.base64 || null);
-        }
-      },
-      (error) => {
-        console.error('Live stream subscription error:', error);
-      }
-    );
-
-    return () => unsubscribeStream();
-  }, [linkedDeviceUid]);
-
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [connectionState, setConnectionState] = useState<string>('disconnected');
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   const handleToggleStream = async () => {
     if (!linkedDeviceUid) {
@@ -90,26 +70,69 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      await liveStreamService.toggleLiveStream(userId, linkedDeviceUid, !isStreaming);
-      
-      if (!isStreaming) {
+      if (isStreaming) {
+        // Stop stream
+        await webrtcService.stopConnection();
+        setIsStreaming(false);
+        setRemoteStream(null);
+        setConnectionState('disconnected');
+        setStreamError(null);
+      } else {
+        // Start stream
+        setStreamError(null);
         setShowStreamModal(true);
+        
+        // Initialize WebRTC service
+        await webrtcService.initialize(
+          userId,
+          linkedDeviceUid,
+          (stream) => {
+            console.log('Remote stream received in component');
+            setRemoteStream(stream);
+          },
+          (state) => {
+            console.log('Connection state changed:', state);
+            setConnectionState(state);
+            
+            if (state === 'connected') {
+              setIsStreaming(true);
+              setStreamError(null);
+            } else if (state === 'failed') {
+              setStreamError('Connection failed. Please try again.');
+              setIsStreaming(false);
+            } else if (state === 'closed') {
+              setIsStreaming(false);
+              setRemoteStream(null);
+            }
+          },
+          (error) => {
+            console.error('WebRTC error:', error);
+            setStreamError(error.message);
+            setIsStreaming(false);
+          }
+        );
+
+        // Start connection
+        await webrtcService.startConnection();
+        setConnectionState('connecting');
       }
+      
     } catch (error: any) {
       console.error('Error toggling stream:', error);
+      setStreamError(error.message || 'Failed to toggle stream');
       Alert.alert('Error', error.message || 'Failed to toggle stream');
+      setIsStreaming(false);
     }
   };
 
   useEffect(() => {
     const loadLinkedDevice = async () => {
-      setLoading(true); // Add this
+      setLoading(true);
       const userId = auth.currentUser?.uid;
       if (userId) {
         const deviceUid = await deviceService.getLinkedDevice(userId);
         setLinkedDeviceUid(deviceUid);
       }
-      // Don't set loading to false here, let the main useEffect handle it
     };
     loadLinkedDevice();
   }, []);
@@ -158,28 +181,23 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       return;
     }
 
-    // If no device linked, stop loading and return
     if (!linkedDeviceUid) {
       setLoading(false);
       return;
     }
 
-    // Initialize sensor data, button data, and settings if they don't exist
     const initializeData = async () => {
       try {
-        // Initialize sensor data
         const existingSensorData = await sensorService.getSensorData(userId, linkedDeviceUid);
         if (!existingSensorData) {
           await sensorService.initializeSensorData(userId, linkedDeviceUid);
         }
 
-        // Initialize button data
         const existingButtonData = await buttonService.getButtonData(userId, linkedDeviceUid);
         if (!existingButtonData) {
           await buttonService.initializeButtonData(userId, linkedDeviceUid);
         }
 
-        // Initialize settings (this is still per user, not per device)
         const existingSettings = await settingsService.getSettings(userId);
         if (!existingSettings) {
           await settingsService.initializeSettings(userId);
@@ -191,7 +209,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
     initializeData();
 
-    // Subscribe to real-time sensor data
     const unsubscribeSensor = sensorService.subscribeSensorData(
       userId,
       linkedDeviceUid,
@@ -209,17 +226,14 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       }
     );
 
-    // Subscribe to real-time button data
     const unsubscribeButton = buttonService.subscribeButtonData(
       userId,
       linkedDeviceUid,
       (data) => {
         if (data) {
-          // Handle water timestamp
           if (data.waterButton?.lastUpdateAt) {
             const waterTimestamp = data.waterButton.lastUpdateAt;
             if (typeof waterTimestamp === 'number') {
-              // New format: Unix timestamp
               const date = new Date(waterTimestamp);
               const formatted = date.toLocaleString('en-US', {
                 timeZone: 'Asia/Manila',
@@ -235,18 +249,15 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               setLastWaterDate(datePart);
               setLastWaterTime(timePart);
             } else {
-              // Old format: "MM/DD/YYYY HH:MM:SS"
               const [datePart, timePart] = waterTimestamp.split(' ');
               setLastWaterDate(datePart);
               setLastWaterTime(timePart);
             }
           }
           
-          // Handle feed timestamp
           if (data.feedButton?.lastUpdateAt) {
             const feedTimestamp = data.feedButton.lastUpdateAt;
             if (typeof feedTimestamp === 'number') {
-              // New format: Unix timestamp
               const date = new Date(feedTimestamp);
               const formatted = date.toLocaleString('en-US', {
                 timeZone: 'Asia/Manila',
@@ -262,7 +273,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               setLastFeedDate(datePart);
               setLastFeedTime(timePart);
             } else {
-              // Old format: "MM/DD/YYYY HH:MM:SS"
               const [datePart, timePart] = feedTimestamp.split(' ');
               setLastFeedDate(datePart);
               setLastFeedTime(timePart);
@@ -275,7 +285,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       }
     );
 
-    // Subscribe to real-time settings for dynamic thresholds
     const unsubscribeSettings = settingsService.subscribeSettings(
       userId,
       (settings) => {
@@ -290,13 +299,12 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       }
     );
 
-    // Cleanup subscriptions on unmount
     return () => {
       unsubscribeSensor();
       unsubscribeButton();
       unsubscribeSettings();
     };
-  }, [linkedDeviceUid]); // Add linkedDeviceUid as dependency
+  }, [linkedDeviceUid]);
 
   // Water button countdown effect
   useEffect(() => {
@@ -334,10 +342,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setWaterButtonDisabled(true);
       setWaterCountdown(3);
 
-      // Log action for analytics (volume will be calculated by IoT device)
       await analyticsService.logAction(userId, 'water', 'refill', 0);
-      
-      // Update button timestamp
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'water');
 
       Alert.alert('Success', 'Water refill command sent!');
@@ -365,10 +370,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setFeedButtonDisabled(true);
       setFeedCountdown(3);
 
-      // Log action for analytics with volume
       await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
-      
-      // Update button timestamp
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'feed');
 
       Alert.alert('Success', `Feed dispense command sent! (${feedVolume}%)`);
@@ -379,6 +381,15 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setFeedCountdown(0);
     }
   };
+
+  // Cleanup WebRTC on unmount
+  useEffect(() => {
+    return () => {
+      if (isStreaming) {
+        webrtcService.stopConnection();
+      }
+    };
+  }, [isStreaming]);
 
   if (loading) {
     return (
@@ -422,7 +433,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Modal - Include once here */}
+        {/* Link Device Modal */}
         <Modal
           visible={showLinkModal}
           transparent
@@ -521,12 +532,10 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      {/* Device Badge - Only show when device is linked */}
+      {/* Device Badge */}
       <View style={styles.deviceBadge}>
         <Text style={styles.deviceLabel}>Connected Device:</Text>
-        <TouchableOpacity
-          onPress={() => setShowLinkModal(true)}
-        >
+        <TouchableOpacity onPress={() => setShowLinkModal(true)}>
           <Text style={styles.deviceUid}>{linkedDeviceUid}</Text>
         </TouchableOpacity>
       </View>
@@ -556,7 +565,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               </Text>
             </View>
 
-            {/* Progress Bar */}
             <View style={styles.progressBarContainer}>
               <View style={styles.progressBarBg}>
                 <View 
@@ -599,7 +607,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
               </Text>
             </View>
 
-            {/* Progress Bar */}
             <View style={styles.progressBarContainer}>
               <View style={styles.progressBarBg}>
                 <View 
@@ -622,7 +629,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Critical Alert Banner - Shows when either water or feed is low */}
+        {/* Critical Alert Banner */}
         {(isWaterLow || isFeedLow) && (
           <View style={styles.criticalAlert}>
             <Text style={styles.criticalAlertIcon}>⚠️</Text>
@@ -687,96 +694,29 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </ScrollView>
 
-      {/* Modal - Same as in the no-device view */}
-      <Modal
-        visible={showLinkModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowLinkModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Link Device</Text>
-            <Text style={styles.modalSubtitle}>Enter your device UID to connect</Text>
-            
-            <TextInput
-              style={styles.deviceInput}
-              placeholder="Enter Device UID"
-              value={deviceUidInput}
-              onChangeText={(text) => {
-                setDeviceUidInput(text);
-                setDeviceExists(null);
-              }}
-              autoCapitalize="none"
-            />
-
-            {verifying && (
-              <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />
-            )}
-
-            {deviceExists === false && (
-              <Text style={styles.errorText}>❌ Device UID not found</Text>
-            )}
-
-            {deviceExists === true && (
-              <Text style={styles.successText}>✅ Device verified!</Text>
-            )}
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[
-                  styles.modalButton, 
-                  styles.verifyButton,
-                  (!deviceUidInput || verifying) && styles.modalButtonDisabled
-                ]}
-                onPress={handleVerifyDevice}
-                disabled={!deviceUidInput || verifying}
-              >
-                <Text style={styles.modalButtonText}>
-                  {verifying ? 'Verifying...' : 'Verify'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  styles.linkButton,
-                  !deviceExists && styles.modalButtonDisabled
-                ]}
-                onPress={handleLinkDevice}
-                disabled={!deviceExists}
-              >
-                <Text style={styles.modalButtonText}>Link Device</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => {
-                setShowLinkModal(false);
-                setDeviceUidInput('');
-                setDeviceExists(null);
-              }}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Live Stream Modal */}
+      {/* WebRTC Stream Modal */}
       <Modal
         visible={showStreamModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowStreamModal(false)}
+        onRequestClose={() => {
+          setShowStreamModal(false);
+          if (isStreaming) {
+            handleToggleStream();
+          }
+        }}
       >
         <View style={styles.streamModalOverlay}>
           <View style={styles.streamModalContent}>
             <View style={styles.streamHeader}>
               <Text style={styles.streamTitle}>📹 Live Stream</Text>
               <TouchableOpacity
-                onPress={() => setShowStreamModal(false)}
+                onPress={() => {
+                  setShowStreamModal(false);
+                  if (isStreaming) {
+                    handleToggleStream();
+                  }
+                }}
                 style={styles.streamCloseButton}
               >
                 <Text style={styles.streamCloseText}>✕</Text>
@@ -784,35 +724,49 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             <View style={styles.streamFrameContainer}>
-              <View style={styles.streamFrame}>
-                {streamImage ? (
-                  <Image
-                    source={{ 
-                      uri: `data:image/jpeg;base64,${streamImage}`,
-                      cache: 'reload' // Force reload every time
-                    }}
-                    style={styles.streamImage}
-                    resizeMode="contain"
-                    fadeDuration={0} // No fade
-                  />
-                ) : (
-                  <View style={styles.streamPlaceholder}>
-                    <Text style={styles.streamPlaceholderIcon}>📷</Text>
-                    <Text style={styles.streamPlaceholderText}>
-                      {isStreaming ? 'Waiting for stream...' : 'Stream is off'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              
-              {/* Recording Indicator */}
-              {isStreaming && (
-                <View style={styles.recordingIndicator}>
-                  <View style={styles.recordingDot} />
-                  <Text style={styles.recordingText}>LIVE</Text>
+              {remoteStream ? (
+                <RTCView
+                  streamURL={remoteStream.toURL()}
+                  style={styles.rtcView}
+                  objectFit="contain"
+                />
+              ) : (
+                <View style={styles.streamPlaceholder}>
+                  <Text style={styles.streamPlaceholderIcon}>📷</Text>
+                  <Text style={styles.streamPlaceholderText}>
+                    {connectionState === 'connecting' 
+                      ? 'Connecting to Raspberry Pi...' 
+                      : connectionState === 'connected'
+                      ? 'Waiting for video stream...'
+                      : 'No stream available'}
+                  </Text>
+                  {connectionState === 'connecting' && (
+                    <ActivityIndicator size="large" color="#4CAF50" style={{ marginTop: 20 }} />
+                  )}
                 </View>
               )}
+              
+              {/* Connection State Indicator */}
+              <View style={styles.connectionIndicator}>
+                <View style={[
+                  styles.connectionDot,
+                  connectionState === 'connected' && styles.connectionDotConnected,
+                  connectionState === 'connecting' && styles.connectionDotConnecting,
+                  connectionState === 'failed' && styles.connectionDotFailed,
+                ]} />
+                <Text style={styles.connectionText}>
+                  {connectionState === 'connected' ? 'LIVE' : 
+                   connectionState === 'connecting' ? 'CONNECTING' :
+                   connectionState === 'failed' ? 'FAILED' : 'DISCONNECTED'}
+                </Text>
+              </View>
             </View>
+
+            {streamError && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorBannerText}>⚠️ {streamError}</Text>
+              </View>
+            )}
 
             <View style={styles.streamControls}>
               <TouchableOpacity
@@ -821,9 +775,14 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                   isStreaming ? styles.stopButton : styles.startButton
                 ]}
                 onPress={handleToggleStream}
+                disabled={connectionState === 'connecting'}
               >
                 <Text style={styles.streamControlButtonText}>
-                  {isStreaming ? '⏹ Stop Stream' : '▶ Start Stream'}
+                  {connectionState === 'connecting' 
+                    ? '⏳ Connecting...' 
+                    : isStreaming 
+                    ? '⏹ Stop Stream' 
+                    : '▶ Start Stream'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -831,16 +790,17 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </Modal>
 
+      {/* Floating Stream Button */}
       <TouchableOpacity
         style={[
           styles.streamButton,
           isStreaming && styles.streamButtonActive
         ]}
-        onPress={handleToggleStream}
+        onPress={() => setShowStreamModal(true)}
       >
         <Text style={styles.streamButtonIcon}>📹</Text>
         <Text style={styles.streamButtonText}>
-          {isStreaming ? 'Stop Live Stream' : 'Start Live Stream'}
+          {isStreaming ? 'View Live Stream' : 'Start Live Stream'}
         </Text>
       </TouchableOpacity>
     </LinearGradient>
@@ -1325,10 +1285,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#FFFFFF',
   },
-  streamFrameContainer: {
-    position: 'relative',
-    marginBottom: 20,
-  },
   streamFrame: {
     backgroundColor: '#000000',
     borderRadius: 12,
@@ -1398,6 +1354,62 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // WebRTC-specific styles
+  streamFrameContainer: {
+    width: '100%',
+    height: 400,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  rtcView: {
+    width: '100%',
+    height: '100%',
+  },
+  connectionIndicator: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  connectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#666',
+    marginRight: 8,
+  },
+  connectionDotConnected: {
+    backgroundColor: '#4CAF50',
+  },
+  connectionDotConnecting: {
+    backgroundColor: '#FF9500',
+  },
+  connectionDotFailed: {
+    backgroundColor: '#F44336',
+  },
+  connectionText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  errorBanner: {
+    backgroundColor: '#FFEBEE',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  errorBannerText: {
+    color: '#D32F2F',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
 
