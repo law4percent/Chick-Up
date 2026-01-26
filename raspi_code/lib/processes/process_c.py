@@ -130,7 +130,6 @@ def process_C(**kwargs) -> None:
     TASK_NAME               = process_C_args["TASK_NAME"]
     status_checker          = process_C_args["status_checker"]
     live_status             = process_C_args["live_status"]
-    annotated_option        = process_C_args["annotated_option"] # work in progress
     USER_CREDENTIAL         = process_C_args["USER_CREDENTIAL"]
     PC_MODE                 = process_C_args["PC_MODE"]
     SAVE_LOGS               = process_C_args["SAVE_LOGS"]
