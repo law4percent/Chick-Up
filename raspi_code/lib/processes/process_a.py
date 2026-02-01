@@ -20,13 +20,7 @@ from lib import logger_config
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 
-def _check_points(
-VIDEO_PATH: str, 
-PC_MODE: bool, 
-IS_WEB_CAM: bool, 
-CAMERA_INDEX: int, 
-FRAME_DIMENSION: dict
-) -> dict:
+def _check_points(VIDEO_PATH: str, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
     """Validate and configure camera settings."""
     config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":
@@ -78,7 +72,7 @@ def process_A(**kwargs) -> None:
 
     # Validate configuration
     check_point_result = _check_points(
-        VIDEO_PATH      = VIDEO_FILE, 
+        VIDEO_FILE      = VIDEO_FILE, 
         PC_MODE         = PC_MODE,
         CAMERA_INDEX    = CAMERA_INDEX, 
         IS_WEB_CAM      = IS_WEB_CAM,
@@ -139,12 +133,12 @@ def process_A(**kwargs) -> None:
     # Initialize WebRTC peer
     try:
         webrtc_peer_instance = webrtc_peer.run_webrtc_peer(
-            user_uid                    = user_uid,
-            device_uid                  = device_uid,
-            capture                     = capture,
-            pc_mode                     = PC_MODE,
-            frame_dimension             = FRAME_DIMENSION,
-            on_connection_state_change  = on_connection_state_change
+            user_uid=user_uid,
+            device_uid=device_uid,
+            capture=capture,
+            pc_mode=PC_MODE,
+            frame_dimension=FRAME_DIMENSION,
+            on_connection_state_change=on_connection_state_change
         )
         
         if SAVE_LOGS:
@@ -161,6 +155,7 @@ def process_A(**kwargs) -> None:
     
     try:
         while True:
+            # Check if process should stop
             if not status_checker.is_set():
                 if SAVE_LOGS:
                     logger.error(f"{TASK_NAME} - Process checker cleared, shutting down")

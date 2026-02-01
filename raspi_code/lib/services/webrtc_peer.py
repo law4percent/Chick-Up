@@ -305,7 +305,7 @@ class WebRTCPeer:
 
 
 # Helper function to run WebRTC peer in async context
-def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool, 
+async def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool, 
                     frame_dimension: dict, on_connection_state_change: Optional[Callable] = None):
     """
     Helper function to initialize and run WebRTC peer.
@@ -331,6 +331,6 @@ def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool,
     )
     
     # Start the peer (this will listen for offers)
-    asyncio.create_task(peer.start())
+    await peer.start()
     
     return peer
