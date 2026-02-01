@@ -15,17 +15,20 @@ logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 # ================= HELPER FUNCTIONS =================
 def _handle_water_refill(state: bool) -> None:
+    # GPIO 27 Relay
     if state:
-        motor.run_left_motor()
+        motor.start_water_motor()
     else:
-        motor.stop_left_motor()
+        motor.stop_water_motor()
+    
 
 
 def _handle_feed_dispense(state: bool) -> None:
+    # GPIO 17 Relay
     if state:
-        motor.run_right_motor()
+        motor.start_feed_motor()
     else:
-        motor.stop_right_motor()
+        motor.stop_feed_motor()
 
 
 def _read_pins_data(PC_MODE: bool):
