@@ -68,15 +68,19 @@ class WebRTCService {
       // Create peer connection
       this.peerConnection = new RTCPeerConnection(WEBRTC_CONFIG);
       
-      // Handle ICE candidates - Using _pc internal property for events
-      (this.peerConnection as any)._pc.onicecandidate = (event: any) => {
+      // Cast to any to satisfy TypeScript - the library's type definitions
+      // don't expose these properties, but they exist at runtime
+      const pc = this.peerConnection as any;
+      
+      // Handle ICE candidates
+      pc.onicecandidate = (event: any) => {
         if (event.candidate) {
           this.sendIceCandidate(event.candidate);
         }
       };
       
       // Handle remote stream
-      (this.peerConnection as any)._pc.onaddstream = (event: any) => {
+      pc.onaddstream = (event: any) => {
         console.log('[WebRTC] Remote stream received');
         this.remoteStream = event.stream;
         if (this.onRemoteStreamCallback) {
@@ -85,7 +89,7 @@ class WebRTCService {
       };
       
       // Handle connection state changes
-      (this.peerConnection as any)._pc.onconnectionstatechange = () => {
+      pc.onconnectionstatechange = () => {
         const state = this.peerConnection?.connectionState || 'unknown';
         console.log('[WebRTC] Connection state:', state);
         
@@ -100,7 +104,7 @@ class WebRTCService {
       };
       
       // Handle ICE connection state
-      (this.peerConnection as any)._pc.oniceconnectionstatechange = () => {
+      pc.oniceconnectionstatechange = () => {
         const state = this.peerConnection?.iceConnectionState || 'unknown';
         console.log('[WebRTC] ICE connection state:', state);
       };
@@ -321,16 +325,18 @@ class WebRTCService {
     if (!this.userId || !this.deviceUid) return;
     
     try {
-      const baseRef = ref(
-        database,
-        `liveStream/${this.userId}/${this.deviceUid}`
-      );
+      // Use remove() instead of set(null) for cleaner deletion
+      const offerRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/offer`);
+      const answerRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/answer`);
+      const mobileIceRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/mobile`);
+      const raspiIceRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/raspi`);
       
-      // Remove offer, answer, and ICE candidates
-      await set(ref(database, `${baseRef.toString()}/offer`), null);
-      await set(ref(database, `${baseRef.toString()}/answer`), null);
-      await set(ref(database, `${baseRef.toString()}/iceCandidates/mobile`), null);
-      await set(ref(database, `${baseRef.toString()}/iceCandidates/raspi`), null);
+      await Promise.all([
+        remove(offerRef),
+        remove(answerRef),
+        remove(mobileIceRef),
+        remove(raspiIceRef)
+      ]);
       
       console.log('[WebRTC] Firebase signaling data cleaned up');
       

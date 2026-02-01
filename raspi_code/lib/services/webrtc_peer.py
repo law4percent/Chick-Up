@@ -8,7 +8,7 @@ Description: WebRTC peer implementation for Raspberry Pi to stream video to mobi
 import asyncio
 import cv2
 import logging
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration, RTCIceServer
+from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration, RTCIceServer, RTCIceCandidate
 from aiortc.contrib.media import MediaPlayer
 from av import VideoFrame
 import numpy as np
@@ -115,6 +115,7 @@ class WebRTCPeer:
         self.ice_servers = [
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
             RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+            RTCIceServer(urls=["stun:stun2.l.google.com:19302"]),
         ]
         
         logger.info(f"WebRTC Peer initialized for user={user_uid}, device={device_uid}")
@@ -153,7 +154,7 @@ class WebRTCPeer:
                 if self.on_connection_state_change:
                     self.on_connection_state_change(state)
                 
-                # Stop listening for mobile ICE candidates once connected
+                # Reset candidate counter once connected
                 if state == "connected":
                     logger.info("WebRTC connection established successfully!")
                     self.candidates_sent = 0  # Reset for next connection
@@ -185,13 +186,35 @@ class WebRTCPeer:
         # Set initial connection state
         self.connection_state_ref.set("disconnected")
         
-        # Listen for offers from mobile app
-        def offer_listener(event):
-            if event.data and self.is_running:
-                asyncio.create_task(self._handle_offer(event.data))
+        # Use polling instead of Firebase .listen() for better async compatibility
+        asyncio.create_task(self._poll_for_offers())
+        logger.info("Started polling for WebRTC offers from mobile app")
+    
+    async def _poll_for_offers(self):
+        """
+        Poll Firebase for new offers instead of using .listen()
+        This works better with asyncio event loop.
+        """
+        last_offer_timestamp = 0
         
-        self.offer_ref.listen(offer_listener)
-        logger.info("Listening for WebRTC offers from mobile app")
+        while self.is_running:
+            try:
+                offer_data = self.offer_ref.get()
+                
+                if offer_data and isinstance(offer_data, dict):
+                    timestamp = offer_data.get("timestamp", 0)
+                    
+                    # Only process if it's a new offer
+                    if timestamp > last_offer_timestamp:
+                        last_offer_timestamp = timestamp
+                        logger.info(f"New offer detected (timestamp: {timestamp})")
+                        await self._handle_offer(offer_data)
+                
+                await asyncio.sleep(0.5)  # Poll every 500ms
+                
+            except Exception as e:
+                logger.error(f"Error polling for offers: {e}")
+                await asyncio.sleep(1)  # Wait longer on error
     
     async def _handle_offer(self, offer_data):
         """
@@ -204,6 +227,7 @@ class WebRTCPeer:
             # Clean up existing connection if any
             if self.pc:
                 await self.pc.close()
+                self.pc = None
             
             # Create new peer connection
             self.pc = self._create_peer_connection()
@@ -239,15 +263,9 @@ class WebRTCPeer:
             self.answer_ref.set(answer_dict)
             logger.info("Answer sent to mobile app via Firebase")
             
-            # Listen for ICE candidates from mobile app
-            def mobile_ice_listener(event):
-                if event.data and self.pc and self.pc.connectionState not in ["connected", "closed"]:
-                    for candidate_data in event.data.values():
-                        if isinstance(candidate_data, dict):
-                            asyncio.create_task(self._add_ice_candidate(candidate_data))
-            
-            self.ice_candidates_mobile_ref.listen(mobile_ice_listener)
-            logger.info("Listening for ICE candidates from mobile app")
+            # Start polling for ICE candidates from mobile app
+            asyncio.create_task(self._poll_for_mobile_ice_candidates())
+            logger.info("Started polling for ICE candidates from mobile app")
             
             # Update connection state
             self.connection_state_ref.set("connecting")
@@ -256,12 +274,41 @@ class WebRTCPeer:
             logger.error(f"Error handling offer: {e}", exc_info=True)
             self.connection_state_ref.set("failed")
     
+    async def _poll_for_mobile_ice_candidates(self):
+        """
+        Poll for ICE candidates from mobile app.
+        Runs until connection is established or closed.
+        """
+        processed_candidates = set()
+        
+        while (self.pc and 
+               self.pc.connectionState not in ["connected", "closed", "failed"] and 
+               self.is_running):
+            try:
+                candidates_data = self.ice_candidates_mobile_ref.get()
+                
+                if candidates_data and isinstance(candidates_data, dict):
+                    for key, candidate_data in candidates_data.items():
+                        # Skip if already processed
+                        if key in processed_candidates:
+                            continue
+                        
+                        if isinstance(candidate_data, dict) and "candidate" in candidate_data:
+                            await self._add_ice_candidate(candidate_data)
+                            processed_candidates.add(key)
+                
+                await asyncio.sleep(0.2)  # Poll every 200ms
+                
+            except Exception as e:
+                logger.error(f"Error polling for ICE candidates: {e}")
+                await asyncio.sleep(0.5)
+        
+        logger.info("Stopped polling for ICE candidates")
+    
     async def _add_ice_candidate(self, candidate_data):
         """Add ICE candidate from mobile app."""
         try:
             if self.pc and "candidate" in candidate_data:
-                from aiortc import RTCIceCandidate
-                
                 candidate = RTCIceCandidate(
                     candidate=candidate_data["candidate"],
                     sdpMid=candidate_data.get("sdpMid"),

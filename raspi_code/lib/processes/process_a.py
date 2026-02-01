@@ -132,13 +132,15 @@ def process_A(**kwargs) -> None:
     
     # Initialize WebRTC peer
     try:
-        webrtc_peer_instance = webrtc_peer.run_webrtc_peer(
-            user_uid=user_uid,
-            device_uid=device_uid,
-            capture=capture,
-            pc_mode=PC_MODE,
-            frame_dimension=FRAME_DIMENSION,
-            on_connection_state_change=on_connection_state_change
+        webrtc_peer_instance = loop.run_until_complete(
+            webrtc_peer.run_webrtc_peer(
+                user_uid=user_uid,
+                device_uid=device_uid,
+                capture=capture,
+                pc_mode=PC_MODE,
+                frame_dimension=FRAME_DIMENSION,
+                on_connection_state_change=on_connection_state_change
+            )
         )
         
         if SAVE_LOGS:
@@ -150,7 +152,16 @@ def process_A(**kwargs) -> None:
         clean_result = camera.clean_up_camera(capture, PC_MODE)
         exit()
     
-    # Firebase reference for monitoring stream button
+    # Background task to keep event loop running
+    async def run_event_loop():
+        """Keep the event loop running to handle WebRTC events."""
+        while status_checker.is_set():
+            await asyncio.sleep(0.1)
+    
+    # Start background event loop task
+    event_loop_task = asyncio.ensure_future(run_event_loop(), loop=loop)
+    
+    # Firebase reference for monitoring stream button (optional)
     stream_button_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
     
     try:
@@ -191,12 +202,9 @@ def process_A(**kwargs) -> None:
                     if not window_visible_state:
                         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
                         window_visible_state = True
-            else:
-                # Small delay to prevent busy-waiting
-                time.sleep(0.1)
             
-            # Run async event loop to handle WebRTC events
-            loop.run_until_complete(asyncio.sleep(0))
+            # Run pending async tasks
+            loop.run_until_complete(asyncio.sleep(0.01))
                         
     except KeyboardInterrupt:
         if SAVE_LOGS:
@@ -209,6 +217,14 @@ def process_A(**kwargs) -> None:
         status_checker.clear()
     
     finally:
+        # Cancel background event loop task
+        if event_loop_task and not event_loop_task.done():
+            event_loop_task.cancel()
+            try:
+                loop.run_until_complete(event_loop_task)
+            except asyncio.CancelledError:
+                pass
+        
         # Cleanup WebRTC peer
         if webrtc_peer_instance:
             try:

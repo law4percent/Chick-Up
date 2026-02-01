@@ -77,44 +77,47 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         setRemoteStream(null);
         setConnectionState('disconnected');
         setStreamError(null);
+        setShowStreamModal(false);
       } else {
         // Start stream
         setStreamError(null);
+        setConnectionState('connecting');
         setShowStreamModal(true);
         
-        // Initialize WebRTC service
-        await webrtcService.initialize(
-          userId,
-          linkedDeviceUid,
-          (stream) => {
-            console.log('Remote stream received in component');
-            setRemoteStream(stream);
-          },
-          (state) => {
-            console.log('Connection state changed:', state);
-            setConnectionState(state);
-            
-            if (state === 'connected') {
-              setIsStreaming(true);
-              setStreamError(null);
-            } else if (state === 'failed') {
-              setStreamError('Connection failed. Please try again.');
+        // Initialize WebRTC service ONLY if not already initialized
+        if (!webrtcService.isServiceInitialized()) {
+          await webrtcService.initialize(
+            userId,
+            linkedDeviceUid,
+            (stream) => {
+              console.log('Remote stream received in component');
+              setRemoteStream(stream);
+            },
+            (state) => {
+              console.log('Connection state changed:', state);
+              setConnectionState(state);
+              
+              if (state === 'connected') {
+                setIsStreaming(true);
+                setStreamError(null);
+              } else if (state === 'failed') {
+                setStreamError('Connection failed. Please try again.');
+                setIsStreaming(false);
+              } else if (state === 'closed') {
+                setIsStreaming(false);
+                setRemoteStream(null);
+              }
+            },
+            (error) => {
+              console.error('WebRTC error:', error);
+              setStreamError(error.message);
               setIsStreaming(false);
-            } else if (state === 'closed') {
-              setIsStreaming(false);
-              setRemoteStream(null);
             }
-          },
-          (error) => {
-            console.error('WebRTC error:', error);
-            setStreamError(error.message);
-            setIsStreaming(false);
-          }
-        );
+          );
+        }
 
         // Start connection
         await webrtcService.startConnection();
-        setConnectionState('connecting');
       }
       
     } catch (error: any) {
@@ -122,8 +125,16 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       setStreamError(error.message || 'Failed to toggle stream');
       Alert.alert('Error', error.message || 'Failed to toggle stream');
       setIsStreaming(false);
+      setConnectionState('disconnected');
     }
   };
+
+  // Cleanup WebRTC on unmount - FIXED
+  useEffect(() => {
+    return () => {
+      webrtcService.stopConnection();
+    };
+  }, []); // Empty dependency array - only run on unmount
 
   useEffect(() => {
     const loadLinkedDevice = async () => {
@@ -435,10 +446,14 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
         {/* Link Device Modal */}
         <Modal
-          visible={showLinkModal}
+          visible={showStreamModal}
           transparent
           animationType="fade"
-          onRequestClose={() => setShowLinkModal(false)}
+          onRequestClose={() => {
+            setShowStreamModal(false);
+            // Don't call handleToggleStream here - just close the modal
+            // The stream continues in the background
+          }}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -728,7 +743,8 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                 <RTCView
                   streamURL={remoteStream.toURL()}
                   style={styles.rtcView}
-                  objectFit="contain"
+                  objectFit="cover"
+                  zOrder={1}
                 />
               ) : (
                 <View style={styles.streamPlaceholder}>
@@ -1367,6 +1383,7 @@ const styles = StyleSheet.create({
   rtcView: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',  // Black background while loading
   },
   connectionIndicator: {
     position: 'absolute',
