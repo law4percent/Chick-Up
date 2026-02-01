@@ -9,300 +9,270 @@ import logging
 logger = logging.getLogger(__name__)
 
 # LCD I2C address (common addresses: 0x27 or 0x3F)
-# You can find yours by running: i2cdetect -y 1
 LCD_I2C_ADDR = 0x27
 
 # LCD Commands
-LCD_CLEARDISPLAY = 0x01
-LCD_RETURNHOME = 0x02
-LCD_ENTRYMODESET = 0x04
-LCD_DISPLAYCONTROL = 0x08
-LCD_CURSORSHIFT = 0x10
-LCD_FUNCTIONSET = 0x20
-LCD_SETCGRAMADDR = 0x40
-LCD_SETDDRAMADDR = 0x80
+LCD_CLEARDISPLAY    = 0x01
+LCD_RETURNHOME      = 0x02
+LCD_ENTRYMODESET    = 0x04
+LCD_DISPLAYCONTROL  = 0x08
+LCD_CURSORSHIFT     = 0x10
+LCD_FUNCTIONSET     = 0x20
+LCD_SETCGRAMADDR    = 0x40
+LCD_SETDDRAMADDR    = 0x80
 
-# Flags for display entry mode
-LCD_ENTRYRIGHT = 0x00
-LCD_ENTRYLEFT = 0x02
-LCD_ENTRYSHIFTINCREMENT = 0x01
-LCD_ENTRYSHIFTDECREMENT = 0x00
+# Entry mode flags
+LCD_ENTRYLEFT            = 0x02
+LCD_ENTRYSHIFTDECREMENT  = 0x00
 
-# Flags for display on/off control
-LCD_DISPLAYON = 0x04
-LCD_DISPLAYOFF = 0x00
-LCD_CURSORON = 0x02
-LCD_CURSOROFF = 0x00
-LCD_BLINKON = 0x01
-LCD_BLINKOFF = 0x00
+# Display control flags
+LCD_DISPLAYON   = 0x04
+LCD_DISPLAYOFF  = 0x00
+LCD_CURSORON    = 0x02
+LCD_CURSOROFF   = 0x00
+LCD_BLINKON     = 0x01
+LCD_BLINKOFF    = 0x00
 
-# Flags for display/cursor shift
+# Cursor/display shift flags
 LCD_DISPLAYMOVE = 0x08
-LCD_CURSORMOVE = 0x00
-LCD_MOVERIGHT = 0x04
-LCD_MOVELEFT = 0x00
+LCD_MOVERIGHT   = 0x04
+LCD_MOVELEFT    = 0x00
 
-# Flags for function set
-LCD_8BITMODE = 0x10
-LCD_4BITMODE = 0x00
-LCD_2LINE = 0x08
-LCD_1LINE = 0x00
-LCD_5x10DOTS = 0x04
-LCD_5x8DOTS = 0x00
+# Function set flags
+LCD_4BITMODE  = 0x00
+LCD_2LINE     = 0x08
+LCD_5x8DOTS   = 0x00
 
-# Flags for backlight control
-LCD_BACKLIGHT = 0x08
+# Backlight
+LCD_BACKLIGHT   = 0x08
 LCD_NOBACKLIGHT = 0x00
 
-# Enable bit
-En = 0b00000100
-Rw = 0b00000010
-Rs = 0b00000001
+# PCF8574 bit positions
+En = 0x04   # Enable bit
+Rs = 0x01   # Register select bit
 
 
 class LCD_I2C:
     """
-    I2C LCD Display Controller
-    
-    Supports standard I2C LCD displays with PCF8574 backpack adapter.
-    Common sizes: 16x2, 20x4
+    I2C LCD Display Controller for PCF8574 backpack.
+    Common sizes: 16x2, 20x4.
     """
-    
+
     def __init__(self, addr=LCD_I2C_ADDR, bus=1, cols=16, rows=2):
-        """
-        Initialize LCD display.
-        
-        Args:
-            addr: I2C address (default 0x27, also try 0x3F if not working)
-            bus: I2C bus number (default 1 for Raspberry Pi)
-            cols: Number of columns (default 16)
-            rows: Number of rows (default 2)
-        """
         self.addr = addr
-        self.bus_num = bus
         self.cols = cols
         self.rows = rows
         self.backlight_state = LCD_BACKLIGHT
-        
+
         try:
             self.bus = smbus.SMBus(bus)
             logger.info(f"LCD I2C initialized on address 0x{addr:02X}")
-            
-            # Initialize display
             self._init_display()
-            
         except Exception as e:
             logger.error(f"Failed to initialize LCD: {e}")
             raise
-    
-    def _init_display(self):
-        """Initialize the LCD in 4-bit mode."""
-        # Wait for display to power up
-        time.sleep(0.05)
-        
-        # Put the LCD into 4-bit mode
-        self._write4bits(0x03 << 4)
-        time.sleep(0.005)
-        
-        self._write4bits(0x03 << 4)
-        time.sleep(0.005)
-        
-        self._write4bits(0x03 << 4)
-        time.sleep(0.00015)
-        
-        self._write4bits(0x02 << 4)
-        
-        # Set display parameters
-        self._send_command(LCD_FUNCTIONSET | LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS)
-        self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF)
-        self.clear()
-        self._send_command(LCD_ENTRYMODESET | LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT)
-        
-        time.sleep(0.002)
-        logger.info("LCD display initialized successfully")
-    
-    def _write4bits(self, data):
-        """Write 4 bits to the display."""
-        try:
-            self.bus.write_byte(self.addr, data | self.backlight_state)
-            self._pulse_enable(data)
-        except Exception as e:
-            logger.error(f"Error writing to LCD: {e}")
-    
+
+    # ─────────────────────────── LOW-LEVEL I2C ───────────────────────────
+    def _i2c_write(self, data):
+        """Write a single byte to the I2C bus."""
+        self.bus.write_byte(self.addr, data | self.backlight_state)
+
     def _pulse_enable(self, data):
-        """Pulse the enable bit to latch data."""
-        try:
-            self.bus.write_byte(self.addr, data | En | self.backlight_state)
-            time.sleep(0.0005)
-            
-            self.bus.write_byte(self.addr, (data & ~En) | self.backlight_state)
-            time.sleep(0.0001)
-        except Exception as e:
-            logger.error(f"Error pulsing enable: {e}")
-    
-    def _send_command(self, cmd):
-        """Send command to LCD."""
-        self._send_byte(cmd, 0)
-    
-    def _send_data(self, data):
-        """Send data to LCD."""
-        self._send_byte(data, Rs)
-    
+        """Pulse the EN pin high then low to latch the nibble."""
+        self._i2c_write(data | En)
+        time.sleep(0.0005)          # EN high pulse (500µs, safe margin)
+        self._i2c_write(data & ~En)
+        time.sleep(0.0005)          # EN low hold
+
+    def _send_nibble(self, nibble):
+        """Send a single nibble (must already be in the upper 4 bits)."""
+        self._i2c_write(nibble)
+        self._pulse_enable(nibble)
+
+    # ─────────────────────────── BYTE SEND ───────────────────────────────
     def _send_byte(self, data, mode):
-        """Send byte in 4-bit mode."""
-        high_bits = mode | (data & 0xF0)
-        low_bits = mode | ((data << 4) & 0xF0)
-        
-        self._write4bits(high_bits)
-        self._write4bits(low_bits)
-    
+        """
+        Send a full byte in 4-bit mode: high nibble first, then low nibble.
+
+        Args:
+            data: Byte value (0x00–0xFF)
+            mode: 0 for command, Rs for character data
+        """
+        self._send_nibble(mode | (data & 0xF0))          # high nibble already in upper position
+        self._send_nibble(mode | ((data & 0x0F) << 4))   # low nibble shifted to upper position
+        time.sleep(0.0005)  # command execution delay
+
+    def _send_command(self, cmd):
+        """Send a command byte (Rs = 0)."""
+        self._send_byte(cmd, 0)
+
+    def _send_data(self, data):
+        """Send a data byte (Rs = 1)."""
+        self._send_byte(data, Rs)
+
+    # ─────────────────────────── INIT SEQUENCE ───────────────────────────
+    def _init_display(self):
+        """
+        Initialize the LCD into 4-bit mode using the standard
+        reset sequence from the HD44780 datasheet.
+        """
+        # Power-on reset delay — many LCDs need >40ms
+        time.sleep(0.1)
+
+        # The HD44780 starts in 8-bit mode.
+        # Sending 0x03 three times ensures we're in a known state
+        # regardless of whether a previous init was interrupted.
+        self._send_nibble(0x30)     # 0x03 in upper nibble
+        time.sleep(0.005)
+        self._send_nibble(0x30)
+        time.sleep(0.005)
+        self._send_nibble(0x30)
+        time.sleep(0.005)
+
+        # Now switch to 4-bit mode
+        self._send_nibble(0x20)     # 0x02 in upper nibble
+        time.sleep(0.005)
+
+        # From here on we can send full bytes in 4-bit mode
+        self._send_command(LCD_FUNCTIONSET | LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS)
+        time.sleep(0.005)
+
+        self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF)
+        time.sleep(0.002)
+
+        self.clear()
+
+        self._send_command(LCD_ENTRYMODESET | LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT)
+        time.sleep(0.002)
+
+        logger.info("LCD display initialized successfully")
+
+    # ─────────────────────────── PUBLIC API ──────────────────────────────
     def clear(self):
-        """Clear the display."""
+        """Clear the entire display."""
         self._send_command(LCD_CLEARDISPLAY)
-        time.sleep(0.002)
-    
+        time.sleep(0.003)   # clear takes up to 1.53ms
+
     def home(self):
-        """Return cursor to home position."""
+        """Move cursor to position (0, 0)."""
         self._send_command(LCD_RETURNHOME)
-        time.sleep(0.002)
-    
+        time.sleep(0.003)
+
     def set_cursor(self, col, row):
         """
-        Set cursor position.
-        
+        Move cursor to (col, row).
+
         Args:
-            col: Column (0-indexed)
-            row: Row (0-indexed)
+            col: Column index (0-based)
+            row: Row index (0-based)
         """
         row_offsets = [0x00, 0x40, 0x14, 0x54]
-        if row >= self.rows:
-            row = self.rows - 1
-        
+        row = min(row, self.rows - 1)
+        col = min(col, self.cols - 1)
         self._send_command(LCD_SETDDRAMADDR | (col + row_offsets[row]))
-    
+
     def print(self, text):
-        """
-        Print text at current cursor position.
-        
-        Args:
-            text: String to print
-        """
-        for char in str(text):
-            self._send_data(ord(char))
-    
+        """Write text at the current cursor position."""
+        for ch in str(text):
+            self._send_data(ord(ch))
+
     def print_line(self, text, row=0, align='left'):
         """
-        Print text on a specific row with alignment.
-        
+        Write text on a specific row, optionally aligned.
+
         Args:
-            text: String to print
-            row: Row number (0-indexed)
-            align: 'left', 'center', or 'right'
+            text:  String to display
+            row:   Row index (0-based)
+            align: 'left' | 'center' | 'right'
         """
-        text = str(text)
-        
-        # Truncate if too long
-        if len(text) > self.cols:
-            text = text[:self.cols]
-        
-        # Align text
+        text = str(text)[:self.cols]   # truncate to display width
+
         if align == 'center':
-            padding = (self.cols - len(text)) // 2
-            text = ' ' * padding + text
+            pad = (self.cols - len(text)) // 2
+            text = ' ' * pad + text
         elif align == 'right':
-            padding = self.cols - len(text)
-            text = ' ' * padding + text
-        
-        # Pad to fill entire row
+            text = text.rjust(self.cols)
+
+        # Pad to full row width so old characters are overwritten
         text = text.ljust(self.cols)
-        
+
         self.set_cursor(0, row)
         self.print(text)
-    
+
     def display_message(self, line1="", line2="", line3="", line4=""):
         """
-        Display up to 4 lines of text (clear display first).
-        
+        Clear display and show up to 4 lines of text.
+
         Args:
-            line1-4: Text for each line
+            line1–line4: Text for each row (extras ignored if display is smaller)
         """
         self.clear()
-        
-        lines = [line1, line2, line3, line4]
-        for i, line in enumerate(lines[:self.rows]):
-            if line:
-                self.print_line(line, row=i)
-    
+        for i, text in enumerate([line1, line2, line3, line4][:self.rows]):
+            if text:
+                self.print_line(text, row=i)
+
+    # ─────────────────────────── BACKLIGHT / DISPLAY CONTROL ─────────────
     def backlight_on(self):
-        """Turn backlight on."""
         self.backlight_state = LCD_BACKLIGHT
-        self._write4bits(0)
-    
+        self._i2c_write(0)
+
     def backlight_off(self):
-        """Turn backlight off."""
         self.backlight_state = LCD_NOBACKLIGHT
-        self._write4bits(0)
-    
+        self._i2c_write(0)
+
     def display_on(self):
-        """Turn display on."""
         self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF)
-    
+
     def display_off(self):
-        """Turn display off."""
         self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYOFF | LCD_CURSOROFF | LCD_BLINKOFF)
-    
+
     def cursor_on(self):
-        """Show cursor."""
         self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSORON | LCD_BLINKOFF)
-    
+
     def cursor_off(self):
-        """Hide cursor."""
         self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF)
-    
+
     def blink_on(self):
-        """Turn cursor blink on."""
         self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSORON | LCD_BLINKON)
-    
+
     def blink_off(self):
-        """Turn cursor blink off."""
         self._send_command(LCD_DISPLAYCONTROL | LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF)
-    
+
     def scroll_left(self):
-        """Scroll display left."""
         self._send_command(LCD_CURSORSHIFT | LCD_DISPLAYMOVE | LCD_MOVELEFT)
-    
+
     def scroll_right(self):
-        """Scroll display right."""
         self._send_command(LCD_CURSORSHIFT | LCD_DISPLAYMOVE | LCD_MOVERIGHT)
-    
+
+    # ─────────────────────────── CUSTOM CHARACTERS ───────────────────────
     def create_char(self, location, charmap):
         """
-        Create custom character.
-        
+        Define a custom character in CGRAM.
+
         Args:
-            location: Character location (0-7)
-            charmap: List of 8 bytes defining character pattern
+            location: Slot 0–7
+            charmap:  List of 8 bytes (each byte = one row of 5 pixels)
         """
-        location &= 0x7  # Only 8 locations (0-7)
+        location &= 0x07
         self._send_command(LCD_SETCGRAMADDR | (location << 3))
-        for i in range(8):
-            self._send_data(charmap[i])
+        for byte in charmap:
+            self._send_data(byte)
 
 
-# Global LCD instance
+# ========================= MODULE-LEVEL SINGLETON ========================
 _lcd = None
 
 
 def setup_lcd(addr=0x27, bus=1, cols=16, rows=2):
     """
-    Setup LCD display (call once at startup).
-    
+    Create and return the global LCD instance (call once at startup).
+
     Args:
         addr: I2C address (0x27 or 0x3F)
-        bus: I2C bus number (default 1)
-        cols: Number of columns (default 16)
-        rows: Number of rows (default 2)
-    
+        bus:  I2C bus number (1 on most Raspberry Pi models)
+        cols: Display width in characters
+        rows: Display height in characters
+
     Returns:
         LCD_I2C instance
     """
@@ -313,38 +283,38 @@ def setup_lcd(addr=0x27, bus=1, cols=16, rows=2):
         return _lcd
     except Exception as e:
         logger.error(f"Failed to setup LCD: {e}")
-        logger.error("Check I2C address with: i2cdetect -y 1")
+        logger.error("Verify I2C address with: i2cdetect -y 1")
         raise
 
 
 def get_lcd():
-    """Get the LCD instance."""
+    """Return the global LCD instance (raises if not yet set up)."""
     if _lcd is None:
         raise RuntimeError("LCD not initialized. Call setup_lcd() first.")
     return _lcd
 
 
 def cleanup_lcd():
-    """Clean up LCD resources."""
+    """Clear display, turn off backlight, and release the global instance."""
     global _lcd
     if _lcd:
         try:
             _lcd.clear()
             _lcd.backlight_off()
             logger.info("LCD cleaned up")
-        except:
+        except Exception:
             pass
         _lcd = None
 
 
-# Convenience functions
+# ─── Convenience wrappers ────────────────────────────────────────────────
 def lcd_print(line1="", line2="", line3="", line4=""):
-    """Quick function to display message on LCD."""
+    """Display a multi-line message (no-op if LCD is not initialized)."""
     if _lcd:
         _lcd.display_message(line1, line2, line3, line4)
 
 
 def lcd_clear():
-    """Quick function to clear LCD."""
+    """Clear the display (no-op if LCD is not initialized)."""
     if _lcd:
         _lcd.clear()
