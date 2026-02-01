@@ -3,6 +3,7 @@ Process C - Hardware Control with LCD Display
 Handles sensors, motors, and LCD status display
 """
 import time
+from firebase_admin.db import SERVER_TIMESTAMP
 from lib.services import firebase_rtdb
 from datetime import datetime
 import logging
@@ -103,6 +104,25 @@ def _convert_to_percentage(distance_cm, min_dist=10, max_dist=300) -> float:
     
     percent = (max_dist - distance_cm) / (max_dist - min_dist) * 100
     return round(percent, 2)
+
+
+def _update_button_timestamp(database_ref: dict, button_type: str) -> None:
+    """
+    Write SERVER_TIMESTAMP to the button's lastUpdateAt path
+    when the physical keypad is pressed. This mirrors exactly what
+    the app does via buttonService.updateButtonTimestamp().
+
+    Args:
+        database_ref: The database_ref dict returned by setup_RTDB()
+        button_type:  'feed' or 'water'
+    """
+    try:
+        ref_key = "df_app_button_ref" if button_type == "feed" else "wr_app_button_ref"
+        # The ref already points directly to lastUpdateAt, so just .set() the value
+        database_ref[ref_key].set(SERVER_TIMESTAMP)
+        logger.info(f"Physical keypad: {button_type} lastUpdateAt updated")
+    except Exception as e:
+        logger.error(f"Failed to update {button_type} button timestamp: {e}")
 
 
 def _dispense_it(
@@ -377,6 +397,15 @@ def process_C(**kwargs) -> None:
             # Check if levels are low
             feed_warning = current_feed_level <= current_feed_threshold_warning
             water_warning = current_water_level <= current_water_threshold_warning
+
+            # ── Write SERVER_TIMESTAMP on physical keypad press only ──
+            # This mirrors what the app does in buttonService.updateButtonTimestamp().
+            # The app button and schedule already write their own timestamp — we only
+            # need to do this for the physical keypad so is_fresh() picks it up.
+            if current_feed_physical_button_state:
+                _update_button_timestamp(database_ref, "feed")
+            if current_water_physical_button_state:
+                _update_button_timestamp(database_ref, "water")
             
             # Dispense feed if button pressed
             feed_button_pressed = (
