@@ -17,11 +17,28 @@ sudo apt install -y \
     git \
     build-essential
 
+# 🔥 WebRTC SYSTEM DEPS (NEW)
+echo "[3a/6] Installing WebRTC system dependencies..."
+sudo apt install -y \
+    libffi-dev \
+    libssl-dev \
+    libavdevice-dev \
+    libavfilter-dev \
+    libavformat-dev \
+    libavcodec-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libswresample-dev \
+    libopus-dev \
+    libvpx-dev \
+    libsrtp2-dev \
+    ffmpeg \
+    pkg-config \
+    python3-dev
+
 echo "[4/6] Installing pigpio from source..."
 cd /tmp
-if [ -d "pigpio" ]; then
-    sudo rm -rf pigpio
-fi
+sudo rm -rf pigpio
 git clone https://github.com/joan2937/pigpio.git
 cd pigpio
 make
@@ -35,7 +52,7 @@ After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/pigpiod
-ExecStop=/bin/kill -s SIGTERM $MAINPID
+ExecStop=/bin/kill -s SIGTERM \$MAINPID
 Restart=always
 User=root
 
@@ -46,22 +63,17 @@ EOF'
 sudo systemctl daemon-reload
 sudo systemctl enable pigpiod
 sudo systemctl start pigpiod
-echo "pigpiod service is active ✅"
 
 echo "[5/6] Installing Python packages..."
 if [ -f "requirements.txt" ]; then
-    echo "Cleaning requirements.txt (removing opencv-python)..."
     grep -v '^opencv-python' requirements.txt > /tmp/req_clean.txt
     sudo pip3 install -r /tmp/req_clean.txt --break-system-packages
 fi
 
-# ---- pytz installation (ALWAYS) ----
-echo "Installing pytz..."
-sudo pip3 install pytz --break-system-packages
+# 🔥 WebRTC PYTHON PACKAGES (NEW)
+echo "[5a/6] Installing WebRTC Python packages..."
+sudo pip3 install av==11.0.0 aiortc==1.6.0 --break-system-packages
 
 echo "[6/6] Setup complete! Reboot recommended."
-
 read -p "Reboot now? (y/n): " answer
-if [ "$answer" = "y" ]; then
-    sudo reboot
-fi
+[ "$answer" = "y" ] && sudo reboot
