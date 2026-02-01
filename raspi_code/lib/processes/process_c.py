@@ -242,8 +242,8 @@ def process_C(**kwargs) -> None:
     PC_MODE                 = process_C_args["PC_MODE"]
     SAVE_LOGS               = process_C_args["SAVE_LOGS"]
     DISPENSE_COUNTDOWN_TIME = process_C_args["DISPENSE_COUNTDOWN_TIME"]
-    LCD_ENABLED             = process_C_args.get("LCD_ENABLED", True)  # Enable/disable LCD
-    LCD_I2C_ADDR            = process_C_args.get("LCD_I2C_ADDR", 0x27)  # I2C address
+    LCD_ENABLED             = True # process_C_args.get("LCD_ENABLED", True)  # Enable/disable LCD
+    LCD_I2C_ADDR            = 0x27 # process_C_args.get("LCD_I2C_ADDR", 0x27)  # I2C address
     
     print(f"{TASK_NAME} - Running✅")
     if SAVE_LOGS:
