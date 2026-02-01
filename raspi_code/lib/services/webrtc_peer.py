@@ -203,7 +203,16 @@ class WebRTCPeer:
         # Handle ICE connection state
         @pc.on("iceconnectionstatechange")
         async def on_ice_connection_state_change():
-            logger.info(f"ICE connection state: {pc.iceConnectionState}")
+            ice_state = pc.iceConnectionState
+            logger.info(f"ICE connection state: {ice_state}")
+            
+            # Log additional diagnostic info
+            if ice_state == "checking":
+                logger.debug("Checking ICE candidates...")
+            elif ice_state == "connected":
+                logger.info("ICE connection established - peer-to-peer connection active")
+            elif ice_state == "failed":
+                logger.error("ICE connection failed - check network/firewall settings")
         
         return pc
     
@@ -290,6 +299,14 @@ class WebRTCPeer:
             await self.pc.setLocalDescription(answer)
             logger.info("Answer created and local description set")
             
+            # Optional: Modify SDP for bitrate control (helps with weak Wi-Fi)
+            # This sets a maximum bitrate to prevent quality degradation on poor connections
+            modified_sdp = self._apply_bitrate_limit(answer.sdp)
+            if modified_sdp != answer.sdp:
+                logger.info("Applied bitrate limit to SDP for better stability")
+                answer = RTCSessionDescription(sdp=modified_sdp, type=answer.type)
+                await self.pc.setLocalDescription(answer)
+            
             # Send answer to mobile app via Firebase
             answer_dict = {
                 "sdp": self.pc.localDescription.sdp,
@@ -341,13 +358,55 @@ class WebRTCPeer:
         
         logger.info("Stopped polling for ICE candidates")
     
+    def _apply_bitrate_limit(self, sdp: str, max_bitrate_kbps: int = 1500) -> str:
+        """
+        Apply bitrate limit to SDP for better quality on weak Wi-Fi.
+        
+        Args:
+            sdp: Original SDP string
+            max_bitrate_kbps: Maximum bitrate in kbps (default 1500 = 1.5 Mbps)
+                             Good values: 500-2000 kbps depending on network
+        
+        Returns:
+            Modified SDP with bitrate limit
+        """
+        lines = sdp.split('\r\n')
+        modified_lines = []
+        video_section = False
+        bitrate_added = False
+        
+        for line in lines:
+            # Detect video section
+            if line.startswith('m=video'):
+                video_section = True
+                bitrate_added = False
+            elif line.startswith('m='):
+                video_section = False
+            
+            modified_lines.append(line)
+            
+            # Add bitrate limit after video codec line
+            if video_section and line.startswith('a=rtpmap:') and not bitrate_added:
+                # Extract payload type
+                parts = line.split()
+                if len(parts) >= 2:
+                    payload_type = parts[0].split(':')[1]
+                    # Add bandwidth limit (b=AS: for application-specific maximum)
+                    modified_lines.append(f'b=AS:{max_bitrate_kbps}')
+                    # Add TIAS (Transport Independent Application Specific Maximum)
+                    modified_lines.append(f'b=TIAS:{max_bitrate_kbps * 1000}')
+                    bitrate_added = True
+                    logger.debug(f"Added bitrate limit: {max_bitrate_kbps} kbps")
+        
+        return '\r\n'.join(modified_lines)
+    
     async def _add_ice_candidate(self, candidate_data):
         """Add ICE candidate from mobile app."""
         try:
             if self.pc and "candidate" in candidate_data:
-                # Pass candidate string as first positional argument (aiortc requirement)
+                # Use 'candidate' keyword for the SDP string (aiortc requirement)
                 candidate = RTCIceCandidate(
-                    candidate_data["candidate"],  # Positional, not keyword
+                    candidate=candidate_data["candidate"],  # Must use keyword argument
                     sdpMid=candidate_data.get("sdpMid"),
                     sdpMLineIndex=candidate_data.get("sdpMLineIndex")
                 )
@@ -372,12 +431,33 @@ class WebRTCPeer:
                 self.video_track.stop()
                 self.video_track = None
             
-            # Clear Firebase data
-            self.offer_ref.set(None)
-            self.answer_ref.set(None)
-            self.ice_candidates_raspi_ref.set(None)
-            self.ice_candidates_mobile_ref.set(None)
-            self.connection_state_ref.set("disconnected")
+            # Clear Firebase data - Use delete() instead of set(None)
+            # Firebase Admin SDK doesn't accept None values
+            try:
+                self.offer_ref.delete()
+            except Exception:
+                pass  # Ignore if already deleted
+            
+            try:
+                self.answer_ref.delete()
+            except Exception:
+                pass
+            
+            try:
+                self.ice_candidates_raspi_ref.delete()
+            except Exception:
+                pass
+            
+            try:
+                self.ice_candidates_mobile_ref.delete()
+            except Exception:
+                pass
+            
+            # Set connection state to disconnected (use string, not None)
+            try:
+                self.connection_state_ref.set("disconnected")
+            except Exception:
+                pass
             
             logger.info("WebRTC peer cleanup complete")
         except Exception as e:
