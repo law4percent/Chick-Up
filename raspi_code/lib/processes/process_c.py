@@ -19,6 +19,11 @@ from lib.services.hardware import (
 
 logger = logger_config.setup_logger(name=__name__, level=logging.INFO)
 
+# Python weekday → JS weekday
+# Python: Mon=0 ... Sun=6
+# JS:     Sun=0, Mon=1 ... Sat=6
+_PY_TO_JS_DAY = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 0}
+
 # ================= HELPER FUNCTIONS =================
 def _handle_water_refill(state: bool) -> None:
     """Control water motor (GPIO 27 Relay)"""
@@ -123,6 +128,41 @@ def _update_button_timestamp(database_ref: dict, button_type: str) -> None:
         logger.info(f"Physical keypad: {button_type} lastUpdateAt updated")
     except Exception as e:
         logger.error(f"Failed to update {button_type} button timestamp: {e}")
+
+
+def _log_analytics(user_uid: str, action_type: str, volume_percent: float) -> None:
+    """
+    Write an analytics log entry to analytics/logs/{userId}.
+    Shape matches analyticsService.ts logAction() exactly so
+    AnalyticsScreen can read both app and keypad logs together.
+
+    Args:
+        user_uid:       The user's Firebase UID
+        action_type:    'feed' or 'water'
+        volume_percent: Actual volume change measured by sensors
+    """
+    try:
+        now = datetime.now()
+
+        log_entry = {
+            "action"        : "refill" if action_type == "water" else "dispense",
+            "type"          : action_type,
+            "volumePercent" : round(volume_percent, 2),
+            "timestamp"     : int(now.timestamp() * 1000),      # Unix ms — matches JS Date.getTime()
+            "date"          : now.strftime("%m/%d/%Y"),
+            "time"          : now.strftime("%H:%M:%S"),
+            "dayOfWeek"     : _PY_TO_JS_DAY[now.weekday()],     # Convert to JS day index
+            "userId"       : user_uid,
+            "source"        : "keypad",                          # distinguish from app logs
+        }
+
+        logs_ref = db.reference(f"analytics/logs/{user_uid}")
+        logs_ref.push(log_entry)
+
+        logger.info(f"Analytics logged: {action_type} → {volume_percent}%")
+
+    except Exception as e:
+        logger.error(f"Failed to log analytics for {action_type}: {e}")
 
 
 def _dispense_it(
@@ -332,6 +372,12 @@ def process_C(**kwargs) -> None:
     dispense_active             = False
     dispense_countdown_start    = 0
     MAX_REFILL_LEVEL            = 95  # Stop refilling at 95%
+
+    # Analytics: level snapshots + previous-state flags for transition detection
+    water_level_before_refill   = 0.0
+    feed_level_before_dispense  = 0.0
+    prev_refill_active          = False
+    prev_dispense_active        = False
     
     # LCD update throttling
     last_lcd_update = 0
@@ -414,17 +460,25 @@ def process_C(**kwargs) -> None:
                 current_feed_schedule_state
             ) and not dispense_active
             
+            # Refill water if button pressed or auto-refill enabled
+            water_button_pressed = (
+                current_water_physical_button_state or 
+                current_water_app_button_state
+            )
+
+            # ── Snapshot levels right before a NEW action starts ─────
+            if feed_button_pressed and not dispense_active:
+                feed_level_before_dispense = current_feed_level
+
+            if water_button_pressed and not refill_active:
+                water_level_before_refill = current_water_level
+
+            # ── Run motor logic ──────────────────────────────────────
             dispense_active, dispense_countdown_start = _dispense_it(
                 feed_button_state           = feed_button_pressed,
                 dispense_active             = dispense_active, 
                 dispense_countdown_start    = dispense_countdown_start, 
                 DISPENSE_COUNTDOWN_TIME     = DISPENSE_COUNTDOWN_TIME,
-            )
-            
-            # Refill water if button pressed or auto-refill enabled
-            water_button_pressed = (
-                current_water_physical_button_state or 
-                current_water_app_button_state
             )
             
             refill_active = _refill_it(
@@ -435,6 +489,22 @@ def process_C(**kwargs) -> None:
                 MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
                 refill_active                           = refill_active
             )
+
+            # ── Log analytics on action COMPLETION ───────────────────
+            # Detect transition: was active last loop, now it's not → just finished
+            if prev_dispense_active and not dispense_active:
+                volume_change = feed_level_before_dispense - current_feed_level
+                _log_analytics(user_uid, "feed", max(volume_change, 0))
+                feed_level_before_dispense = 0.0
+
+            if prev_refill_active and not refill_active:
+                volume_change = current_water_level - water_level_before_refill
+                _log_analytics(user_uid, "water", max(volume_change, 0))
+                water_level_before_refill = 0.0
+
+            # Save current state for next loop's transition detection
+            prev_dispense_active = dispense_active
+            prev_refill_active   = refill_active
             
             # ================= UPDATE LCD DISPLAY =================
             if lcd_obj and (current_time - last_lcd_update >= LCD_UPDATE_INTERVAL):
