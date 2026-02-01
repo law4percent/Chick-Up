@@ -3,6 +3,8 @@ Docstring for raspi_code.lib.services.webrtc_peer
 Path: raspi_code/lib/services/webrtc_peer.py
 Description: WebRTC peer implementation for Raspberry Pi to stream video to mobile app.
              Handles peer connection, video track creation, and Firebase-based signaling.
+             
+FIXED: Now properly handles reconnection by keeping offer polling active after cleanup.
 """
 
 import asyncio
@@ -107,6 +109,7 @@ class WebRTCPeer:
     - Video streaming via WebRTC
     - Firebase-based signaling (SDP exchange, ICE candidates)
     - Connection lifecycle management
+    - RECONNECTION support (fixed in this version)
     """
     
     def __init__(self, user_uid: str, device_uid: str, capture, pc_mode: bool, 
@@ -144,27 +147,12 @@ class WebRTCPeer:
         self.ice_candidates_mobile_ref = self.stream_ref.child("iceCandidates/mobile")
         self.connection_state_ref = self.stream_ref.child("connectionState")
         
-        # State tracking
+        # State tracking - FIXED: Made last_offer_timestamp an instance variable
         self.is_running = False
         self.candidates_sent = 0
+        self.last_offer_timestamp = 0  # Track last processed offer to avoid duplicates
         
         # STUN server configuration (Google's free STUN servers)
-        # 
-        # TROUBLESHOOTING NETWORK ISSUES:
-        # --------------------------------
-        # 1. "Connecting..." forever → Check if Pi and Phone are on SAME Wi-Fi
-        # 2. "Failed" immediately → Firewall blocking UDP ports
-        # 3. Works on Wi-Fi but not on 4G/LTE → Need TURN server (relay)
-        #
-        # For local testing: Ensure both devices on same network
-        # For production: Add TURN server to ice_servers list
-        #
-        # Example TURN server (you'd need to set up your own):
-        # RTCIceServer(
-        #     urls=["turn:your-turn-server.com:3478"],
-        #     username="your-username",
-        #     credential="your-password"
-        # )
         self.ice_servers = [
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
             RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
@@ -209,7 +197,7 @@ class WebRTCPeer:
                 
                 # Reset candidate counter once connected
                 if state == "connected":
-                    logger.info("WebRTC connection established successfully!")
+                    logger.info("✅ WebRTC connection established successfully!")
                     self.candidates_sent = 0  # Reset for next connection
                 elif state in ["failed", "closed"]:
                     logger.warning(f"Connection {state}, cleaning up...")
@@ -256,9 +244,9 @@ class WebRTCPeer:
         """
         Poll Firebase for new offers instead of using .listen()
         This works better with asyncio event loop.
-        """
-        last_offer_timestamp = 0
         
+        FIXED: No longer uses local last_offer_timestamp, uses instance variable instead.
+        """
         while self.is_running:
             try:
                 offer_data = self.offer_ref.get()
@@ -267,9 +255,9 @@ class WebRTCPeer:
                     timestamp = offer_data.get("timestamp", 0)
                     
                     # Only process if it's a new offer
-                    if timestamp > last_offer_timestamp:
-                        last_offer_timestamp = timestamp
-                        logger.info(f"New offer detected (timestamp: {timestamp})")
+                    if timestamp > self.last_offer_timestamp:
+                        self.last_offer_timestamp = timestamp
+                        logger.info(f"🆕 New offer detected (timestamp: {timestamp})")
                         await self._handle_offer(offer_data)
                 
                 await asyncio.sleep(0.5)  # Poll every 500ms
@@ -277,6 +265,8 @@ class WebRTCPeer:
             except Exception as e:
                 logger.error(f"Error polling for offers: {e}")
                 await asyncio.sleep(1)  # Wait longer on error
+        
+        logger.info("Stopped polling for offers (peer shutting down)")
     
     async def _handle_offer(self, offer_data):
         """
@@ -284,10 +274,9 @@ class WebRTCPeer:
         Creates answer and sets up video track.
         """
         try:
-            logger.info("Received offer from mobile app")
+            logger.info("📥 Received offer from mobile app")
             
             # Delete offer immediately to prevent processing it twice
-            # This prevents "InvalidStateError: Cannot handle answer in signaling state stable"
             try:
                 self.offer_ref.delete()
                 logger.debug("Offer deleted from Firebase to prevent duplicate processing")
@@ -296,11 +285,13 @@ class WebRTCPeer:
             
             # Clean up existing connection if any
             if self.pc:
+                logger.info("Closing existing peer connection before creating new one")
                 await self.pc.close()
                 self.pc = None
             
             # Create new peer connection
             self.pc = self._create_peer_connection()
+            logger.debug("Created new peer connection")
             
             # Create and add video track
             self.video_track = CameraVideoTrack(
@@ -310,7 +301,7 @@ class WebRTCPeer:
                 self.frame_buffer  # Pass shared buffer for optimization
             )
             self.pc.addTrack(self.video_track)
-            logger.info("Video track added to peer connection")
+            logger.info("📹 Video track added to peer connection")
             
             # Set remote description (offer)
             offer = RTCSessionDescription(
@@ -324,13 +315,12 @@ class WebRTCPeer:
             answer = await self.pc.createAnswer()
             
             # Optional: Modify SDP for bitrate control (helps with weak Wi-Fi)
-            # This sets a maximum bitrate to prevent quality degradation on poor connections
             modified_sdp = self._apply_bitrate_limit(answer.sdp)
             if modified_sdp != answer.sdp:
                 logger.info("Applied bitrate limit to SDP for better stability")
                 answer = RTCSessionDescription(sdp=modified_sdp, type=answer.type)
             
-            # Set local description ONLY ONCE (calling twice causes InvalidStateError)
+            # Set local description ONLY ONCE
             await self.pc.setLocalDescription(answer)
             logger.info("Answer created and local description set")
             
@@ -341,7 +331,7 @@ class WebRTCPeer:
                 "timestamp": int(time.time() * 1000)
             }
             self.answer_ref.set(answer_dict)
-            logger.info("Answer sent to mobile app via Firebase")
+            logger.info("📤 Answer sent to mobile app via Firebase")
             
             # Start polling for ICE candidates from mobile app
             asyncio.create_task(self._poll_for_mobile_ice_candidates())
@@ -351,7 +341,7 @@ class WebRTCPeer:
             self.connection_state_ref.set("connecting")
             
         except Exception as e:
-            logger.error(f"Error handling offer: {e}", exc_info=True)
+            logger.error(f"❌ Error handling offer: {e}", exc_info=True)
             self.connection_state_ref.set("failed")
     
     async def _poll_for_mobile_ice_candidates(self):
@@ -383,7 +373,7 @@ class WebRTCPeer:
                 logger.error(f"Error polling for ICE candidates: {e}")
                 await asyncio.sleep(0.5)
         
-        logger.info("Stopped polling for ICE candidates")
+        logger.debug("Stopped polling for ICE candidates")
     
     def _apply_bitrate_limit(self, sdp: str, max_bitrate_kbps: int = 1500) -> str:
         """
@@ -392,7 +382,6 @@ class WebRTCPeer:
         Args:
             sdp: Original SDP string
             max_bitrate_kbps: Maximum bitrate in kbps (default 1500 = 1.5 Mbps)
-                             Good values: 500-2000 kbps depending on network
         
         Returns:
             Modified SDP with bitrate limit
@@ -418,9 +407,8 @@ class WebRTCPeer:
                 parts = line.split()
                 if len(parts) >= 2:
                     payload_type = parts[0].split(':')[1]
-                    # Add bandwidth limit (b=AS: for application-specific maximum)
+                    # Add bandwidth limit
                     modified_lines.append(f'b=AS:{max_bitrate_kbps}')
-                    # Add TIAS (Transport Independent Application Specific Maximum)
                     modified_lines.append(f'b=TIAS:{max_bitrate_kbps * 1000}')
                     bitrate_added = True
                     logger.debug(f"Added bitrate limit: {max_bitrate_kbps} kbps")
@@ -430,79 +418,98 @@ class WebRTCPeer:
     async def _add_ice_candidate(self, candidate_data):
         """
         Add ICE candidate from mobile app.
-        FIXED: Uses candidate_from_sdp for proper parsing and version compatibility.
+        Uses candidate_from_sdp for proper parsing.
         """
         try:
             if self.pc and "candidate" in candidate_data:
                 # Get raw candidate string
                 raw_candidate = candidate_data["candidate"]
                 
-                # Safety check: Clean the 'candidate:' prefix if present
-                # Some mobile frameworks include it, others don't
+                # Clean the 'candidate:' prefix if present
                 if raw_candidate.startswith("candidate:"):
                     raw_candidate = raw_candidate.replace("candidate:", "", 1)
                 
-                # Use candidate_from_sdp utility to parse the candidate string
-                # This handles all the required fields (port, priority, protocol, type, etc.)
+                # Parse the candidate
                 candidate = candidate_from_sdp(raw_candidate)
                 candidate.sdpMid = candidate_data.get("sdpMid")
                 candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
                 
                 await self.pc.addIceCandidate(candidate)
-                logger.debug("Successfully added ICE candidate from mobile app")
+                logger.debug("✅ Successfully added ICE candidate from mobile app")
         except Exception as e:
             logger.error(f"Error adding ICE candidate: {e}")
     
     async def cleanup(self):
-        """Clean up WebRTC resources and Firebase listeners."""
-        logger.info("Cleaning up WebRTC peer...")
-        self.is_running = False
+        """
+        Clean up WebRTC resources and Firebase listeners.
+        
+        FIXED: No longer sets is_running = False, so polling continues for reconnection.
+        Only stops polling when stop() is called (full shutdown).
+        """
+        logger.info("🧹 Cleaning up WebRTC peer...")
         
         try:
             # Close peer connection
             if self.pc:
                 await self.pc.close()
                 self.pc = None
+                logger.debug("Peer connection closed")
             
             # Stop video track
             if self.video_track:
                 self.video_track.stop()
                 self.video_track = None
+                logger.debug("Video track stopped")
             
-            # Clear Firebase data - Use delete() instead of set(None)
-            # Firebase Admin SDK doesn't accept None values
+            # Clear Firebase data
             try:
                 self.offer_ref.delete()
+                logger.debug("Deleted offer from Firebase")
             except Exception:
-                pass  # Ignore if already deleted
+                pass
             
             try:
                 self.answer_ref.delete()
+                logger.debug("Deleted answer from Firebase")
             except Exception:
                 pass
             
             try:
                 self.ice_candidates_raspi_ref.delete()
+                logger.debug("Deleted raspi ICE candidates from Firebase")
             except Exception:
                 pass
             
             try:
                 self.ice_candidates_mobile_ref.delete()
+                logger.debug("Deleted mobile ICE candidates from Firebase")
             except Exception:
                 pass
             
-            # Set connection state to disconnected (use string, not None)
+            # Set connection state to disconnected
             try:
                 self.connection_state_ref.set("disconnected")
+                logger.debug("Set connection state to disconnected")
             except Exception:
                 pass
             
-            logger.info("WebRTC peer cleanup complete")
+            # Reset state for next connection
+            self.candidates_sent = 0
+            
+            # CRITICAL: We do NOT set is_running = False here!
+            # This allows _poll_for_offers() to continue running and detect new offers
+            logger.info("✅ WebRTC peer cleanup complete, listening for next offer")
+            
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
     
     async def stop(self):
-        """Stop the WebRTC peer gracefully."""
+        """
+        Stop the WebRTC peer gracefully.
+        This is called when the entire process is shutting down.
+        """
+        logger.info("🛑 Stopping WebRTC peer completely")
+        self.is_running = False  # Now we stop polling
         await self.cleanup()
 
 
@@ -535,7 +542,7 @@ async def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool
         frame_buffer=frame_buffer
     )
     
-    # Start the peer (this will listen for offers)
+    # Start the peer (this will listen for offers continuously)
     await peer.start()
     
     return peer

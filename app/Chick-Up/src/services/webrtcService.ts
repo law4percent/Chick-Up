@@ -75,16 +75,34 @@ class WebRTCService {
       // Handle ICE candidates
       pc.onicecandidate = (event: any) => {
         if (event.candidate) {
+          console.log('[WebRTC] ICE candidate generated');
           this.sendIceCandidate(event.candidate);
         }
       };
       
-      // Handle remote stream
-      pc.onaddstream = (event: any) => {
-        console.log('[WebRTC] Remote stream received');
-        this.remoteStream = event.stream;
-        if (this.onRemoteStreamCallback) {
-          this.onRemoteStreamCallback(event.stream);
+      // FIXED: Use modern ontrack instead of deprecated onaddstream
+      pc.ontrack = (event: any) => {
+        console.log('[WebRTC] 🎥 Remote track received:', event.track.kind);
+        
+        if (event.streams && event.streams.length > 0) {
+          console.log('[WebRTC] ✅ Remote stream available');
+          this.remoteStream = event.streams[0];
+          
+          if (this.onRemoteStreamCallback) {
+            this.onRemoteStreamCallback(event.streams[0]);
+          }
+        } else {
+          // Some implementations don't provide streams in the event
+          // Create a MediaStream manually from the track
+          console.log('[WebRTC] Creating stream from track');
+          if (!this.remoteStream) {
+            this.remoteStream = new MediaStream();
+          }
+          this.remoteStream.addTrack(event.track);
+          
+          if (this.onRemoteStreamCallback) {
+            this.onRemoteStreamCallback(this.remoteStream);
+          }
         }
       };
       
@@ -150,7 +168,7 @@ class WebRTCService {
       });
       
       await this.peerConnection.setLocalDescription(offer);
-      console.log('[WebRTC] Offer created');
+      console.log('[WebRTC] Offer created and set as local description');
       
       // Send offer to Raspberry Pi via Firebase
       const offerRef = ref(
@@ -206,7 +224,7 @@ class WebRTCService {
           });
           
           await this.peerConnection.setRemoteDescription(remoteDescription);
-          console.log('[WebRTC] Remote description set');
+          console.log('[WebRTC] ✅ Remote description set successfully');
           
           // Stop listening for answer once received
           if (this.answerListener) {
@@ -252,7 +270,7 @@ class WebRTCService {
               });
               
               await this.peerConnection.addIceCandidate(candidate);
-              console.log('[WebRTC] Added ICE candidate from Raspberry Pi');
+              console.log('[WebRTC] ✅ Added ICE candidate from Raspberry Pi');
               
             } catch (error) {
               console.error('[WebRTC] Error adding ICE candidate:', error);
@@ -292,7 +310,7 @@ class WebRTCService {
         timestamp: Date.now(),
       });
       
-      console.log('[WebRTC] ICE candidate sent to Firebase');
+      console.log('[WebRTC] ✅ ICE candidate sent to Firebase');
       
     } catch (error) {
       console.error('[WebRTC] Error sending ICE candidate:', error);
