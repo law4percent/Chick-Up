@@ -9,6 +9,7 @@ import asyncio
 import cv2
 import logging
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack, RTCConfiguration, RTCIceServer, RTCIceCandidate
+from aiortc.sdp import candidate_from_sdp  # Essential for parsing candidate strings
 from aiortc.contrib.media import MediaPlayer
 from av import VideoFrame
 import numpy as np
@@ -23,16 +24,19 @@ logger = logging.getLogger(__name__)
 
 class CameraVideoTrack(VideoStreamTrack):
     """
-    Custom video track that reads frames from OpenCV capture and converts to WebRTC format.
+    Custom video track that reads frames from shared buffer and converts to WebRTC format.
     Optimized for Raspberry Pi with frame rate throttling to prevent CPU overload.
+    
+    OPTIMIZATION: Uses shared frame buffer to avoid dual camera reads.
     """
     
-    def __init__(self, capture, pc_mode: bool, frame_dimension: dict):
+    def __init__(self, capture, pc_mode: bool, frame_dimension: dict, frame_buffer=None):
         super().__init__()
         self.capture = capture
         self.pc_mode = pc_mode
         self.width = frame_dimension.get("width", 640)
         self.height = frame_dimension.get("height", 480)
+        self.frame_buffer = frame_buffer  # Shared buffer for single-capture optimization
         
         # Required by aiortc's timing logic
         self._start = time.time()
@@ -48,6 +52,8 @@ class CameraVideoTrack(VideoStreamTrack):
         Receive next video frame in WebRTC format.
         Called by aiortc to get frames for streaming.
         Includes frame rate throttling to prevent CPU overload.
+        
+        OPTIMIZATION: Reads from shared buffer if available, otherwise reads camera directly.
         """
         # 1. THROTTLE: Ensure we don't exceed target FPS
         # This prevents the Pi from overheating by trying to send too many frames
@@ -62,19 +68,27 @@ class CameraVideoTrack(VideoStreamTrack):
         pts = self._timestamp
         time_base = Fraction(1, 90000)
         
-        # 3. Capture frame from camera
-        if self.pc_mode:
-            ret, frame = self.capture.read()
-            if not ret:
-                logger.error("Failed to read frame from camera")
-                # Return black frame on error
+        # 3. Capture frame - OPTIMIZED PATH
+        if self.frame_buffer is not None:
+            # Use shared buffer (single-capture optimization)
+            frame = self.frame_buffer.get()
+            if frame is None:
+                # Fallback: create black frame if buffer is empty
                 frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         else:
-            # Picamera2 mode
-            frame = self.capture.capture_array()
-        
-        # 4. Resize to target dimensions
-        frame = cv2.resize(frame, (self.width, self.height))
+            # Fallback: Direct camera read (legacy mode)
+            if self.pc_mode:
+                ret, frame = self.capture.read()
+                if not ret:
+                    logger.error("Failed to read frame from camera")
+                    # Return black frame on error
+                    frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            else:
+                # Picamera2 mode
+                frame = self.capture.capture_array()
+            
+            # 4. Resize to target dimensions (only if not using buffer)
+            frame = cv2.resize(frame, (self.width, self.height))
         
         # 5. Convert BGR to RGB (OpenCV uses BGR, WebRTC expects RGB)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -96,7 +110,8 @@ class WebRTCPeer:
     """
     
     def __init__(self, user_uid: str, device_uid: str, capture, pc_mode: bool, 
-                 frame_dimension: dict, on_connection_state_change: Optional[Callable] = None):
+                 frame_dimension: dict, on_connection_state_change: Optional[Callable] = None,
+                 frame_buffer=None):
         """
         Initialize WebRTC peer.
         
@@ -107,6 +122,7 @@ class WebRTCPeer:
             pc_mode: True for PC/USB camera, False for Pi Camera
             frame_dimension: Dict with 'width' and 'height' keys
             on_connection_state_change: Optional callback for connection state changes
+            frame_buffer: Optional SharedFrameBuffer for single-capture optimization
         """
         self.user_uid = user_uid
         self.device_uid = device_uid
@@ -114,6 +130,7 @@ class WebRTCPeer:
         self.pc_mode = pc_mode
         self.frame_dimension = frame_dimension
         self.on_connection_state_change = on_connection_state_change
+        self.frame_buffer = frame_buffer  # Shared buffer for optimization
         
         # WebRTC components
         self.pc: Optional[RTCPeerConnection] = None
@@ -289,7 +306,8 @@ class WebRTCPeer:
             self.video_track = CameraVideoTrack(
                 self.capture, 
                 self.pc_mode, 
-                self.frame_dimension
+                self.frame_dimension,
+                self.frame_buffer  # Pass shared buffer for optimization
             )
             self.pc.addTrack(self.video_track)
             logger.info("Video track added to peer connection")
@@ -410,25 +428,28 @@ class WebRTCPeer:
         return '\r\n'.join(modified_lines)
     
     async def _add_ice_candidate(self, candidate_data):
-        """Add ICE candidate from mobile app."""
+        """
+        Add ICE candidate from mobile app.
+        FIXED: Uses candidate_from_sdp for proper parsing and version compatibility.
+        """
         try:
             if self.pc and "candidate" in candidate_data:
                 # Get raw candidate string
                 raw_candidate = candidate_data["candidate"]
                 
-                # Safety check: RTCIceCandidate.from_sdp expects the string WITHOUT 'candidate:' prefix
-                # Some mobile frameworks (Flutter, React Native) include it, others don't
+                # Safety check: Clean the 'candidate:' prefix if present
+                # Some mobile frameworks include it, others don't
                 if raw_candidate.startswith("candidate:"):
                     raw_candidate = raw_candidate.replace("candidate:", "", 1)
                 
-                # Parse the candidate string to extract all required fields
-                # (component, foundation, ip, port, priority, protocol, type, etc.)
-                candidate = RTCIceCandidate.from_sdp(raw_candidate)
+                # Use candidate_from_sdp utility to parse the candidate string
+                # This handles all the required fields (port, priority, protocol, type, etc.)
+                candidate = candidate_from_sdp(raw_candidate)
                 candidate.sdpMid = candidate_data.get("sdpMid")
                 candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
                 
                 await self.pc.addIceCandidate(candidate)
-                logger.debug("Added ICE candidate from mobile app")
+                logger.debug("Successfully added ICE candidate from mobile app")
         except Exception as e:
             logger.error(f"Error adding ICE candidate: {e}")
     
@@ -487,7 +508,8 @@ class WebRTCPeer:
 
 # Helper function to run WebRTC peer in async context
 async def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool, 
-                    frame_dimension: dict, on_connection_state_change: Optional[Callable] = None):
+                    frame_dimension: dict, on_connection_state_change: Optional[Callable] = None,
+                    frame_buffer=None):
     """
     Helper function to initialize and run WebRTC peer.
     
@@ -498,6 +520,7 @@ async def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool
         pc_mode: PC mode flag
         frame_dimension: Frame dimensions dict
         on_connection_state_change: Optional callback for connection state changes
+        frame_buffer: Optional SharedFrameBuffer for single-capture optimization
     
     Returns:
         WebRTCPeer instance
@@ -508,7 +531,8 @@ async def run_webrtc_peer(user_uid: str, device_uid: str, capture, pc_mode: bool
         capture=capture,
         pc_mode=pc_mode,
         frame_dimension=frame_dimension,
-        on_connection_state_change=on_connection_state_change
+        on_connection_state_change=on_connection_state_change,
+        frame_buffer=frame_buffer
     )
     
     # Start the peer (this will listen for offers)
