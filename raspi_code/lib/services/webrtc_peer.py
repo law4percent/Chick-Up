@@ -269,6 +269,14 @@ class WebRTCPeer:
         try:
             logger.info("Received offer from mobile app")
             
+            # Delete offer immediately to prevent processing it twice
+            # This prevents "InvalidStateError: Cannot handle answer in signaling state stable"
+            try:
+                self.offer_ref.delete()
+                logger.debug("Offer deleted from Firebase to prevent duplicate processing")
+            except Exception as e:
+                logger.warning(f"Could not delete offer (may already be deleted): {e}")
+            
             # Clean up existing connection if any
             if self.pc:
                 await self.pc.close()
@@ -296,8 +304,6 @@ class WebRTCPeer:
             
             # Create answer
             answer = await self.pc.createAnswer()
-            await self.pc.setLocalDescription(answer)
-            logger.info("Answer created and local description set")
             
             # Optional: Modify SDP for bitrate control (helps with weak Wi-Fi)
             # This sets a maximum bitrate to prevent quality degradation on poor connections
@@ -305,7 +311,10 @@ class WebRTCPeer:
             if modified_sdp != answer.sdp:
                 logger.info("Applied bitrate limit to SDP for better stability")
                 answer = RTCSessionDescription(sdp=modified_sdp, type=answer.type)
-                await self.pc.setLocalDescription(answer)
+            
+            # Set local description ONLY ONCE (calling twice causes InvalidStateError)
+            await self.pc.setLocalDescription(answer)
+            logger.info("Answer created and local description set")
             
             # Send answer to mobile app via Firebase
             answer_dict = {
