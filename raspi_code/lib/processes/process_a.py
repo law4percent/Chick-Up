@@ -256,10 +256,6 @@ def process_A(**kwargs) -> None:
             
             await asyncio.sleep(10)  # Log every 10 seconds
     
-    # Start diagnostic monitor
-    diagnostic_task = asyncio.create_task(diagnostic_monitor())
-    logger.info("📊 Diagnostic monitor started (logging every 10 seconds)")
-    
     # MAIN STREAMING LOOP
     async def main_streaming_loop():
         """Main async loop with diagnostic counters."""
@@ -320,9 +316,34 @@ def process_A(**kwargs) -> None:
             # Hand control to WebRTC
             await asyncio.sleep(0.01)
     
+    # Coordinator function to run both tasks concurrently
+    async def run_both_tasks():
+        """Run diagnostic monitor and main streaming loop concurrently."""
+        logger.info("📊 Starting diagnostic monitor and streaming loop")
+        
+        # Create both tasks
+        diagnostic_task = asyncio.create_task(diagnostic_monitor())
+        streaming_task = asyncio.create_task(main_streaming_loop())
+        
+        # Wait for either task to complete (or both)
+        done, pending = await asyncio.wait(
+            [diagnostic_task, streaming_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel any remaining tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        
+        return diagnostic_task
+    
     try:
-        # Run the main loop
-        loop.run_until_complete(main_streaming_loop())
+        # Run both tasks together
+        diagnostic_task = loop.run_until_complete(run_both_tasks())
         
     except KeyboardInterrupt:
         logger.warning(f"⌨️  Keyboard interrupt detected")
@@ -333,10 +354,6 @@ def process_A(**kwargs) -> None:
         status_checker.clear()
     
     finally:
-        # Cancel diagnostic task
-        if diagnostic_task and not diagnostic_task.done():
-            diagnostic_task.cancel()
-        
         # Cleanup WebRTC peer
         if webrtc_peer_instance:
             try:
