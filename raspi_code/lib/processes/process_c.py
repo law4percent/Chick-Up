@@ -3,7 +3,7 @@ Process C - Hardware Control with LCD Display
 Handles sensors, motors, and LCD status display
 """
 import time
-from firebase_admin.db import SERVER_TIMESTAMP
+from firebase_admin import db
 from lib.services import firebase_rtdb
 from datetime import datetime
 import logging
@@ -119,7 +119,7 @@ def _update_button_timestamp(database_ref: dict, button_type: str) -> None:
     try:
         ref_key = "df_app_button_ref" if button_type == "feed" else "wr_app_button_ref"
         # The ref already points directly to lastUpdateAt, so just .set() the value
-        database_ref[ref_key].set(SERVER_TIMESTAMP)
+        database_ref[ref_key].set({".sv": "timestamp"})
         logger.info(f"Physical keypad: {button_type} lastUpdateAt updated")
     except Exception as e:
         logger.error(f"Failed to update {button_type} button timestamp: {e}")
