@@ -413,11 +413,11 @@ class WebRTCPeer:
         """Add ICE candidate from mobile app."""
         try:
             if self.pc and "candidate" in candidate_data:
-                # Use 'candidate' keyword for the SDP string (aiortc requirement)
+                # Pass candidate string as first positional argument (aiortc requirement)
                 candidate = RTCIceCandidate(
-                    candidate=candidate_data["candidate"],  # Must use keyword argument
-                    sdpMid=candidate_data.get("sdpMid"),
-                    sdpMLineIndex=candidate_data.get("sdpMLineIndex")
+                    candidate_data["candidate"],  # Positional argument, not keyword
+                    candidate_data.get("sdpMid"),
+                    candidate_data.get("sdpMLineIndex")
                 )
                 await self.pc.addIceCandidate(candidate)
                 logger.debug("Added ICE candidate from mobile app")

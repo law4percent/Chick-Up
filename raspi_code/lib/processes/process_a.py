@@ -5,6 +5,7 @@ Description: This module contains the implementation of process_A which captures
              processes them with WebRTC streaming functionality for low-latency video transmission.
 
 Updated: Now uses WebRTC for real-time streaming instead of queue-based base64 encoding.
+         Fixed: Async event loop starvation issue - replaced while True with proper async loop.
 """
 import cv2
 from lib.services.hardware import camera_controller as camera
@@ -152,26 +153,25 @@ def process_A(**kwargs) -> None:
         clean_result = camera.clean_up_camera(capture, PC_MODE)
         exit()
     
-    # Background task to keep event loop running
-    async def run_event_loop():
-        """Keep the event loop running to handle WebRTC events."""
-        while status_checker.is_set():
-            await asyncio.sleep(0.1)
-    
-    # Start background event loop task
-    event_loop_task = asyncio.ensure_future(run_event_loop(), loop=loop)
-    
     # Firebase reference for monitoring stream button (optional)
     stream_button_ref = db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton")
     
-    try:
-        while True:
-            # Check if process should stop
-            if not status_checker.is_set():
-                if SAVE_LOGS:
-                    logger.error(f"{TASK_NAME} - Process checker cleared, shutting down")
-                break
-            
+    # CRITICAL FIX: Async main loop to prevent event loop starvation
+    # This ensures WebRTC heartbeats and encoding tasks get proper CPU time
+    async def main_streaming_loop():
+        """
+        Main async loop that handles window display while allowing
+        WebRTC background tasks to run properly.
+        
+        Previously: The while True loop was blocking the event loop,
+        causing WebRTC to timeout after ~15 seconds.
+        
+        Now: asyncio manages both the display and WebRTC streaming,
+        preventing connection drops.
+        """
+        nonlocal window_visible_state
+        
+        while status_checker.is_set():
             # Optional: Display window for debugging
             if SHOW_WINDOW and window_visible_state:
                 if PC_MODE:
@@ -203,9 +203,15 @@ def process_A(**kwargs) -> None:
                         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
                         window_visible_state = True
             
-            # Run pending async tasks
-            loop.run_until_complete(asyncio.sleep(0.01))
-                        
+            # CRITICAL: Hand control back to WebRTC background tasks
+            # This prevents event loop starvation and connection timeouts
+            await asyncio.sleep(0.01)
+    
+    try:
+        # Run the entire process inside the async event loop
+        # This ensures WebRTC and display tasks share CPU time properly
+        loop.run_until_complete(main_streaming_loop())
+        
     except KeyboardInterrupt:
         if SAVE_LOGS:
             logger.warning(f"{TASK_NAME} - Keyboard interrupt detected")
@@ -217,14 +223,6 @@ def process_A(**kwargs) -> None:
         status_checker.clear()
     
     finally:
-        # Cancel background event loop task
-        if event_loop_task and not event_loop_task.done():
-            event_loop_task.cancel()
-            try:
-                loop.run_until_complete(event_loop_task)
-            except asyncio.CancelledError:
-                pass
-        
         # Cleanup WebRTC peer
         if webrtc_peer_instance:
             try:
