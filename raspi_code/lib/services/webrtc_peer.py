@@ -24,25 +24,45 @@ logger = logging.getLogger(__name__)
 class CameraVideoTrack(VideoStreamTrack):
     """
     Custom video track that reads frames from OpenCV capture and converts to WebRTC format.
+    Optimized for Raspberry Pi with frame rate throttling to prevent CPU overload.
     """
     
     def __init__(self, capture, pc_mode: bool, frame_dimension: dict):
         super().__init__()
         self.capture = capture
         self.pc_mode = pc_mode
-        self.width = frame_dimension["width"]
-        self.height = frame_dimension["height"]
+        self.width = frame_dimension.get("width", 640)
+        self.height = frame_dimension.get("height", 480)
+        
+        # Required by aiortc's timing logic
+        self._start = time.time()
         self._timestamp = 0
-        self._start_time = time.time()
+        
+        # 20 FPS is optimal for Pi thermal management and bandwidth
+        # Lower FPS = less CPU usage = cooler Pi = more stable streaming
+        self.fps = 20
+        self.frame_duration = 1 / self.fps
         
     async def recv(self):
         """
         Receive next video frame in WebRTC format.
         Called by aiortc to get frames for streaming.
+        Includes frame rate throttling to prevent CPU overload.
         """
-        pts, time_base = await self.next_timestamp()
+        # 1. THROTTLE: Ensure we don't exceed target FPS
+        # This prevents the Pi from overheating by trying to send too many frames
+        if self._timestamp != 0:
+            next_frame_time = self._start + (self._timestamp / 90000)
+            wait = next_frame_time - time.time()
+            if wait > 0:
+                await asyncio.sleep(wait)
         
-        # Capture frame from camera
+        # 2. Timing logic (using 90kHz clock for WebRTC standard)
+        self._timestamp += int(90000 / self.fps)
+        pts = self._timestamp
+        time_base = Fraction(1, 90000)
+        
+        # 3. Capture frame from camera
         if self.pc_mode:
             ret, frame = self.capture.read()
             if not ret:
@@ -53,13 +73,13 @@ class CameraVideoTrack(VideoStreamTrack):
             # Picamera2 mode
             frame = self.capture.capture_array()
         
-        # Resize to target dimensions
+        # 4. Resize to target dimensions
         frame = cv2.resize(frame, (self.width, self.height))
         
-        # Convert BGR to RGB (OpenCV uses BGR, WebRTC expects RGB)
+        # 5. Convert BGR to RGB (OpenCV uses BGR, WebRTC expects RGB)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Create VideoFrame from numpy array
+        # 6. Create VideoFrame from numpy array
         video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
         video_frame.pts = pts
         video_frame.time_base = time_base
@@ -112,6 +132,22 @@ class WebRTCPeer:
         self.candidates_sent = 0
         
         # STUN server configuration (Google's free STUN servers)
+        # 
+        # TROUBLESHOOTING NETWORK ISSUES:
+        # --------------------------------
+        # 1. "Connecting..." forever → Check if Pi and Phone are on SAME Wi-Fi
+        # 2. "Failed" immediately → Firewall blocking UDP ports
+        # 3. Works on Wi-Fi but not on 4G/LTE → Need TURN server (relay)
+        #
+        # For local testing: Ensure both devices on same network
+        # For production: Add TURN server to ice_servers list
+        #
+        # Example TURN server (you'd need to set up your own):
+        # RTCIceServer(
+        #     urls=["turn:your-turn-server.com:3478"],
+        #     username="your-username",
+        #     credential="your-password"
+        # )
         self.ice_servers = [
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
             RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
@@ -309,8 +345,9 @@ class WebRTCPeer:
         """Add ICE candidate from mobile app."""
         try:
             if self.pc and "candidate" in candidate_data:
+                # Pass candidate string as first positional argument (aiortc requirement)
                 candidate = RTCIceCandidate(
-                    candidate=candidate_data["candidate"],
+                    candidate_data["candidate"],  # Positional, not keyword
                     sdpMid=candidate_data.get("sdpMid"),
                     sdpMLineIndex=candidate_data.get("sdpMLineIndex")
                 )
