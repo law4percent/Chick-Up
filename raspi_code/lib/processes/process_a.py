@@ -20,9 +20,9 @@ from lib import logger_config
 logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 
-def _check_points(VIDEO_PATH: str, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
+def _check_points(VIDEO_FILE: str, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
     """Validate and configure camera settings."""
-    config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_PATH, CAMERA_INDEX, FRAME_DIMENSION)
+    config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_FILE, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":
         return config_result
 
