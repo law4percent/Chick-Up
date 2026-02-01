@@ -28,7 +28,7 @@ def process_B(**kwargs) -> None:
     if init_result["status"] == "error":
         status_checker.clear()
         if SAVE_LOGS:
-            logger.error(f"{TASK_NAME} - {init_result["message"]}. Source: {__name__}")
+            logger.error(f"{TASK_NAME} - {init_result['message']}. Source: {__name__}")
         exit()
 
     user_uid    = USER_CREDENTIAL["userUid"]

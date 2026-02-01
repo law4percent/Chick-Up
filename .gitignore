@@ -1,3 +1,5 @@
+.python-version
+webrtc-env/
 # app/test-app
 google-services.json
 .idea
