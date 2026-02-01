@@ -413,12 +413,20 @@ class WebRTCPeer:
         """Add ICE candidate from mobile app."""
         try:
             if self.pc and "candidate" in candidate_data:
-                # Pass candidate string as first positional argument (aiortc requirement)
-                candidate = RTCIceCandidate(
-                    candidate_data["candidate"],  # Positional argument, not keyword
-                    candidate_data.get("sdpMid"),
-                    candidate_data.get("sdpMLineIndex")
-                )
+                # Get raw candidate string
+                raw_candidate = candidate_data["candidate"]
+                
+                # Safety check: RTCIceCandidate.from_sdp expects the string WITHOUT 'candidate:' prefix
+                # Some mobile frameworks (Flutter, React Native) include it, others don't
+                if raw_candidate.startswith("candidate:"):
+                    raw_candidate = raw_candidate.replace("candidate:", "", 1)
+                
+                # Parse the candidate string to extract all required fields
+                # (component, foundation, ip, port, priority, protocol, type, etc.)
+                candidate = RTCIceCandidate.from_sdp(raw_candidate)
+                candidate.sdpMid = candidate_data.get("sdpMid")
+                candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
+                
                 await self.pc.addIceCandidate(candidate)
                 logger.debug("Added ICE candidate from mobile app")
         except Exception as e:
