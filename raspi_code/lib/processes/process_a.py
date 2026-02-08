@@ -1,6 +1,10 @@
 """
-Production process_a.py - Clean logging version
-Video streaming process with WebRTC support
+Path: raspi_code/lib/processes/process_a.py
+Description:
+- Video streaming process with WebRTC support
+- Captures video from camera or file, resizes frames, and streams to WebRTC peer
+- Displays video in a window with toggle controls
+- Logs performance metrics and connection status
 """
 import cv2
 from lib.services.hardware import camera_controller as camera

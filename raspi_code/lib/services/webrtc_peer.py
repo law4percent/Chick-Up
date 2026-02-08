@@ -3,8 +3,6 @@ Docstring for raspi_code.lib.services.webrtc_peer
 Path: raspi_code/lib/services/webrtc_peer.py
 Description: WebRTC peer implementation for Raspberry Pi to stream video to mobile app.
              Handles peer connection, video track creation, and Firebase-based signaling.
-             
-FIXED: Now properly handles reconnection by keeping offer polling active after cleanup.
 """
 
 import asyncio
