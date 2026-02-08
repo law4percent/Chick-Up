@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import {
   DrawerContentScrollView,
@@ -39,35 +40,39 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
 
   const currentRoute = props.state.routes[props.state.index]?.name;
 
-  const MenuItem = ({ icon, label, route }: { icon: string; label: string; route: string }) => {
+  const MenuItem = ({
+    icon,
+    label,
+    route,
+  }: {
+    icon: string;
+    label: string;
+    route: string;
+  }) => {
     const isActive = currentRoute === route;
-    
-    if (isActive) {
-      return (
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={() => props.navigation.navigate(route)}
-        >
-          <LinearGradient
-            colors={['#FFD54F', '#4CAF50']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.menuItemGradient}
-          >
-            <Text style={[styles.menuIcon, styles.menuIconActive]}>{icon}</Text>
-            <Text style={[styles.menuText, styles.menuTextActive]}>{label}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      );
-    }
-    
+
     return (
       <TouchableOpacity
         style={styles.menuItem}
+        activeOpacity={isActive ? 1 : 0.6}
         onPress={() => props.navigation.navigate(route)}
       >
-        <Text style={styles.menuIcon}>{icon}</Text>
-        <Text style={styles.menuText}>{label}</Text>
+        {isActive ? (
+          <LinearGradient
+            colors={['#8BC34A', '#66BB6A']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.menuItemInner}
+          >
+            <Text style={styles.menuIconActive}>{icon}</Text>
+            <Text style={[styles.menuText, styles.menuTextActive]}>{label}</Text>
+          </LinearGradient>
+        ) : (
+          <View style={styles.menuItemInner}>
+            <Text style={styles.menuIcon}>{icon}</Text>
+            <Text style={styles.menuText}>{label}</Text>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -75,24 +80,25 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
   return (
     <View style={styles.container}>
       <DrawerContentScrollView {...props} contentContainerStyle={styles.scrollView}>
+        {/* Header */}
         <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <LinearGradient
-                colors={['#FFD54F', '#4CAF50']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.logo}
-              >
-              <Text style={styles.logoEmoji}>🐣</Text>
-            </LinearGradient>
-            <TouchableOpacity style={styles.closeButton} onPress={() => props.navigation.closeDrawer()}>
+          <View style={styles.headerTopRow}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => props.navigation.closeDrawer()}
+              activeOpacity={0.5}
+            >
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.appName}>CHICK-UP</Text>
-          <Text style={styles.tagline}>IoT Poultry System</Text>
+          <Text style={styles.appName}>Chick-Up</Text>
+          <Text style={styles.tagline}>Smart Poultry Management</Text>
         </View>
-        
+
+        {/* Divider */}
+        <View style={styles.divider} />
+
+        {/* Menu */}
         <View style={styles.menuItems}>
           <MenuItem icon="📊" label="Dashboard" route="Dashboard" />
           <MenuItem icon="📅" label="Schedule" route="Schedule" />
@@ -100,11 +106,15 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
           <MenuItem icon="⚙️" label="Settings" route="Settings" />
           <MenuItem icon="👤" label="Profile" route="Profile" />
         </View>
-        
       </DrawerContentScrollView>
 
+      {/* Footer */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogout}
+          activeOpacity={0.7}
+        >
           <Text style={styles.logoutIcon}>🚪</Text>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
@@ -116,116 +126,121 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAFA',
   },
   scrollView: {
     flexGrow: 1,
   },
+
+  // ─── Header ──────────────────────────────────────────────
   header: {
-    padding: theme.spacing.lg,
-    paddingTop: theme.spacing.xl,
+    paddingHorizontal: 24,
+    paddingTop: Platform.OS === 'ios' ? 60 : 48,
+    paddingBottom: 20,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
   },
-  logoContainer: {
+  headerTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    marginBottom: theme.spacing.md,
-  },
-  logo: {
-    width: 50,
-    height: 50,
-    backgroundColor: '#8BC34A',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoEmoji: {
-    fontSize: 28,
+    marginBottom: 16,
   },
   closeButton: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F0F0F0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   closeIcon: {
-    fontSize: 20,
-    color: '#666',
+    fontSize: 16,
+    color: '#888',
   },
   appName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#333',
-    marginBottom: 2,
+    color: '#1A1A1A',
+    letterSpacing: 0.3,
   },
   tagline: {
     fontSize: 12,
     color: '#999',
+    marginTop: 2,
+    fontWeight: '500',
   },
+
+  // ─── Divider ─────────────────────────────────────────────
+  divider: {
+    height: 1,
+    backgroundColor: '#ECECEC',
+    marginHorizontal: 20,
+  },
+
+  // ─── Menu ────────────────────────────────────────────────
   menuItems: {
-    flex: 1,
-    paddingTop: theme.spacing.lg,
-    paddingHorizontal: theme.spacing.sm,
-    gap: theme.spacing.sm
+    paddingTop: 12,
+    paddingHorizontal: 12,
+    gap: 4,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 2,
-    borderRadius: theme.borderRadius.lg,
+    borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: theme.spacing.sm
   },
-  menuItemGradient: {
+  menuItemInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: theme.spacing.md,
-    paddingVertical: 14,
-    width: '100%',
-  },
-  menuItemActive: {
-    backgroundColor: '#8BC34A',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
   },
   menuIcon: {
-    fontSize: 20,
-    marginRight: theme.spacing.md,
-    width: 24,
-    marginLeft: theme.spacing.md,
+    fontSize: 18,
+    marginRight: 14,
+    width: 22,
+    textAlign: 'center',
+    opacity: 0.7,
   },
   menuIconActive: {
-    opacity: 1,
+    fontSize: 18,
+    marginRight: 14,
+    width: 22,
+    textAlign: 'center',
   },
   menuText: {
     fontSize: 15,
-    color: '#666',
+    color: '#555',
     fontWeight: '500',
   },
   menuTextActive: {
     color: '#FFFFFF',
     fontWeight: '600',
   },
+
+  // ─── Footer ──────────────────────────────────────────────
   footer: {
     borderTopWidth: 1,
-    borderTopColor: '#E5E5E5',
-    padding: theme.spacing.md,
+    borderTopColor: '#ECECEC',
+    padding: 16,
+    backgroundColor: '#FAFAFA',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: theme.spacing.md,
-    backgroundColor: theme.colors.error,
-    borderRadius: theme.borderRadius.md,
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: '#FFF0F0',
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
   },
   logoutIcon: {
-    fontSize: 20,
-    marginRight: theme.spacing.sm,
+    fontSize: 18,
+    marginRight: 8,
   },
   logoutText: {
-    ...theme.typography.button,
-    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E53935',
   },
 });
 

@@ -14,6 +14,7 @@ def main(**kargs) -> None:
         SAVE_LOGS       = kargs["SAVE_LOGS"],
         TEST_CREDENTIALS= kargs["TEST_CREDENTIALS"]
     )
+    kargs["process_A_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
     kargs["process_B_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
     kargs["process_C_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
 
@@ -90,6 +91,7 @@ if __name__ == "__main__":
             "VIDEO_FILE"            : "video/chicken.mp4",
             "SAVE_LOGS"             : SAVE_LOGS,
             "SHOW_WINDOW"           : False,
+	    "USER_CREDENTIAL"       : {},	
             "PRODUCTION_MODE"       : PRODUCTION_MODE
         },
         process_B_args  = {

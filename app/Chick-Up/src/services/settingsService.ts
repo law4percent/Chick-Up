@@ -1,7 +1,7 @@
 // src/services/settingsService.ts
 import { ref, onValue, off, set, get } from 'firebase/database';
 import { database } from '../config/firebase.config';
-import { UserSettings, DispenseSettings, NotificationSettings, WaterSettings } from '../types/types';
+import { UserSettings, DispenseSettings, /*NotificationSettings,*/ WaterSettings } from '../types/types';
 
 class SettingsService {
   /**
@@ -64,10 +64,10 @@ class SettingsService {
 
       // Deep merge to ensure nested water settings are properly preserved
       const updatedSettings: UserSettings = {
-        notifications: {
-          ...existingSettings?.notifications,
-          ...settings.notifications,
-        },
+        // notifications: {
+        //   ...existingSettings?.notifications,
+        //   ...settings.notifications,
+        // },
         feed: {
           ...existingSettings?.feed,
           ...settings.feed,
@@ -92,10 +92,10 @@ class SettingsService {
    */
   async updateNotificationSettings(
     userId: string,
-    notifications: NotificationSettings
+    // notifications: NotificationSettings
   ): Promise<void> {
     try {
-      await set(ref(database, `settings/${userId}/notifications`), notifications);
+      // await set(ref(database, `settings/${userId}/notifications`), notifications);
       await set(ref(database, `settings/${userId}/updatedAt`), Date.now());
       console.log('✅ Notification settings updated');
     } catch (error) {
@@ -154,9 +154,9 @@ class SettingsService {
   async initializeSettings(userId: string): Promise<void> {
     try {
       const defaultSettings: UserSettings = {
-        notifications: {
-          smsEnabled: true,
-        },
+        // notifications: {
+        //   smsEnabled: true,
+        // },
         feed: {
           thresholdPercent: 20,
           dispenseVolumePercent: 10,
