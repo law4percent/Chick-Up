@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Chick-Up",
-    "slug": "Chick-Up",
+    "slug": "chick-up",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#688f6b"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -20,16 +20,26 @@
       "bundleIdentifier": "com.mr_itnology.chick_up"
     },
     "android": {
+      "package": "com.mr_itnology.chick_up",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "INTERNET"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#688f6b"
       },
-      "package": "com.mr_itnology.chick_up",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a519ccb3-3f57-4614-bc5e-ebab580282c9"
+      }
     }
   }
 }
