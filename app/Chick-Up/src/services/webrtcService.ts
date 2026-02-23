@@ -13,20 +13,37 @@ import { ref, set, onValue, push, remove, off } from 'firebase/database';
  * WebRTC Service for React Native
  * Handles peer-to-peer video streaming with Raspberry Pi
  * Uses Firebase Realtime Database for signaling
+ * NOW WITH TURN SERVER SUPPORT FOR BETTER NAT TRAVERSAL
  */
 
 interface WebRTCConfig {
   iceServers: Array<{
     urls: string | string[];
+    username?: string;
+    credential?: string;
   }>;
 }
 
-// Google's free STUN servers for NAT traversal
+// UPDATED: Added TURN server configuration
+// REPLACE THESE VALUES WITH YOUR TURN SERVER DETAILS
+const TURN_SERVER_URL = 'turn:YOUR_VPS_PUBLIC_IP:3478';
+const TURN_USERNAME = 'webrtc';
+const TURN_PASSWORD = 'YOUR_STRONG_PASSWORD';
+
+const TURN_SERVER_CONFIG = {
+  urls: [
+    'turn:YOUR_VPS_PUBLIC_IP:3478?transport=udp',  // Try UDP first (faster)
+    'turn:YOUR_VPS_PUBLIC_IP:3478?transport=tcp'   // TCP fallback for hostile networks
+  ],
+  username: 'webrtc',
+  credential: 'YOUR_STRONG_PASSWORD'
+};
+
 const WEBRTC_CONFIG: WebRTCConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
+    TURN_SERVER_CONFIG,   // ✅ UDP + TCP fallback
   ],
 };
 
@@ -46,6 +63,13 @@ class WebRTCService {
   private onConnectionStateCallback: ((state: string) => void) | null = null;
   private onErrorCallback: ((error: Error) => void) | null = null;
 
+  // NEW: Track ICE candidate types for diagnostics
+  private iceStats = {
+    host: 0,
+    srflx: 0,
+    relay: 0,
+  };
+
   /**
    * Initialize WebRTC service
    */
@@ -57,7 +81,7 @@ class WebRTCService {
     onError?: (error: Error) => void
   ): Promise<void> {
     try {
-      console.log('[WebRTC] Initializing service...');
+      console.log('[WebRTC] Initializing service with TURN support...');
       
       this.userId = userId;
       this.deviceUid = deviceUid;
@@ -68,19 +92,46 @@ class WebRTCService {
       // Create peer connection
       this.peerConnection = new RTCPeerConnection(WEBRTC_CONFIG);
       
-      // Cast to any to satisfy TypeScript - the library's type definitions
-      // don't expose these properties, but they exist at runtime
+      // Cast to any to satisfy TypeScript
       const pc = this.peerConnection as any;
       
       // Handle ICE candidates
       pc.onicecandidate = (event: any) => {
         if (event.candidate) {
-          console.log('[WebRTC] ICE candidate generated');
+          // NEW: Track candidate types for diagnostics
+          const candidateStr = event.candidate.candidate;
+          if (candidateStr.includes('typ host')) {
+            this.iceStats.host++;
+            console.log('[WebRTC] 🏠 Host candidate generated');
+          } else if (candidateStr.includes('typ srflx')) {
+            this.iceStats.srflx++;
+            console.log('[WebRTC] 🌐 Server reflexive candidate generated (STUN)');
+          } else if (candidateStr.includes('typ relay')) {
+            this.iceStats.relay++;
+            console.log('[WebRTC] 🔄 Relay candidate generated (TURN) - Good for difficult NATs!');
+          }
+          
           this.sendIceCandidate(event.candidate);
         }
       };
       
-      // FIXED: Use modern ontrack instead of deprecated onaddstream
+      // NEW: Handle ICE gathering state
+      pc.onicegatheringstatechange = () => {
+        const state = this.peerConnection?.iceGatheringState || 'unknown';
+        console.log('[WebRTC] ICE gathering state:', state);
+        
+        if (state === 'complete') {
+          console.log('[WebRTC] 📊 ICE gathering complete. Stats:', this.iceStats);
+          
+          // Warning if no relay candidates (TURN might not be working)
+          if (this.iceStats.relay === 0) {
+            console.warn('[WebRTC] ⚠️ No TURN relay candidates! Check TURN server config.');
+            console.warn('[WebRTC] Connection may fail on strict NATs/firewalls.');
+          }
+        }
+      };
+      
+      // Handle remote tracks
       pc.ontrack = (event: any) => {
         console.log('[WebRTC] 🎥 Remote track received:', event.track.kind);
         
@@ -92,8 +143,6 @@ class WebRTCService {
             this.onRemoteStreamCallback(event.streams[0]);
           }
         } else {
-          // Some implementations don't provide streams in the event
-          // Create a MediaStream manually from the track
           console.log('[WebRTC] Creating stream from track');
           if (!this.remoteStream) {
             this.remoteStream = new MediaStream();
@@ -117,7 +166,13 @@ class WebRTCService {
         
         // Auto-cleanup on failure
         if (state === 'failed' || state === 'closed') {
+          console.log('[WebRTC] 📊 Final ICE stats:', this.iceStats);
           this.cleanup();
+        }
+        
+        // NEW: Log success with candidate info
+        if (state === 'connected') {
+          console.log('[WebRTC] 🎉 Connected! Used candidates:', this.iceStats);
         }
       };
       
@@ -125,10 +180,22 @@ class WebRTCService {
       pc.oniceconnectionstatechange = () => {
         const state = this.peerConnection?.iceConnectionState || 'unknown';
         console.log('[WebRTC] ICE connection state:', state);
+        
+        // NEW: Detailed diagnostics for failed connections
+        if (state === 'failed') {
+          console.error('[WebRTC] ❌ ICE connection failed!');
+          console.error('[WebRTC] Candidates generated:', this.iceStats);
+          console.error('[WebRTC] Possible issues:');
+          if (this.iceStats.relay === 0) {
+            console.error('  - TURN server not reachable or misconfigured');
+          }
+          console.error('  - Firewall blocking UDP ports');
+          console.error('  - Symmetric NAT on both sides');
+        }
       };
       
       this.isInitialized = true;
-      console.log('[WebRTC] Service initialized successfully');
+      console.log('[WebRTC] Service initialized successfully with TURN support');
       
     } catch (error) {
       console.error('[WebRTC] Initialization error:', error);
@@ -155,6 +222,9 @@ class WebRTCService {
     try {
       console.log('[WebRTC] Starting connection...');
       
+      // Reset ICE stats
+      this.iceStats = { host: 0, srflx: 0, relay: 0 };
+      
       // Clean up any existing signaling data
       await this.cleanupFirebaseSignaling();
       
@@ -164,7 +234,7 @@ class WebRTCService {
       // Create offer
       const offer = await this.peerConnection.createOffer({
         offerToReceiveVideo: true,
-        offerToReceiveAudio: false, // We're only doing video
+        offerToReceiveAudio: false,
       });
       
       await this.peerConnection.setLocalDescription(offer);
@@ -270,7 +340,14 @@ class WebRTCService {
               });
               
               await this.peerConnection.addIceCandidate(candidate);
-              console.log('[WebRTC] ✅ Added ICE candidate from Raspberry Pi');
+              
+              // NEW: Log candidate type from Raspberry Pi
+              const candidateStr = candidateData.candidate;
+              if (candidateStr.includes('typ relay')) {
+                console.log('[WebRTC] ✅ Added TURN relay candidate from Raspberry Pi');
+              } else {
+                console.log('[WebRTC] ✅ Added ICE candidate from Raspberry Pi');
+              }
               
             } catch (error) {
               console.error('[WebRTC] Error adding ICE candidate:', error);
@@ -343,7 +420,6 @@ class WebRTCService {
     if (!this.userId || !this.deviceUid) return;
     
     try {
-      // Use remove() instead of set(null) for cleaner deletion
       const offerRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/offer`);
       const answerRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/answer`);
       const mobileIceRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/mobile`);
@@ -420,6 +496,9 @@ class WebRTCService {
     // Clean up Firebase signaling data
     await this.cleanupFirebaseSignaling();
     
+    // Reset stats
+    this.iceStats = { host: 0, srflx: 0, relay: 0 };
+    
     this.isInitialized = false;
     
     console.log('[WebRTC] Cleanup complete');
@@ -444,6 +523,13 @@ class WebRTCService {
    */
   isServiceInitialized(): boolean {
     return this.isInitialized;
+  }
+  
+  /**
+   * NEW: Get ICE candidate statistics
+   */
+  getIceStats() {
+    return { ...this.iceStats };
   }
 }
 

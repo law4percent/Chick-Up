@@ -21,6 +21,13 @@ from lib import logger_config
 
 logger = logger_config.setup_logger(name=__name__, level=logging.INFO)
 
+# ========================================
+# TURN SERVER CONFIGURATION
+# ========================================
+TURN_SERVER_URL = "turn:YOUR_PUBLIC_IP:3478"
+TURN_USERNAME = "webrtc"
+TURN_PASSWORD = "YOUR_STRONG_PASSWORD"
+# ========================================
 
 def _check_points(VIDEO_FILE: str, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
     """Validate and configure camera settings."""
@@ -175,7 +182,10 @@ def process_A(**kwargs) -> None:
                 pc_mode=PC_MODE,
                 frame_dimension=FRAME_DIMENSION,
                 on_connection_state_change=on_connection_state_change,
-                frame_buffer=frame_buffer
+                frame_buffer=frame_buffer,
+                turn_server_url=TURN_SERVER_URL,
+                turn_username=TURN_USERNAME,
+                turn_password=TURN_PASSWORD
             )
         )
         
