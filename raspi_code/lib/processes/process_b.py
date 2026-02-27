@@ -249,7 +249,7 @@ def _update_lcd_display(
             f"WATER LOW {current_water_level}%" if water_warning  else
             f"Water: {current_water_level}%"
         )
-        lcd_obj.display_message(line1, line2)
+        lcd_obj.show([line1, line2])
     except Exception:
         pass  # LCD failure is non-critical; caller already has a reference to log if desired
 
@@ -315,7 +315,7 @@ def process_B(**kwargs) -> None:
     lcd_obj = None
     try:
         lcd_obj = lcd.setup_lcd(addr=LCD_I2C_ADDR, cols=16, rows=2)
-        lcd_obj.display_message("Chick-Up", "Initializing...")
+        lcd_obj.show(["Chick-Up", "Initializing..."])
         time.sleep(2)
     except Exception as e:
         log(details=f"{TASK_NAME} - LCD init failed, continuing without LCD: {e}", log_type="warning")
@@ -515,7 +515,7 @@ def process_B(**kwargs) -> None:
             log(details=f"{TASK_NAME} - Failed to stop motors during cleanup: {e}", log_type="error")
         if lcd_obj:
             try:
-                lcd_obj.display_message("Chick-Up", "Shutting down...")
+                lcd_obj.show(["Chick-Up", "Shutting down..."])
                 time.sleep(1)
                 lcd.cleanup_lcd()
             except Exception:
