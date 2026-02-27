@@ -165,6 +165,10 @@ class FirebaseRTDB:
         return {
             "current_feed_app_button_state" : self.is_fresh(df_datetime,  min_to_stop=min_to_stop),
             "current_water_app_button_state": self.is_fresh(wr_datetime,  min_to_stop=min_to_stop),
+            # Raw timestamps — used by process_b to detect new presses vs re-reads
+            # of the same timestamp that is still within the is_fresh() window.
+            "raw_feed_timestamp"            : df_datetime,
+            "raw_water_timestamp"           : wr_datetime,
             "current_feed_schedule_state"   : self.is_schedule_triggered(feed_schedule),
             "current_live_button_state"     : self.livestream_on(live_status),
             "current_user_settings"         : {

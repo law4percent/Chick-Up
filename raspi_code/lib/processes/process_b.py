@@ -204,17 +204,25 @@ def _refill_it(
     """
     Handle water refilling — auto-refill and manual button control.
 
+    Latch behaviour:
+        - Refill starts when button pressed OR auto-refill threshold crossed.
+        - Once active, only the level check (>= MAX_REFILL_LEVEL) stops it.
+        - Button state is IGNORED while refill is already active to prevent
+          the relay from flickering if water_button_pressed stays True across
+          multiple ticks (e.g. is_fresh() returns True for 60s after one press).
+
     Returns:
         bool: Whether refilling should be active.
     """
-    if current_auto_refill_water_enabled_state:
-        if current_water_level <= current_water_threshold_warning and not refill_active:
+    if not refill_active:
+        # Only START refill from these conditions
+        if water_button_state:
             refill_active = True
+        elif current_auto_refill_water_enabled_state:
+            if current_water_level <= current_water_threshold_warning:
+                refill_active = True
 
-    if not refill_active and water_button_state:
-        refill_active = True
-
-    if current_water_level >= MAX_REFILL_LEVEL and refill_active:
+    if refill_active and current_water_level >= MAX_REFILL_LEVEL:
         refill_active = False
 
     _handle_water_refill(refill_active)
@@ -331,6 +339,8 @@ def process_B(**kwargs) -> None:
     current_water_app_button_state  = False
     current_feed_schedule_state     = False
     current_live_button_state       = False
+    raw_feed_timestamp              = None
+    raw_water_timestamp             = None
 
     current_feed_threshold_warning          = 20
     current_dispense_volume_percent         = 0
@@ -341,6 +351,12 @@ def process_B(**kwargs) -> None:
     dispense_active          = False
     dispense_countdown_start = 0
     MAX_REFILL_LEVEL         = 95
+
+    # Last button timestamps the device has already acted on.
+    # Prevents re-triggering while is_fresh() still returns True
+    # (the app timestamp stays "fresh" for 60s after a single press).
+    last_acted_feed_timestamp  = None
+    last_acted_water_timestamp = None
 
     water_level_before_refill   = 0.0
     feed_level_before_dispense  = 0.0
@@ -380,6 +396,8 @@ def process_B(**kwargs) -> None:
                 database_data = firebase_rtdb.read_RTDB(database_ref=database_ref)
                 current_feed_app_button_state   = database_data["current_feed_app_button_state"]
                 current_water_app_button_state  = database_data["current_water_app_button_state"]
+                raw_feed_timestamp              = database_data["raw_feed_timestamp"]
+                raw_water_timestamp             = database_data["raw_water_timestamp"]
                 current_feed_schedule_state     = database_data["current_feed_schedule_state"]
                 current_live_button_state       = database_data["current_live_button_state"]
 
@@ -421,16 +439,36 @@ def process_B(**kwargs) -> None:
                     log(details=f"{TASK_NAME} - {e}", log_type="warning")
 
             # ── Button aggregation ────────────────────────────────────
+            # App button: only treat as a new press if the timestamp has
+            # changed since we last acted on it. This prevents re-triggering
+            # for the full 60s that is_fresh() stays True after a single press.
+            feed_app_new_press  = (
+                current_feed_app_button_state and
+                raw_feed_timestamp  is not None and
+                raw_feed_timestamp  != last_acted_feed_timestamp
+            )
+            water_app_new_press = (
+                current_water_app_button_state and
+                raw_water_timestamp is not None and
+                raw_water_timestamp != last_acted_water_timestamp
+            )
+
             feed_button_pressed = (
                 current_feed_physical_button_state or
-                current_feed_app_button_state      or
+                feed_app_new_press                 or
                 current_feed_schedule_state
             ) and not dispense_active
 
             water_button_pressed = (
                 current_water_physical_button_state or
-                current_water_app_button_state
+                water_app_new_press
             )
+
+            # Acknowledge timestamps once we act on them
+            if feed_app_new_press:
+                last_acted_feed_timestamp  = raw_feed_timestamp
+            if water_app_new_press:
+                last_acted_water_timestamp = raw_water_timestamp
 
             # ── Snapshot levels before new action starts ──────────────
             if feed_button_pressed and not dispense_active:
