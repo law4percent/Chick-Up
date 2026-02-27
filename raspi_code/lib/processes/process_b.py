@@ -15,13 +15,13 @@ from firebase_admin import db
 from lib.services import firebase_rtdb
 from lib.services.firebase_rtdb import FirebaseInitError, FirebaseReadError
 from lib.services.hardware import (
-    keypad_controller       as keypad,
     motor_controller        as motor,
+    ultrasonic_controller   as distance,
     lcd_controller          as lcd,
 )
-from lib.services.hardware.motor_controller import MotorError, MotorSetupError
+from lib.services.hardware.keypad_controller import Keypad4x4, KeypadError
+from lib.services.hardware.motor_controller  import MotorError, MotorSetupError
 from lib.services.logger import get_logger
-from lib.services.hardware import ultrasonic_controller as distance
 
 log = get_logger("process_b.py")
 
@@ -59,9 +59,12 @@ def _handle_feed_dispense(state: bool) -> None:
         motor.stop_feed_motor()
 
 
-def _read_pins_data() -> dict:
+def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
     """
     Read all sensors and keypad state.
+
+    Args:
+        keypad_instance: Initialized Keypad4x4 instance.
 
     Returns:
         dict with keys:
@@ -71,12 +74,13 @@ def _read_pins_data() -> dict:
             current_water_physical_button_state : bool
 
     Raises:
-        RuntimeError: If any sensor or keypad read fails unexpectedly.
+        KeypadError: If keypad scan fails.
+        RuntimeError: If sensor read fails unexpectedly.
     """
     current_feed_physical_button_state  = False
     current_water_physical_button_state = False
 
-    key = keypad.scan_key()
+    key = keypad_instance.scan_key()
     if key == "*":
         current_feed_physical_button_state  = True
     elif key == "#":
@@ -291,7 +295,14 @@ def process_B(**kwargs) -> None:
     database_ref = firebase_rtdb.setup_RTDB(user_uid=user_uid, device_uid=device_uid)
 
     # ── Init hardware ─────────────────────────────────────────────────────
-    keypad.setup_keypad()
+    try:
+        keypad_instance = Keypad4x4()
+    except KeypadError as e:
+        log(details=f"{TASK_NAME} - Keypad init failed: {e}", log_type="error")
+        status_checker.clear()
+        GPIO.cleanup()
+        return
+
     try:
         motor.setup_motors()
     except MotorSetupError as e:
@@ -354,7 +365,7 @@ def process_B(**kwargs) -> None:
 
             # ── Read pins ─────────────────────────────────────────────
             try:
-                pins_data = _read_pins_data()
+                pins_data = _read_pins_data(keypad_instance)
                 current_feed_level                  = pins_data["current_feed_level"]
                 current_water_level                 = pins_data["current_water_level"]
                 current_feed_physical_button_state  = pins_data["current_feed_physical_button_state"]

@@ -161,11 +161,19 @@ class WebRTCPeer:
         ]
 
         if turn_server_url and turn_username and turn_password:
+            # Normalize: strip any existing scheme prefix so we can rebuild correctly.
+            # Handles both "turn:host:port" and bare "host:port" from .env.
+            _host = turn_server_url
+            for _prefix in ("turns:", "turn:", "stun:"):
+                if _host.startswith(_prefix):
+                    _host = _host[len(_prefix):]
+                    break
+
             self.ice_servers.append(
                 RTCIceServer(
                     urls=[
-                        turn_server_url + "?transport=udp",
-                        turn_server_url + "?transport=tcp",
+                        f"turn:{_host}?transport=udp",
+                        f"turn:{_host}?transport=tcp",
                     ],
                     username   = turn_username,
                     credential = turn_password
