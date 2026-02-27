@@ -17,11 +17,11 @@ from lib.services.firebase_rtdb import FirebaseInitError, FirebaseReadError
 from lib.services.hardware import (
     keypad_controller       as keypad,
     motor_controller        as motor,
-    ultrasonic_contoller    as distance,
     lcd_controller          as lcd,
 )
 from lib.services.hardware.motor_controller import MotorError, MotorSetupError
 from lib.services.logger import get_logger
+from raspi_code.lib.services.hardware import ultrasonic_controller as distance
 
 log = get_logger("process_b.py")
 
