@@ -152,11 +152,13 @@ if __name__ == "__main__":
             "TURN_PASSWORD"   : TURN_PASSWORD,
         },
         process_B_args = {
-            "TASK_NAME"               : "Process B",
-            "status_checker"          : status_checker,
-            "live_status"             : live_status,
-            "USER_CREDENTIAL"         : {},
-            "DISPENSE_COUNTDOWN_TIME" : 1000 * 60,
-            "LCD_I2C_ADDR"            : 0x27,
+            "TASK_NAME"      : "Process B",
+            "status_checker" : status_checker,
+            "live_status"    : live_status,
+            "USER_CREDENTIAL": {},
+            "LCD_I2C_ADDR"   : 0x27,
+            # DISPENSE_COUNTDOWN_TIME is intentionally omitted here.
+            # Process B reads it from Firebase settings/{userUid}/feed/dispenseCountdownMs
+            # after auth. Falls back to local cache, then to 60 000 ms default.
         },
     )

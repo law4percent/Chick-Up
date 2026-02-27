@@ -22,8 +22,79 @@ from lib.services.hardware import (
 from lib.services.hardware.keypad_controller import Keypad4x4, KeypadError
 from lib.services.hardware.motor_controller  import MotorError, MotorSetupError
 from lib.services.logger import get_logger
+from lib.services.utils  import normalize_path
 
 log = get_logger("process_b.py")
+
+# ─────────────────────────── DISPENSE COUNTDOWN CONFIG ───────────────────────
+
+DEFAULT_DISPENSE_COUNTDOWN_MS = 1000 * 60          # 60 seconds — hard fallback
+_COUNTDOWN_CACHE_PATH         = normalize_path("credentials/dispense_countdown_ms.txt")
+
+
+def _load_cached_countdown() -> int | None:
+    """
+    Read the last-known dispense countdown from local cache file.
+    Returns None if file missing or corrupt.
+    """
+    try:
+        with open(_COUNTDOWN_CACHE_PATH, "r") as f:
+            value = int(f.read().strip())
+            return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _save_cached_countdown(value_ms: int) -> None:
+    """Persist the countdown value to cache so it survives offline reboots."""
+    try:
+        with open(_COUNTDOWN_CACHE_PATH, "w") as f:
+            f.write(str(value_ms))
+    except Exception:
+        pass  # Cache write failure is non-critical
+
+
+def _fetch_dispense_countdown(user_uid: str, task_name: str) -> int:
+    """
+    Read dispenseCountdownMs from Firebase settings/{userUid}/feed/.
+
+    Resolution order:
+        1. Firebase  settings/{userUid}/feed/dispenseCountdownMs
+        2. Local     credentials/dispense_countdown_ms.txt  (last known good)
+        3. Hardcoded DEFAULT_DISPENSE_COUNTDOWN_MS (60 000 ms)
+
+    Always persists a successful Firebase read to the local cache.
+    """
+    try:
+        from firebase_admin import db as _db
+        value = _db.reference(f"settings/{user_uid}/feed/dispenseCountdownMs").get()
+        if isinstance(value, (int, float)) and value > 0:
+            ms = int(value)
+            _save_cached_countdown(ms)
+            log(
+                details=f"{task_name} - dispenseCountdownMs={ms}ms loaded from Firebase",
+                log_type="info"
+            )
+            return ms
+    except Exception as e:
+        log(
+            details=f"{task_name} - Could not read dispenseCountdownMs from Firebase: {e}",
+            log_type="warning"
+        )
+
+    cached = _load_cached_countdown()
+    if cached is not None:
+        log(
+            details=f"{task_name} - dispenseCountdownMs={cached}ms loaded from local cache",
+            log_type="warning"
+        )
+        return cached
+
+    log(
+        details=f"{task_name} - dispenseCountdownMs using hardcoded default {DEFAULT_DISPENSE_COUNTDOWN_MS}ms",
+        log_type="warning"
+    )
+    return DEFAULT_DISPENSE_COUNTDOWN_MS
 
 # Python weekday → JS weekday
 # Python: Mon=0 ... Sun=6
@@ -271,20 +342,23 @@ def process_B(**kwargs) -> None:
     Hardware control process — sensors, motors, LCD, Firebase sync.
 
     Expected kwargs["process_B_args"] keys:
-        TASK_NAME               : str
-        status_checker          : multiprocessing.Event
-        live_status             : multiprocessing.Event
-        USER_CREDENTIAL         : dict  {userUid, deviceUid}
-        DISPENSE_COUNTDOWN_TIME : int   (milliseconds)
-        LCD_I2C_ADDR            : int   (default 0x27)
+        TASK_NAME        : str
+        status_checker   : multiprocessing.Event
+        live_status      : multiprocessing.Event
+        USER_CREDENTIAL  : dict  {userUid, deviceUid}
+        LCD_I2C_ADDR     : int   (default 0x27)
+
+    DISPENSE_COUNTDOWN_TIME is no longer passed from main.py.
+    Process B reads it from settings/{userUid}/feed/dispenseCountdownMs after
+    Firebase is initialized. Falls back to a local cache file, then to the
+    hardcoded DEFAULT_DISPENSE_COUNTDOWN_MS if both are unavailable.
     """
-    args                    = kwargs["process_B_args"]
-    TASK_NAME               = args["TASK_NAME"]
-    status_checker          = args["status_checker"]
-    live_status             = args["live_status"]
-    USER_CREDENTIAL         = args["USER_CREDENTIAL"]
-    DISPENSE_COUNTDOWN_TIME = args["DISPENSE_COUNTDOWN_TIME"]
-    LCD_I2C_ADDR            = args.get("LCD_I2C_ADDR", 0x27)
+    args           = kwargs["process_B_args"]
+    TASK_NAME      = args["TASK_NAME"]
+    status_checker = args["status_checker"]
+    live_status    = args["live_status"]
+    USER_CREDENTIAL= args["USER_CREDENTIAL"]
+    LCD_I2C_ADDR   = args.get("LCD_I2C_ADDR", 0x27)
 
     log(details=f"{TASK_NAME} - Running", log_type="info")
 
@@ -303,6 +377,9 @@ def process_B(**kwargs) -> None:
     user_uid     = USER_CREDENTIAL["userUid"]
     device_uid   = USER_CREDENTIAL["deviceUid"]
     database_ref = firebase_rtdb.setup_RTDB(user_uid=user_uid, device_uid=device_uid)
+
+    # ── Fetch dispense countdown from Firebase (with local cache fallback) ─
+    DISPENSE_COUNTDOWN_TIME = _fetch_dispense_countdown(user_uid, TASK_NAME)
 
     # ── Init hardware ─────────────────────────────────────────────────────
     try:
@@ -408,6 +485,14 @@ def process_B(**kwargs) -> None:
                 current_dispense_volume_percent         = user_settings["dispense_volume_percent"]
                 current_water_threshold_warning         = user_settings["water_threshold_warning"]
                 current_auto_refill_water_enabled_state = user_settings["auto_refill_water_enabled"]
+
+                # Live update — picks up app changes to dispense countdown mid-session.
+                # Only update if the value changed to avoid redundant cache writes.
+                new_countdown = user_settings.get("dispense_countdown_ms")
+                if isinstance(new_countdown, int) and new_countdown > 0 and new_countdown != DISPENSE_COUNTDOWN_TIME:
+                    log(details=f"{TASK_NAME} - dispenseCountdownMs updated: {DISPENSE_COUNTDOWN_TIME}ms → {new_countdown}ms", log_type="info")
+                    DISPENSE_COUNTDOWN_TIME = new_countdown
+                    _save_cached_countdown(new_countdown)
             except FirebaseReadError as e:
                 if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
                     log(details=f"{TASK_NAME} - RTDB read failed: {e}", log_type="warning")

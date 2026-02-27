@@ -124,12 +124,13 @@ class FirebaseRTDB:
             Dict of database references.
         """
         return {
-            "df_app_button_ref"      : db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt"),
-            "wr_app_button_ref"      : db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt"),
-            "feed_schedule_ref"      : db.reference(f"schedules/{user_uid}"),
-            "live_button_status_ref" : db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton"),
-            "user_settings_ref"      : db.reference(f"settings/{user_uid}"),
-            "sensors_ref"            : db.reference(f"sensors/{user_uid}/{device_uid}"),
+            "df_app_button_ref"        : db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt"),
+            "wr_app_button_ref"        : db.reference(f"buttons/{user_uid}/{device_uid}/waterButton/lastUpdateAt"),
+            "feed_schedule_ref"        : db.reference(f"schedules/{user_uid}"),
+            "live_button_status_ref"   : db.reference(f"liveStream/{user_uid}/{device_uid}/liveStreamButton"),
+            "user_settings_ref"        : db.reference(f"settings/{user_uid}"),
+            "sensors_ref"              : db.reference(f"sensors/{user_uid}/{device_uid}"),
+            "dispense_countdown_ref"   : db.reference(f"settings/{user_uid}/feed/dispenseCountdownMs"),
         }
 
     # ─────────────────────────── READ ────────────────────────────────────────
@@ -162,6 +163,9 @@ class FirebaseRTDB:
         feed_settings  = settings.get("feed",  {})
         water_settings = settings.get("water", {})
 
+        raw_countdown = feed_settings.get("dispenseCountdownMs")
+        countdown_ms  = int(raw_countdown) if isinstance(raw_countdown, (int, float)) and raw_countdown > 0 else None
+
         return {
             "current_feed_app_button_state" : self.is_fresh(df_datetime,  min_to_stop=min_to_stop),
             "current_water_app_button_state": self.is_fresh(wr_datetime,  min_to_stop=min_to_stop),
@@ -176,6 +180,7 @@ class FirebaseRTDB:
                 "dispense_volume_percent"   : feed_settings.get("dispenseVolumePercent"),
                 "water_threshold_warning"   : water_settings.get("thresholdPercent"),
                 "auto_refill_water_enabled" : water_settings.get("autoRefillEnabled"),
+                "dispense_countdown_ms"     : countdown_ms,
             }
         }
 
