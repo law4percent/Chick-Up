@@ -16,7 +16,7 @@ from lib.services import firebase_rtdb
 from lib.services.firebase_rtdb import FirebaseInitError, FirebaseReadError
 from lib.services.hardware import (
     motor_controller        as motor,
-    ultrasonic_contoller    as distance,
+    ultrasonic_controller    as distance,
     lcd_controller          as lcd,
 )
 from lib.services.hardware.keypad_controller import Keypad4x4, KeypadError
