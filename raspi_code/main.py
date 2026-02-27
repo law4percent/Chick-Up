@@ -12,25 +12,34 @@ System Flow:
 
 import os
 from multiprocessing import Process, Queue, Event
-from dotenv import load_dotenv
 
 from lib.processes import process_a, process_b, process_c
 from lib.services.auth import AuthService
 from lib.services.hardware.lcd_controller   import LCD_I2C,  LCDSize
 from lib.services.hardware.keypad_controller import Keypad4x4
 from lib.services.logger import get_logger
+from lib.services.utils import normalize_path
 
-load_dotenv()
+from dotenv import load_dotenv
+load_dotenv(normalize_path("credentials/.env"))
 log = get_logger("main.py")
 
+PRODUCTION_MODE = os.getenv("PRODUCTION_MODE", "").lower() in {"1", "true", "yes"}
+DEVICE_UID      = os.getenv("DEVICE_UID")
+# ── Config (adjust manually) ──────────────────────────────────────────
+TEST_CREDENTIALS = {
+    "username"  : "honey",
+    "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
+    "deviceUid" : DEVICE_UID
+}
 
 def main(**kargs) -> None:
     """
     System entry point.
 
     Args (via kargs):
-        DEVICE_UID       : str   — from .env
-        PRODUCTION_MODE  : bool  — True = real hardware, False = dev/PC mode
+        DEVICE_UID       : str
+        PRODUCTION_MODE  : bool
         TEST_CREDENTIALS : dict  — only used when PRODUCTION_MODE=False
         process_A_args   : dict
         process_B_args   : dict
@@ -51,11 +60,12 @@ def main(**kargs) -> None:
     )
 
     user_credentials = auth.authenticate()
-    log.info(
+    log(
         f"System authenticated\n"
         f"  Username  : {user_credentials['username']}\n"
         f"  User UID  : {user_credentials['userUid']}\n"
-        f"  Device UID: {user_credentials['deviceUid']}"
+        f"  Device UID: {user_credentials['deviceUid']}",
+        log_type="info"
     )
 
     # ── Inject credentials into all process args ──────────────────────────
@@ -88,17 +98,6 @@ def main(**kargs) -> None:
 
 
 if __name__ == "__main__":
-
-    # ── Config (adjust manually) ──────────────────────────────────────────
-    PRODUCTION_MODE  = False
-    PC_MODE          = False
-    DEVICE_UID       = os.getenv("DEVICE_UID", "DEV_001")
-    TEST_CREDENTIALS = {
-        "username"  : "honey",
-        "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
-        "deviceUid" : DEVICE_UID
-    }
-
     # ── Shared IPC primitives ─────────────────────────────────────────────
     queue_frame         = Queue(maxsize=1)
     live_status         = Event()
@@ -124,7 +123,6 @@ if __name__ == "__main__":
             "YOLO_CONFIDENCE"     : 0.25,
             "FRAME_DIMENSION"     : {"width": 1280, "height": 720},
             "IS_WEB_CAM"          : False,
-            "PC_MODE"             : PC_MODE,
             "CAMERA_INDEX"        : 0,
             "VIDEO_FILE"          : "video/chicken.mp4",
             "SHOW_WINDOW"         : False,
@@ -145,7 +143,6 @@ if __name__ == "__main__":
             "status_checker"          : status_checker,
             "live_status"             : live_status,
             "annotated_option"        : annotated_option,
-            "USER_CREDENTIAL"         : {},
-            "PC_MODE"                 : PC_MODE
+            "USER_CREDENTIAL"         : {}
         }
     )
