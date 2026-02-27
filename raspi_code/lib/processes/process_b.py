@@ -16,7 +16,7 @@ from lib.services import firebase_rtdb
 from lib.services.firebase_rtdb import FirebaseInitError, FirebaseReadError
 from lib.services.hardware import (
     motor_controller        as motor,
-    ultrasonic_controller   as distance,
+    ultrasonic_contoller    as distance,
     lcd_controller          as lcd,
 )
 from lib.services.hardware.keypad_controller import Keypad4x4, KeypadError
@@ -216,7 +216,9 @@ def _refill_it(
     """
     if not refill_active:
         # Only START refill from these conditions
-        if water_button_state:
+        if water_button_state and current_water_level < MAX_REFILL_LEVEL:
+            # Guard: don't start if tank is already at/above capacity.
+            # Prevents a 1-tick relay pulse and a useless analytics entry.
             refill_active = True
         elif current_auto_refill_water_enabled_state:
             if current_water_level <= current_water_threshold_warning:
@@ -474,7 +476,20 @@ def process_B(**kwargs) -> None:
             if feed_button_pressed and not dispense_active:
                 feed_level_before_dispense = current_feed_level
 
+            # Manual button snapshot — taken before _refill_it runs
             if water_button_pressed and not refill_active:
+                water_level_before_refill = current_water_level
+
+            # Auto-refill snapshot — button is never pressed for this path,
+            # so we must snapshot here before _refill_it starts the pump.
+            # Without this, water_level_before_refill stays 0.0 and the
+            # analytics entry logs a meaningless volume.
+            if (
+                not refill_active
+                and not water_button_pressed
+                and current_auto_refill_water_enabled_state
+                and current_water_level <= current_water_threshold_warning
+            ):
                 water_level_before_refill = current_water_level
 
             # ── Motor logic ───────────────────────────────────────────
