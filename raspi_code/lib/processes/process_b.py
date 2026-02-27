@@ -21,7 +21,7 @@ from lib.services.hardware import (
 )
 from lib.services.hardware.motor_controller import MotorError, MotorSetupError
 from lib.services.logger import get_logger
-from raspi_code.lib.services.hardware import ultrasonic_controller as distance
+from lib.services.hardware import ultrasonic_controller as distance
 
 log = get_logger("process_b.py")
 
