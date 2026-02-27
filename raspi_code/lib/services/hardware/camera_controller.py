@@ -101,9 +101,7 @@ def clean_up_camera(capture: Any, PC_MODE: bool) -> dict:
 # ─────────────────────────── CONFIG ──────────────────────────────────────────
 
 def config_camera(
-    PC_MODE         : bool,
     IS_WEB_CAM      : bool,
-    VIDEO_PATH      : str,
     CAMERA_INDEX    : int,
     FRAME_DIMENSION : dict
 ) -> dict:
@@ -111,9 +109,7 @@ def config_camera(
     Configure and return the appropriate camera capture object.
 
     Args:
-        PC_MODE:         True = use cv2 (video file or webcam)
         IS_WEB_CAM:      True = use webcam index, False = use VIDEO_PATH
-        VIDEO_PATH:      Path to video file (used when PC_MODE=True, IS_WEB_CAM=False)
         CAMERA_INDEX:    Camera index for webcam (used when IS_WEB_CAM=True)
         FRAME_DIMENSION: {"width": int, "height": int}
 

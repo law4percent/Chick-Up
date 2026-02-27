@@ -37,6 +37,9 @@ TEST_CREDENTIALS = {
     "userUid"   : TEST_USER_UID,
     "deviceUid" : DEVICE_UID
 }
+TURN_SERVER_URL = os.getenv("TURN_SERVER_URL")
+TURN_USERNAME   = os.getenv("TURN_USERNAME")
+TURN_PASSWORD   = os.getenv("TURN_PASSWORD")
 
 def main(**kargs) -> None:
     """
@@ -115,20 +118,20 @@ if __name__ == "__main__":
 
     main(
         process_A_args   = {
-            "TASK_NAME"           : "Process A",
-            "queue_frame"         : queue_frame,
-            "live_status"         : live_status,
-            "status_checker"      : status_checker,
-            "FRAME_DIMENSION"     : {"width": FRAME_WIDTH, "height": FRAME_HEIGHT},
-            "IS_WEB_CAM"          : IS_WEB_CAM,
-            "CAMERA_INDEX"        : CAMERA_INDEX,
-            "USER_CREDENTIAL"     : {},
-            "PRODUCTION_MODE"     : PRODUCTION_MODE
+            "TASK_NAME"         : "Process A",
+            "live_status"       : live_status,
+            "status_checker"    : status_checker,
+            "FRAME_DIMENSION"   : {"width": FRAME_WIDTH, "height": FRAME_HEIGHT},
+            "IS_WEB_CAM"        : IS_WEB_CAM,
+            "CAMERA_INDEX"      : CAMERA_INDEX,
+            "USER_CREDENTIAL"   : {},
+            "TURN_SERVER_URL"   : TURN_SERVER_URL,
+            "TURN_USERNAME"     : TURN_USERNAME,
+            "TURN_PASSWORD"     : TURN_PASSWORD
         },
         process_B_args   = {
             "TASK_NAME"           : "Process B",
             "status_checker"      : status_checker,
-            "queue_frame"         : queue_frame,
             "live_status"         : live_status,
             "USER_CREDENTIAL"     : {}
         },

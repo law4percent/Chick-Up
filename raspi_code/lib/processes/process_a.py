@@ -6,7 +6,6 @@ Description:
     TURN credentials loaded from .env
 """
 
-import os
 import cv2
 import time
 import asyncio
@@ -17,12 +16,6 @@ from lib.services           import webrtc_peer, firebase_rtdb
 from lib.services.logger    import get_logger
 
 log = get_logger("process_a")
-
-# ─────────────────────────── TURN CONFIG (from .env) ─────────────────────────
-
-TURN_SERVER_URL = os.getenv("TURN_SERVER_URL")
-TURN_USERNAME   = os.getenv("TURN_USERNAME")
-TURN_PASSWORD   = os.getenv("TURN_PASSWORD")
 
 
 # ─────────────────────────── SHARED FRAME BUFFER ─────────────────────────────
@@ -54,14 +47,12 @@ class SharedFrameBuffer:
 # ─────────────────────────── CHECKPOINTS ─────────────────────────────────────
 
 def _check_points(
-    VIDEO_FILE      : str,
-    PC_MODE         : bool,
     IS_WEB_CAM      : bool,
     CAMERA_INDEX    : int,
     FRAME_DIMENSION : dict
 ) -> dict:
     """Validate and configure camera settings."""
-    config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_FILE, CAMERA_INDEX, FRAME_DIMENSION)
+    config_result = camera.config_camera(IS_WEB_CAM, CAMERA_INDEX, FRAME_DIMENSION)
     if config_result["status"] == "error":
         return config_result
     return {
@@ -82,12 +73,11 @@ def process_A(**kwargs) -> None:
         status_checker  : multiprocessing.Event
         FRAME_DIMENSION : dict  e.g. {"width": 1280, "height": 720}
         IS_WEB_CAM      : bool
-        PC_MODE         : bool
         CAMERA_INDEX    : int
-        VIDEO_FILE      : str
-        SHOW_WINDOW     : bool
         USER_CREDENTIAL : dict  {userUid, deviceUid, ...}
-        PRODUCTION_MODE : bool
+        TURN_SERVER_URL : str
+        TURN_USERNAME   : str
+        TURN_PASSWORD   : str
     """
     args            = kwargs["process_A_args"]
     TASK_NAME       = args["TASK_NAME"]
@@ -95,18 +85,16 @@ def process_A(**kwargs) -> None:
     status_checker  = args["status_checker"]
     FRAME_DIMENSION = args["FRAME_DIMENSION"]
     IS_WEB_CAM      = args["IS_WEB_CAM"]
-    PC_MODE         = args["PC_MODE"]
     CAMERA_INDEX    = args["CAMERA_INDEX"]
-    VIDEO_FILE      = args["VIDEO_FILE"]
-    SHOW_WINDOW     = args["SHOW_WINDOW"]
     USER_CREDENTIAL = args["USER_CREDENTIAL"]
+    TURN_SERVER_URL = args["TURN_SERVER_URL"]
+    TURN_USERNAME   = args["TURN_USERNAME"]
+    TURN_PASSWORD   = args["TURN_PASSWORD"]
 
     log(f"{TASK_NAME} - Running ✅", log_type="info")
 
     # ── Validate camera config ────────────────────────────────────────────
     check_point_result = _check_points(
-        VIDEO_FILE      = VIDEO_FILE,
-        PC_MODE         = PC_MODE,
         CAMERA_INDEX    = CAMERA_INDEX,
         IS_WEB_CAM      = IS_WEB_CAM,
         FRAME_DIMENSION = FRAME_DIMENSION
@@ -118,8 +106,7 @@ def process_A(**kwargs) -> None:
 
     # ── Init camera ───────────────────────────────────────────────────────
     capture = check_point_result["capture"]
-    if not PC_MODE:
-        capture.start()
+    capture.start()
 
     window_name, window_visible_state = camera.setup_windows(window_visible_state=SHOW_WINDOW)
 
@@ -128,7 +115,7 @@ def process_A(**kwargs) -> None:
     if init_result["status"] == "error":
         log(f"{TASK_NAME} - {init_result['message']}", log_type="error")
         status_checker.clear()
-        camera.clean_up_camera(capture, PC_MODE)
+        camera.clean_up_camera(capture)
         return
 
     user_uid   = USER_CREDENTIAL["userUid"]
