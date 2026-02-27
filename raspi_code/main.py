@@ -4,7 +4,7 @@ main.py — System Entry Point
 System Flow:
     1. Init LCD + Keypad
     2. AuthService.authenticate()
-       - credentials.txt exists → re-validate Firebase → load
+       - credentials/credentials.txt exists → re-validate Firebase → load
        - Missing → LCD menu: (A) Login → pairing flow  (B) Shutdown
     3. Pass credentials to Process A, B, C
     4. Start all processes
@@ -26,10 +26,15 @@ log = get_logger("main.py")
 
 PRODUCTION_MODE = os.getenv("PRODUCTION_MODE", "").lower() in {"1", "true", "yes"}
 DEVICE_UID      = os.getenv("DEVICE_UID")
-# ── Config (adjust manually) ──────────────────────────────────────────
+CAMERA_INDEX    = int(os.getenv("CAMERA_INDEX"))
+IS_WEB_CAM      = os.getenv("IS_WEB_CAM", "").lower() in {"1", "true", "yes"}
+FRAME_WIDTH     = int(os.getenv("FRAME_WIDTH"))
+FRAME_HEIGHT    = int(os.getenv("FRAME_HEIGHT"))
+TEST_USER_UID   = os.getenv("TEST_USER_UID")
+TEST_USERNAME   = os.getenv("TEST_USERNAME")
 TEST_CREDENTIALS = {
-    "username"  : "honey",
-    "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
+    "username"  : TEST_USERNAME,
+    "userUid"   : TEST_USER_UID,
     "deviceUid" : DEVICE_UID
 }
 
@@ -38,26 +43,26 @@ def main(**kargs) -> None:
     System entry point.
 
     Args (via kargs):
-        DEVICE_UID       : str
-        PRODUCTION_MODE  : bool
-        TEST_CREDENTIALS : dict  — only used when PRODUCTION_MODE=False
         process_A_args   : dict
         process_B_args   : dict
         process_C_args   : dict
     """
 
-    # ── Init hardware ─────────────────────────────────────────────────────
-    lcd    = LCD_I2C(address=0x27, size=LCDSize.LCD_20x4)
-    keypad = Keypad4x4()
+    try:
+        # ── Init hardware ─────────────────────────────────────────────────────
+        lcd    = LCD_I2C(address=0x27, size=LCDSize.LCD_16x2)
+        keypad = Keypad4x4()
 
-    # ── Authenticate ──────────────────────────────────────────────────────
-    auth = AuthService(
-        device_uid       = kargs["DEVICE_UID"],
-        lcd              = lcd,
-        keypad           = keypad,
-        production_mode  = kargs["PRODUCTION_MODE"],
-        test_credentials = kargs.get("TEST_CREDENTIALS")
-    )
+        # ── Authenticate ──────────────────────────────────────────────────────
+        auth = AuthService(
+            device_uid       = DEVICE_UID,
+            lcd              = lcd,
+            keypad           = keypad,
+            production_mode  = PRODUCTION_MODE,
+            test_credentials = TEST_CREDENTIALS
+        )
+    except Exception as e:
+        log(f"Error occur during Initializing: {e}", log_type="error")
 
     user_credentials = auth.authenticate()
     log(
@@ -87,7 +92,7 @@ def main(**kargs) -> None:
         task_B.join()
         task_C.join()
     except KeyboardInterrupt:
-        log.info("KeyboardInterrupt — stopping all processes...")
+        log("KeyboardInterrupt — stopping all processes...", log_type="info")
     finally:
         for task in [task_A, task_B, task_C]:
             if task.is_alive():
@@ -103,29 +108,20 @@ if __name__ == "__main__":
     live_status         = Event()
     annotated_option    = Event()
     status_checker      = Event()
-    number_of_instances = Queue(maxsize=1)
 
     status_checker.set()
     live_status.set()
     live_status.clear()
 
     main(
-        PRODUCTION_MODE  = PRODUCTION_MODE,
-        DEVICE_UID       = DEVICE_UID,
-        TEST_CREDENTIALS = TEST_CREDENTIALS,
         process_A_args   = {
             "TASK_NAME"           : "Process A",
             "queue_frame"         : queue_frame,
             "live_status"         : live_status,
-            "annotated_option"    : annotated_option,
             "status_checker"      : status_checker,
-            "number_of_instances" : number_of_instances,
-            "YOLO_CONFIDENCE"     : 0.25,
-            "FRAME_DIMENSION"     : {"width": 1280, "height": 720},
-            "IS_WEB_CAM"          : False,
-            "CAMERA_INDEX"        : 0,
-            "VIDEO_FILE"          : "video/chicken.mp4",
-            "SHOW_WINDOW"         : False,
+            "FRAME_DIMENSION"     : {"width": FRAME_WIDTH, "height": FRAME_HEIGHT},
+            "IS_WEB_CAM"          : IS_WEB_CAM,
+            "CAMERA_INDEX"        : CAMERA_INDEX,
             "USER_CREDENTIAL"     : {},
             "PRODUCTION_MODE"     : PRODUCTION_MODE
         },
@@ -134,7 +130,6 @@ if __name__ == "__main__":
             "status_checker"      : status_checker,
             "queue_frame"         : queue_frame,
             "live_status"         : live_status,
-            "number_of_instances" : number_of_instances,
             "USER_CREDENTIAL"     : {}
         },
         process_C_args   = {

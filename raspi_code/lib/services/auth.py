@@ -3,7 +3,7 @@ Authentication Module
 Loc: lib/services/auth.py
 
 Pairing Flow:
-    1. Boot → check if credentials.txt exists
+    1. Boot → check if credentials/credentials.txt exists
        - Exists   → re-validate against Firebase → load credentials
        - Missing  → show LCD menu: (A) Login  (B) Shutdown
 
@@ -13,9 +13,9 @@ Pairing Flow:
        - Show code on LCD
        - Poll Firebase: wait for app to pair (app writes userUid + username under the code)
        - Code expires in 60 seconds → if timeout, return to menu
-       - On success → save credentials.txt → return credentials
+       - On success → save credentials/credentials.txt → return credentials
 
-    3. Every boot (credentials.txt exists):
+    3. Every boot (credentials/credentials.txt exists):
        - Re-validate userUid + deviceUid exist in Firebase
        - If invalid → delete credentials.txt → restart pairing flow
        - If valid   → return credentials
