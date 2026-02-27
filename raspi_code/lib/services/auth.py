@@ -9,14 +9,14 @@ Pairing Flow:
 
     2. Login:
        - Generate unique 6-char alphanumeric code
-       - Write to Firebase: /device_code/{code}/{device_credentials}/
+       - Write to Firebase: /device_code/{code}/
        - Show code on LCD
        - Poll Firebase: wait for app to pair (app writes userUid + username under the code)
        - Code expires in 60 seconds → if timeout, return to menu
        - On success → save credentials/credentials.txt → return credentials
 
-    3. Every boot (credentials/credentials.txt exists):
-       - Re-validate userUid + deviceUid exist in Firebase
+    3. Every boot (credentials.txt exists):
+       - Re-validate userUid + deviceUid against Firebase
        - If invalid → delete credentials.txt → restart pairing flow
        - If valid   → return credentials
 
@@ -40,26 +40,47 @@ import os
 import time
 import random
 import string
-import logging
 from datetime import datetime
 from typing import Optional
 
 from firebase_admin import db
 
 from lib.services import utils, firebase_rtdb
-from lib.services.hardware.lcd_controller  import LCD_I2C,  LCDSize
+from lib.services.firebase_rtdb import FirebaseInitError as FirebaseRTDBInitError
+from lib.services.hardware.lcd_controller   import LCD_I2C,  LCDSize
 from lib.services.hardware.keypad_controller import Keypad4x4
-from lib import logger_config
 
-logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
 # ─────────────────────────── CONSTANTS ───────────────────────────────────────
 
 CREDENTIALS_DIR      = "credentials"
 CREDENTIALS_FILENAME = "user_credentials.txt"
-CODE_EXPIRY_SECONDS  = 60       # 1 minute
-CODE_POLL_INTERVAL   = 2        # seconds between Firebase polls
+CODE_EXPIRY_SECONDS  = 60
+CODE_POLL_INTERVAL   = 2
 REQUIRED_KEYS        = {"userUid", "username", "deviceUid", "createdAt"}
+
+
+# ─────────────────────────── EXCEPTIONS ──────────────────────────────────────
+
+class AuthError(Exception):
+    """Base exception for authentication errors."""
+    pass
+
+class FirebaseInitError(AuthError):
+    """Raised when Firebase fails to initialize."""
+    pass
+
+class CredentialsError(AuthError):
+    """Raised when credentials are missing, invalid, or cannot be saved."""
+    pass
+
+class PairingError(AuthError):
+    """Raised when a pairing flow step fails (Firebase write, poll error, etc.)."""
+    pass
+
+class ValidationError(AuthError):
+    """Raised when saved credentials fail Firebase re-validation."""
+    pass
 
 
 # ─────────────────────────── AUTH CLASS ──────────────────────────────────────
@@ -74,22 +95,15 @@ class AuthService:
     - Clean shutdown via keypad menu
     - Saving / loading credentials to local txt file
 
+    This class raises exceptions — all logging is handled by the caller.
+
     Example usage:
-        from lib.services.auth import AuthService
-        from lib.services.hardware.lcd_controller import LCD_I2C, LCDSize
-        from lib.services.hardware.keypad_controller import Keypad4x4
-
-        lcd    = LCD_I2C(address=0x27, size=LCDSize.LCD_20x4)
-        keypad = Keypad4x4()
-
         auth = AuthService(
             device_uid = "DEV_001",
             lcd        = lcd,
             keypad     = keypad
         )
-
         credentials = auth.authenticate()
-        print(credentials)
         # {
         #   "username"  : "honey",
         #   "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
@@ -120,8 +134,11 @@ class AuthService:
         self.production_mode  = production_mode
         self.test_credentials = test_credentials
 
-        self._cred_path = utils.join_path_with_os_adaptability(
-            CREDENTIALS_DIR, CREDENTIALS_FILENAME, __name__
+        self._cred_path = utils.join_and_ensure_path(
+            target_directory  = CREDENTIALS_DIR,
+            filename          = CREDENTIALS_FILENAME,
+            source            = __name__,
+            create_if_missing = True
         )
 
     # ─────────────────────────── PUBLIC ENTRY POINT ──────────────────────────
@@ -134,32 +151,30 @@ class AuthService:
             dict with keys: username, userUid, deviceUid, createdAt
 
         Raises:
-            SystemExit if user chooses Shutdown or fatal error occurs
+            FirebaseInitError:  Firebase failed to initialize.
+            CredentialsError:   Credentials file is corrupt or unreadable.
+            PairingError:       Pairing flow encountered a Firebase error.
+            SystemExit:         User chose Shutdown from the LCD menu.
         """
         # ── DEV / PC mode: bypass pairing entirely ────────────────────────
         if not self.production_mode:
-            logger.info("DEV MODE: Skipping pairing, using test credentials.")
             credentials = self.test_credentials.copy()
             credentials["createdAt"] = datetime.now().strftime("%m/%d/%Y at %H:%M:%S")
             self._save_credentials(credentials)
             return credentials
 
         # ── Initialize Firebase ───────────────────────────────────────────
-        init_result = firebase_rtdb.initialize_firebase()
-        if init_result["status"] == "error":
-            logger.error(f"Firebase init failed: {init_result['message']}")
-            self.lcd.show(["Firebase Error", "Check network", "Shutting down..."], duration=3)
-            os.system("sudo shutdown -h now")
-            raise SystemExit
+        try:
+            firebase_rtdb.initialize_firebase()
+        except FirebaseRTDBInitError as e:
+            raise FirebaseInitError(str(e)) from e
 
         # ── credentials.txt exists → re-validate ─────────────────────────
         if os.path.exists(self._cred_path):
-            logger.info("credentials.txt found. Re-validating against Firebase...")
             self.lcd.show(["Validating...", "Please wait"], duration=1)
 
             saved = self._load_credentials()
             if saved and self._validate_against_firebase(saved):
-                logger.info(f"Re-validation successful: {saved['username']}")
                 self.lcd.show([
                     "Welcome back!",
                     f"{saved['username']}",
@@ -167,9 +182,8 @@ class AuthService:
                 ], duration=2)
                 return saved
             else:
-                logger.warning("Re-validation failed. Deleting credentials and re-pairing.")
                 os.remove(self._cred_path)
-                self.lcd.show(["Auth invalid", "Re-pairing...", ""], duration=2)
+                self.lcd.show(["Auth invalid", "Re-pairing..."], duration=2)
 
         # ── No valid credentials → show pairing menu ──────────────────────
         return self._show_pairing_menu()
@@ -178,11 +192,9 @@ class AuthService:
 
     def _show_pairing_menu(self) -> dict:
         """
-        Show LCD menu:
-            Line 0: CHICK-UP SYSTEM
-            Line 1: ================
-            Line 2: A. Login
-            Line 3: B. Shutdown
+        Show LCD menu and wait for keypress:
+            A → pairing flow
+            B → shutdown
         """
         while True:
             self.lcd.show([
@@ -192,17 +204,15 @@ class AuthService:
                 "B. Shutdown"
             ])
 
-            logger.info("Waiting for user to press A (Login) or B (Shutdown)...")
             key = self.keypad.wait_for_key(valid_keys=["A", "B"])
 
             if key == "A":
                 result = self._pairing_flow()
                 if result:
                     return result
-                # If pairing failed/expired, loop back to menu
+                # Pairing failed/expired → loop back to menu
 
             elif key == "B":
-                logger.info("User selected Shutdown.")
                 self.lcd.show(["Shutting down...", "Goodbye!"], duration=2)
                 self.lcd.clear()
                 os.system("sudo shutdown -h now")
@@ -217,12 +227,14 @@ class AuthService:
         2. Write to Firebase /device_code/{code}/
         3. Show code on LCD
         4. Poll Firebase for app to complete pairing
-        5. On success → save credentials.txt → return credentials
-        6. On timeout/error → return None (goes back to menu)
+        5. On success → save credentials → return credentials
+        6. On timeout / cancel → return None (caller loops back to menu)
+
+        Raises:
+            PairingError: If the Firebase write at step 2 fails.
         """
         # ── Step 1: Generate unique code ──────────────────────────────────
         code = self._generate_device_code()
-        logger.info(f"Generated device code: {code}")
 
         # ── Step 2: Write to Firebase ─────────────────────────────────────
         now_ms = int(time.time() * 1000)
@@ -233,11 +245,10 @@ class AuthService:
                 "createdAt" : now_ms,
                 "status"    : "pending"
             })
-            logger.info(f"Device code written to Firebase: device_code/{code}")
         except Exception as e:
-            logger.error(f"Failed to write device code to Firebase: {e}")
-            self.lcd.show(["Firebase Error", "Cannot pair", "Try again"], duration=3)
-            return None
+            raise PairingError(
+                f"Failed to write device code to Firebase: {e}. Source: {__name__}"
+            ) from e
 
         # ── Step 3: Show code on LCD ──────────────────────────────────────
         self.lcd.show([
@@ -251,28 +262,26 @@ class AuthService:
         start_time = time.time()
 
         while True:
-            elapsed = time.time() - start_time
+            elapsed   = time.time() - start_time
             remaining = int(CODE_EXPIRY_SECONDS - elapsed)
 
-            # Check for cancel key (non-blocking)
+            # Non-blocking cancel check
             key = self.keypad.read_key(with_debounce=True)
             if key == "*":
-                logger.info("User cancelled pairing.")
                 self._expire_code(code)
                 self.lcd.show(["Pairing cancelled"], duration=2)
                 return None
 
-            # Check timeout
+            # Timeout
             if elapsed >= CODE_EXPIRY_SECONDS:
-                logger.warning(f"Device code {code} expired.")
                 self._expire_code(code)
                 self.lcd.show(["Code expired!", "Press A to retry"], duration=3)
                 return None
 
-            # Update countdown on LCD
+            # Countdown display
             self.lcd.write_at(0, 2, f"Expires in {remaining:2d}s  ")
 
-            # Poll Firebase for pairing completion
+            # Poll for pairing completion
             try:
                 data = code_ref.get()
                 if data and data.get("status") == "paired":
@@ -280,23 +289,21 @@ class AuthService:
                     username = data.get("username", "").strip()
 
                     if not user_uid or not username:
-                        logger.error("Paired but missing userUid or username in Firebase.")
                         self._expire_code(code)
-                        self.lcd.show(["Pairing error", "Missing data", "Try again"], duration=3)
-                        return None
+                        raise PairingError(
+                            "Pairing status is 'paired' but userUid or username is missing "
+                            f"in Firebase. Code: {code}. Source: {__name__}"
+                        )
 
-                    # ── Step 5: Save credentials ──────────────────────────
+                    # ── Step 5: Save and return credentials ───────────────
                     credentials = {
                         "username"  : username,
                         "userUid"   : user_uid,
                         "deviceUid" : self.device_uid,
                     }
                     self._save_credentials(credentials)
-
-                    # Clean up Firebase code
                     self._expire_code(code)
 
-                    logger.info(f"Pairing successful! User: {username} ({user_uid})")
                     self.lcd.show([
                         "Paired!",
                         f"Hi, {username}!",
@@ -306,8 +313,14 @@ class AuthService:
 
                     return self._load_credentials()
 
+            except PairingError:
+                raise
             except Exception as e:
-                logger.error(f"Firebase poll error: {e}")
+                # Firebase poll errors are transient — surface as PairingError
+                # so the caller can log and decide whether to retry or abort
+                raise PairingError(
+                    f"Firebase poll error during pairing: {e}. Source: {__name__}"
+                ) from e
 
             time.sleep(CODE_POLL_INTERVAL)
 
@@ -316,61 +329,70 @@ class AuthService:
     def _validate_against_firebase(self, credentials: dict) -> bool:
         """
         Re-validate saved credentials against Firebase.
-        Checks that userUid exists under /users/{userUid}
-        and deviceUid matches.
+        Checks /users/{userUid} exists and deviceUid matches .env.
 
         Returns:
-            True if valid, False otherwise
+            True  → valid
+            False → invalid (caller should delete and re-pair)
+
+        Raises:
+            ValidationError: If the Firebase call itself fails unexpectedly.
         """
-        try:
-            user_uid   = credentials.get("userUid", "")
-            device_uid = credentials.get("deviceUid", "")
+        user_uid   = credentials.get("userUid", "")
+        device_uid = credentials.get("deviceUid", "")
 
-            if not user_uid or not device_uid:
-                return False
-
-            # Check user exists in Firebase
-            user_ref = db.reference(f"users/{user_uid}")
-            user_data = user_ref.get()
-
-            if not user_data:
-                logger.warning(f"userUid {user_uid} not found in Firebase.")
-                return False
-
-            # Check deviceUid matches
-            if device_uid != self.device_uid:
-                logger.warning(f"deviceUid mismatch: saved={device_uid}, env={self.device_uid}")
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Firebase validation error: {e}")
+        if not user_uid or not device_uid:
             return False
+
+        if device_uid != self.device_uid:
+            return False
+
+        try:
+            user_data = db.reference(f"users/{user_uid}").get()
+            return bool(user_data)
+        except Exception as e:
+            raise ValidationError(
+                f"Firebase validation call failed: {e}. Source: {__name__}"
+            ) from e
 
     # ─────────────────────────── FILE I/O ────────────────────────────────────
 
     def _save_credentials(self, credentials: dict) -> None:
-        """Save credentials dict to local txt file."""
-        os.makedirs(CREDENTIALS_DIR, exist_ok=True)
-        created_at = datetime.now().strftime("%m/%d/%Y at %H:%M:%S")
-        content = (
-            f"username: {credentials['username']}\n"
-            f"userUid: {credentials['userUid']}\n"
-            f"deviceUid: {credentials['deviceUid']}\n"
-            f"createdAt: {created_at}"
-        )
-        with open(self._cred_path, "w") as f:
-            f.write(content)
-        logger.info(f"Credentials saved to {self._cred_path}")
+        """
+        Save credentials dict to local txt file.
+
+        Raises:
+            CredentialsError: If the file cannot be written.
+        """
+        try:
+            os.makedirs(CREDENTIALS_DIR, exist_ok=True)
+            created_at = datetime.now().strftime("%m/%d/%Y at %H:%M:%S")
+            content = (
+                f"username: {credentials['username']}\n"
+                f"userUid: {credentials['userUid']}\n"
+                f"deviceUid: {credentials['deviceUid']}\n"
+                f"createdAt: {created_at}"
+            )
+            with open(self._cred_path, "w") as f:
+                f.write(content)
+        except Exception as e:
+            raise CredentialsError(
+                f"Failed to save credentials to {self._cred_path}: {e}. Source: {__name__}"
+            ) from e
 
     def _load_credentials(self) -> Optional[dict]:
         """
         Load credentials from local txt file.
 
         Returns:
-            dict with credentials, or None if file missing/invalid
+            dict with credentials, or None if file is missing / keys incomplete.
+
+        Raises:
+            CredentialsError: If the file exists but cannot be parsed.
         """
+        if not os.path.exists(self._cred_path):
+            return None
+
         try:
             credentials = {}
             with open(self._cred_path, "r") as f:
@@ -380,83 +402,43 @@ class AuthService:
                         continue
                     key, value = line.split(":", 1)
                     credentials[key.strip()] = value.strip()
-
-            # Validate all required keys present
-            missing = REQUIRED_KEYS - set(credentials.keys())
-            if missing:
-                logger.error(f"credentials.txt missing keys: {missing}")
-                return None
-
-            return credentials
-
-        except FileNotFoundError:
-            logger.warning("credentials.txt not found.")
-            return None
         except Exception as e:
-            logger.error(f"Failed to load credentials: {e}")
+            raise CredentialsError(
+                f"Failed to parse credentials file {self._cred_path}: {e}. Source: {__name__}"
+            ) from e
+
+        missing = REQUIRED_KEYS - set(credentials.keys())
+        if missing:
             return None
+
+        return credentials
 
     # ─────────────────────────── HELPERS ─────────────────────────────────────
 
     def _generate_device_code(self) -> str:
-        """Generate a unique 6-character alphanumeric code (uppercase)."""
+        """
+        Generate a unique 6-character alphanumeric code (uppercase).
+        Checks Firebase to avoid collisions; falls back gracefully if check fails.
+        """
         chars = string.ascii_uppercase + string.digits
         while True:
             code = ''.join(random.choices(chars, k=6))
-            # Verify it doesn't already exist in Firebase
             try:
                 existing = db.reference(f"device_code/{code}").get()
                 if not existing:
                     return code
             except Exception:
-                return code  # If Firebase check fails, use code anyway
+                return code  # Firebase check failed — use code anyway
 
     def _expire_code(self, code: str) -> None:
-        """Mark device code as expired in Firebase."""
+        """
+        Mark device code as expired in Firebase.
+        Silent on failure — best-effort cleanup only.
+        """
         try:
             db.reference(f"device_code/{code}/status").set("expired")
-            logger.info(f"Device code {code} marked as expired.")
-        except Exception as e:
-            logger.warning(f"Could not expire code {code}: {e}")
+        except Exception:
+            pass  # Non-critical; caller does not need to know
 
     def __repr__(self) -> str:
         return f"AuthService(device_uid={self.device_uid}, production={self.production_mode})"
-
-
-# ─────────────────────────── USAGE EXAMPLES ──────────────────────────────────
-
-if __name__ == "__main__":
-    from lib.services.hardware.lcd_controller   import LCD_I2C, LCDSize
-    from lib.services.hardware.keypad_controller import Keypad4x4
-
-    # ── Hardware init ─────────────────────────────────────────────────────
-    lcd    = LCD_I2C(address=0x27, size=LCDSize.LCD_20x4)
-    keypad = Keypad4x4()
-
-    # ── PRODUCTION MODE (real pairing) ────────────────────────────────────
-    auth = AuthService(
-        device_uid      = os.getenv("DEVICE_UID", "DEV_001"),
-        lcd             = lcd,
-        keypad          = keypad,
-        production_mode = True
-    )
-    credentials = auth.authenticate()
-    print(f"Authenticated as: {credentials['username']}")
-    print(f"User UID:         {credentials['userUid']}")
-    print(f"Device UID:       {credentials['deviceUid']}")
-    print(f"Created At:       {credentials['createdAt']}")
-
-    # ── DEV / PC MODE (skip pairing) ──────────────────────────────────────
-    auth_dev = AuthService(
-        device_uid       = "DEV_001",
-        lcd              = lcd,
-        keypad           = keypad,
-        production_mode  = False,
-        test_credentials = {
-            "username"  : "honey",
-            "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
-            "deviceUid" : "DEV_001"
-        }
-    )
-    dev_credentials = auth_dev.authenticate()
-    print(f"DEV credentials: {dev_credentials}")

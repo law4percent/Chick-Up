@@ -3,19 +3,17 @@ Camera Controller Module
 Loc: lib/services/hardware/camera_controller.py
 
 Supports:
-- PC mode (cv2.VideoCapture from file or webcam)
+- Webcam mode  (cv2.VideoCapture via CAMERA_INDEX)
 - Raspberry Pi native mode (Picamera2)
 
-This module raises exceptions only — no logging.
+This module raises exceptions only — no logging, no dict returns.
 All logging is handled by the calling process.
 """
 
 import cv2
 from typing import Any
 
-from lib.services import utils
-
-# Optional import — prevents crash on PC/dev environments
+# Optional import — prevents crash on dev environments without Picamera2
 try:
     from picamera2 import Picamera2
     HAS_PICAMERA = True
@@ -26,76 +24,20 @@ except (ImportError, RuntimeError):
 # ─────────────────────────── EXCEPTIONS ──────────────────────────────────────
 
 class CameraError(Exception):
-    """Base exception for camera errors"""
+    """Base exception for all camera errors."""
     pass
 
 class CameraConfigError(CameraError):
-    """Raised when camera configuration fails"""
+    """Raised when camera configuration or open fails."""
     pass
 
 class CameraCleanupError(CameraError):
-    """Raised when camera cleanup fails"""
+    """Raised when camera cleanup fails."""
     pass
 
 class CameraNotAvailableError(CameraError):
-    """Raised when required camera hardware is not available"""
+    """Raised when required camera hardware is not available."""
     pass
-
-
-# ─────────────────────────── WINDOW SETUP ────────────────────────────────────
-
-def setup_windows(
-    window_name          : str  = "Chick-Up Streaming",
-    window_visible_state : bool = True
-) -> list:
-    """
-    Initialize a display window if visible state is True.
-
-    Args:
-        window_name:          OpenCV window name
-        window_visible_state: Show window on init
-
-    Returns:
-        [window_name, window_visible_state]
-    """
-    if window_visible_state:
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    return [window_name, window_visible_state]
-
-
-# ─────────────────────────── CLEANUP ─────────────────────────────────────────
-
-def clean_up_camera(capture: Any, PC_MODE: bool) -> dict:
-    """
-    Properly release or stop the camera depending on mode.
-
-    Args:
-        capture: cv2.VideoCapture or Picamera2 instance
-        PC_MODE: True = cv2, False = Picamera2
-
-    Returns:
-        {"status": "success"} or {"status": "error", "message": str}
-
-    Note:
-        Returns a dict instead of raising so the finally block in the
-        calling process always completes even on camera errors.
-    """
-    try:
-        if PC_MODE:
-            if capture and capture.isOpened():
-                capture.release()
-        else:
-            if capture:
-                capture.stop()
-                capture.close()
-        cv2.destroyAllWindows()
-        return {"status": "success"}
-    except Exception as e:
-        cv2.destroyAllWindows()
-        return {
-            "status"  : "error",
-            "message" : f"Error cleaning up camera: {e}. Source: {__name__}"
-        }
 
 
 # ─────────────────────────── CONFIG ──────────────────────────────────────────
@@ -104,73 +46,100 @@ def config_camera(
     IS_WEB_CAM      : bool,
     CAMERA_INDEX    : int,
     FRAME_DIMENSION : dict
-) -> dict:
+) -> Any:
     """
     Configure and return the appropriate camera capture object.
 
+    Two supported modes:
+        IS_WEB_CAM=True  → cv2.VideoCapture(CAMERA_INDEX)
+        IS_WEB_CAM=False → Picamera2 (Raspberry Pi native)
+
+    The returned capture object always exposes a capture_array() method
+    so the calling process can use a unified API regardless of camera type.
+
     Args:
-        IS_WEB_CAM:      True = use webcam index, False = use VIDEO_PATH
-        CAMERA_INDEX:    Camera index for webcam (used when IS_WEB_CAM=True)
+        IS_WEB_CAM:      True = USB/webcam, False = Picamera2
+        CAMERA_INDEX:    Camera index (used only when IS_WEB_CAM=True)
         FRAME_DIMENSION: {"width": int, "height": int}
 
     Returns:
-        {"status": "success", "capture": <capture object>}
-        {"status": "error",   "message": str}
+        capture object (cv2.VideoCapture or Picamera2)
 
-    Note:
-        Returns a dict instead of raising so process_a.py can handle
-        the error gracefully and log it with context.
-
-    The returned capture object always has a capture_array() method
-    so process_a.py can use a unified API regardless of camera type.
+    Raises:
+        CameraConfigError:        Camera failed to open or configure.
+        CameraNotAvailableError:  Picamera2 not installed / not on Pi.
     """
 
-    # ── PC MODE or USB WEBCAM ─────────────────────────────────────────────
-    if PC_MODE or IS_WEB_CAM:
-        source = VIDEO_PATH if (not IS_WEB_CAM and VIDEO_PATH) else CAMERA_INDEX
-
-        # Validate video file exists
-        if not IS_WEB_CAM and VIDEO_PATH:
-            check_result = utils.file_existence_check_point(VIDEO_PATH, __name__)
-            if check_result["status"] == "error":
-                return check_result
-
-        capture = cv2.VideoCapture(source)
+    # ── WEBCAM MODE ───────────────────────────────────────────────────────
+    if IS_WEB_CAM:
+        capture = cv2.VideoCapture(CAMERA_INDEX)
         if not capture.isOpened():
-            return {
-                "status"  : "error",
-                "message" : f"Could not open source '{source}'. Source: {__name__}"
-            }
+            raise CameraConfigError(
+                f"Could not open webcam at index {CAMERA_INDEX}. Source: {__name__}"
+            )
 
-        # Shim: add capture_array() to match Picamera2 API
-        # Allows process_a.py to use a single unified call regardless of mode
-        def capture_array_shim():
+        # Shim: expose capture_array() to match Picamera2 API
+        def _capture_array_shim():
             ret, frame = capture.read()
-            return frame if ret else None
+            if not ret:
+                return None
+            return frame
 
-        capture.capture_array = capture_array_shim
-
-        return {"status": "success", "capture": capture}
+        capture.capture_array = _capture_array_shim
+        return capture
 
     # ── RASPBERRY PI NATIVE MODE ──────────────────────────────────────────
     if not HAS_PICAMERA:
-        return {
-            "status"  : "error",
-            "message" : "Picamera2 not available. Not running on Raspberry Pi or not installed."
-        }
+        raise CameraNotAvailableError(
+            "Picamera2 is not available. Not running on Raspberry Pi or not installed. "
+            f"Source: {__name__}"
+        )
 
     try:
-        picam2  = Picamera2()
-        config  = picam2.create_video_configuration(
-            main={"size": (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"]), "format": "BGR888"}
+        picam2 = Picamera2()
+        config = picam2.create_video_configuration(
+            main={
+                "size"  : (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"]),
+                "format": "BGR888"
+            }
         )
         picam2.configure(config)
         picam2.start()
-
-        return {"status": "success", "capture": picam2}
+        return picam2
 
     except Exception as e:
-        return {
-            "status"  : "error",
-            "message" : f"Failed to configure Picamera2: {e}. Source: {__name__}"
-        }
+        raise CameraConfigError(
+            f"Failed to configure Picamera2: {e}. Source: {__name__}"
+        ) from e
+
+
+# ─────────────────────────── CLEANUP ─────────────────────────────────────────
+
+def clean_up_camera(capture: Any, IS_WEB_CAM: bool) -> None:
+    """
+    Properly release or stop the camera depending on mode.
+
+    Args:
+        capture:    cv2.VideoCapture or Picamera2 instance
+        IS_WEB_CAM: True = cv2.VideoCapture, False = Picamera2
+
+    Raises:
+        CameraCleanupError: If releasing/stopping the camera fails.
+
+    Note:
+        cv2.destroyAllWindows() is always called even on error.
+    """
+    try:
+        if IS_WEB_CAM:
+            if capture and capture.isOpened():
+                capture.release()
+        else:
+            if capture:
+                capture.stop()
+                capture.close()
+    except Exception as e:
+        raise CameraCleanupError(
+            f"Error cleaning up camera: {e}. Source: {__name__}"
+        ) from e
+    finally:
+        cv2.destroyAllWindows()

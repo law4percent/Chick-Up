@@ -3,49 +3,77 @@ Path: lib/services/webrtc_peer.py
 Description:
     WebRTC peer implementation for Raspberry Pi.
     Streams video to mobile app via Firebase signaling + TURN relay.
+
+Logging contract:
+    - Public API methods (start, stop, run_webrtc_peer) → raise exceptions.
+      The calling process (process_a) catches and logs them.
+    - Internal async callbacks (ICE, signaling, polling) → use the module-level
+      _log() bound to this file. These fire deep inside event loop tasks where
+      exceptions cannot propagate meaningfully, so they log warn/error only.
 """
 
 import time
 import asyncio
-from fractions      import Fraction
-from typing         import Optional, Callable
+from fractions  import Fraction
+from typing     import Optional, Callable
 
 import cv2
 import numpy as np
-from av              import VideoFrame
-from aiortc          import (
+from av         import VideoFrame
+from aiortc     import (
     RTCPeerConnection, RTCSessionDescription,
     VideoStreamTrack, RTCConfiguration, RTCIceServer
 )
-from aiortc.sdp      import candidate_from_sdp
-from firebase_admin  import db
+from aiortc.sdp     import candidate_from_sdp
+from firebase_admin import db
 
 from lib.services.logger import get_logger
 
-log = get_logger("webrtc_peer")
+# Internal logger — used ONLY inside async callbacks that cannot raise.
+# Restricted to warning/error to match the system-wide logging policy.
+_log = get_logger("webrtc_peer.py")
+
+
+# ─────────────────────────── EXCEPTIONS ──────────────────────────────────────
+
+class WebRTCError(Exception):
+    """Base exception for WebRTC errors."""
+    pass
+
+class WebRTCStartError(WebRTCError):
+    """Raised when the peer fails to start."""
+    pass
+
+class WebRTCStopError(WebRTCError):
+    """Raised when the peer fails to stop cleanly."""
+    pass
 
 
 # ─────────────────────────── VIDEO TRACK ─────────────────────────────────────
 
 class CameraVideoTrack(VideoStreamTrack):
-    """Custom video track that reads from a SharedFrameBuffer or direct capture."""
+    """
+    Custom video track that reads frames from a SharedFrameBuffer.
+
+    Both webcam and Picamera2 expose capture_array() via the camera_controller
+    shim, so no branching on camera type is needed here.
+    If frame_buffer is provided it is preferred (decouples capture from WebRTC).
+    """
 
     def __init__(
         self,
         capture,
-        pc_mode         : bool,
         frame_dimension : dict,
         frame_buffer    = None
     ):
         super().__init__()
-        self.capture         = capture
-        self.pc_mode         = pc_mode
-        self.width           = frame_dimension.get("width",  640)
-        self.height          = frame_dimension.get("height", 480)
-        self.frame_buffer    = frame_buffer
-        self._start          = time.time()
-        self._timestamp      = 0
-        self.fps             = 20
+        self.capture      = capture
+        self.width        = frame_dimension.get("width",  640)
+        self.height       = frame_dimension.get("height", 480)
+        self.frame_buffer = frame_buffer
+        self._start       = time.time()
+        self._timestamp   = 0
+        self.fps          = 20
 
     async def recv(self) -> VideoFrame:
         if self._timestamp != 0:
@@ -58,21 +86,18 @@ class CameraVideoTrack(VideoStreamTrack):
         pts       = self._timestamp
         time_base = Fraction(1, 90000)
 
-        # Pull frame
+        # Pull frame — buffer preferred, fall back to direct capture
         if self.frame_buffer is not None:
             frame = self.frame_buffer.get()
-            if frame is None:
-                frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         else:
-            if self.pc_mode:
-                ret, frame = self.capture.read()
-                if not ret:
-                    frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-            else:
-                frame = self.capture.capture_array()
+            frame = self.capture.capture_array()
+
+        if frame is None:
+            frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        else:
             frame = cv2.resize(frame, (self.width, self.height))
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame                 = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         video_frame           = VideoFrame.from_ndarray(frame, format="rgb24")
         video_frame.pts       = pts
         video_frame.time_base = time_base
@@ -86,10 +111,13 @@ class WebRTCPeer:
     WebRTC peer with TURN server support.
 
     Handles:
-    - Firebase signaling (offer/answer/ICE candidates)
+    - Firebase signaling (offer / answer / ICE candidates)
     - TURN relay for strict NAT / CGNAT mobile networks
     - Auto-reconnect on new offers
     - Bitrate limiting
+
+    Public methods raise exceptions.
+    Internal async callbacks log via _log() — they cannot raise meaningfully.
     """
 
     def __init__(
@@ -97,7 +125,6 @@ class WebRTCPeer:
         user_uid                  : str,
         device_uid                : str,
         capture,
-        pc_mode                   : bool,
         frame_dimension           : dict,
         on_connection_state_change: Optional[Callable] = None,
         frame_buffer              = None,
@@ -108,17 +135,16 @@ class WebRTCPeer:
         self.user_uid                   = user_uid
         self.device_uid                 = device_uid
         self.capture                    = capture
-        self.pc_mode                    = pc_mode
         self.frame_dimension            = frame_dimension
         self.on_connection_state_change = on_connection_state_change
         self.frame_buffer               = frame_buffer
 
-        self.pc           : Optional[RTCPeerConnection]  = None
-        self.video_track  : Optional[CameraVideoTrack]   = None
-        self.is_running   : bool  = False
-        self.candidates_sent      : int   = 0
-        self.last_offer_timestamp : int   = 0
-        self.ice_stats            : dict  = {"host": 0, "srflx": 0, "relay": 0}
+        self.pc           : Optional[RTCPeerConnection] = None
+        self.video_track  : Optional[CameraVideoTrack]  = None
+        self.is_running   : bool = False
+        self.candidates_sent      : int  = 0
+        self.last_offer_timestamp : int  = 0
+        self.ice_stats            : dict = {"host": 0, "srflx": 0, "relay": 0}
 
         # Firebase refs
         self.stream_ref                = db.reference(f"liveStream/{user_uid}/{device_uid}")
@@ -128,7 +154,7 @@ class WebRTCPeer:
         self.ice_candidates_mobile_ref = self.stream_ref.child("iceCandidates/mobile")
         self.connection_state_ref      = self.stream_ref.child("connectionState")
 
-        # ICE servers
+        # ICE / TURN servers
         self.ice_servers = [
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
             RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
@@ -139,15 +165,17 @@ class WebRTCPeer:
                 RTCIceServer(
                     urls=[
                         turn_server_url + "?transport=udp",
-                        turn_server_url + "?transport=tcp"
+                        turn_server_url + "?transport=tcp",
                     ],
                     username   = turn_username,
                     credential = turn_password
                 )
             )
-            log(f"TURN configured: {turn_server_url} (UDP+TCP)", log_type="info")
         else:
-            log("No TURN server — may fail on strict NATs", log_type="warn")
+            _log(
+                details="No TURN server configured — may fail on strict NATs",
+                log_type="warning"
+            )
 
     # ─────────────────────────── PEER CONNECTION ─────────────────────────────
 
@@ -164,9 +192,7 @@ class WebRTCPeer:
                     cand_str = candidate.candidate
                     if   "typ host"  in cand_str: self.ice_stats["host"]  += 1
                     elif "typ srflx" in cand_str: self.ice_stats["srflx"] += 1
-                    elif "typ relay" in cand_str:
-                        self.ice_stats["relay"] += 1
-                        log("TURN relay candidate generated", log_type="info")
+                    elif "typ relay" in cand_str: self.ice_stats["relay"] += 1
 
                     self.ice_candidates_raspi_ref.push({
                         "candidate"     : candidate.candidate,
@@ -176,20 +202,23 @@ class WebRTCPeer:
                     })
                     self.candidates_sent += 1
                 except Exception as e:
-                    log(f"Error sending ICE candidate: {e}", log_type="error")
+                    _log(details=f"ICE candidate send failed: {e}", log_type="error")
 
         @pc.on("icegatheringstatechange")
         async def on_ice_gathering_state():
-            if pc.iceGatheringState == "complete":
-                log(f"ICE gathering complete: {self.ice_stats}", log_type="info")
-                if self.ice_stats["relay"] == 0:
-                    log("No TURN relay candidates — check TURN config", log_type="warn")
+            if pc.iceGatheringState == "complete" and self.ice_stats["relay"] == 0:
+                _log(
+                    details=f"ICE gathering complete — no relay candidates. Stats: {self.ice_stats}",
+                    log_type="warning"
+                )
 
         @pc.on("connectionstatechange")
         async def on_connection_state():
             state = pc.connectionState
-            log(f"Connection state: {state}", log_type="info")
-            self.connection_state_ref.set(state)
+            try:
+                self.connection_state_ref.set(state)
+            except Exception as e:
+                _log(details=f"Failed to write connection state to Firebase: {e}", log_type="warning")
 
             if self.on_connection_state_change:
                 self.on_connection_state_change(state)
@@ -197,29 +226,49 @@ class WebRTCPeer:
             if state == "connected":
                 self.candidates_sent = 0
             elif state in ["failed", "closed"]:
-                log(f"Connection {state} | ICE stats: {self.ice_stats}", log_type="warn")
-                await self.cleanup()
+                _log(
+                    details=f"Connection {state} | ICE stats: {self.ice_stats}",
+                    log_type="warning"
+                )
+                await self._cleanup()
 
         @pc.on("iceconnectionstatechange")
         async def on_ice_state():
             if pc.iceConnectionState == "failed":
-                log(f"ICE failed | stats: {self.ice_stats}", log_type="error")
-                if self.ice_stats["relay"] == 0:
-                    log("No TURN relay used — check server config", log_type="error")
+                _log(
+                    details=(
+                        f"ICE connection failed | stats: {self.ice_stats} | "
+                        f"relay used: {self.ice_stats['relay'] > 0}"
+                    ),
+                    log_type="error"
+                )
 
         return pc
 
     # ─────────────────────────── START / POLL ────────────────────────────────
 
     async def start(self) -> None:
+        """
+        Start the peer and begin polling Firebase for offers.
+
+        Raises:
+            WebRTCStartError: If the initial Firebase connection state write fails.
+        """
         if self.is_running:
             return
         self.is_running = True
-        log("WebRTC peer started, polling for offers...", log_type="info")
-        self.connection_state_ref.set("disconnected")
+        try:
+            self.connection_state_ref.set("disconnected")
+        except Exception as e:
+            raise WebRTCStartError(
+                f"Failed to write initial connection state to Firebase: {e}. "
+                f"Source: {__name__}"
+            ) from e
+
         asyncio.create_task(self._poll_for_offers())
 
     async def _poll_for_offers(self) -> None:
+        """Internal loop — logs internally, does not raise."""
         while self.is_running:
             try:
                 offer_data = self.offer_ref.get()
@@ -227,16 +276,16 @@ class WebRTCPeer:
                     timestamp = offer_data.get("timestamp", 0)
                     if timestamp > self.last_offer_timestamp:
                         self.last_offer_timestamp = timestamp
-                        log(f"New offer received (ts: {timestamp})", log_type="info")
                         await self._handle_offer(offer_data)
                 await asyncio.sleep(0.5)
             except Exception as e:
-                log(f"Error polling offers: {e}", log_type="error")
+                _log(details=f"Offer poll error: {e}", log_type="error")
                 await asyncio.sleep(1)
 
     # ─────────────────────────── OFFER / ANSWER ──────────────────────────────
 
     async def _handle_offer(self, offer_data: dict) -> None:
+        """Internal handler — logs internally, does not raise."""
         try:
             try:
                 self.offer_ref.delete()
@@ -250,10 +299,9 @@ class WebRTCPeer:
             self.pc = self._create_peer_connection()
 
             self.video_track = CameraVideoTrack(
-                self.capture,
-                self.pc_mode,
-                self.frame_dimension,
-                self.frame_buffer
+                capture         = self.capture,
+                frame_dimension = self.frame_dimension,
+                frame_buffer    = self.frame_buffer
             )
             self.pc.addTrack(self.video_track)
 
@@ -263,9 +311,7 @@ class WebRTCPeer:
             )
             await self.pc.setRemoteDescription(offer)
 
-            answer = await self.pc.createAnswer()
-
-            # Apply bitrate limit
+            answer       = await self.pc.createAnswer()
             modified_sdp = self._apply_bitrate_limit(answer.sdp)
             if modified_sdp != answer.sdp:
                 answer = RTCSessionDescription(sdp=modified_sdp, type=answer.type)
@@ -277,18 +323,25 @@ class WebRTCPeer:
                 "type"      : self.pc.localDescription.type,
                 "timestamp" : int(time.time() * 1000)
             })
-            log("Answer sent to mobile", log_type="info")
 
             asyncio.create_task(self._poll_for_mobile_ice_candidates())
-            self.connection_state_ref.set("connecting")
+
+            try:
+                self.connection_state_ref.set("connecting")
+            except Exception:
+                pass
 
         except Exception as e:
-            log(f"Error handling offer: {e}", log_type="error")
-            self.connection_state_ref.set("failed")
+            _log(details=f"Offer handling failed: {e}", log_type="error")
+            try:
+                self.connection_state_ref.set("failed")
+            except Exception:
+                pass
 
     # ─────────────────────────── ICE CANDIDATES ──────────────────────────────
 
     async def _poll_for_mobile_ice_candidates(self) -> None:
+        """Internal loop — logs internally, does not raise."""
         processed = set()
         while (
             self.pc and
@@ -304,25 +357,23 @@ class WebRTCPeer:
                             processed.add(key)
                 await asyncio.sleep(0.2)
             except Exception as e:
-                log(f"Error polling mobile ICE candidates: {e}", log_type="error")
+                _log(details=f"Mobile ICE candidate poll error: {e}", log_type="error")
                 await asyncio.sleep(0.5)
 
     async def _add_ice_candidate(self, cand_data: dict) -> None:
+        """Internal — logs internally, does not raise."""
         try:
             if self.pc and "candidate" in cand_data:
                 raw = cand_data["candidate"]
                 if raw.startswith("candidate:"):
                     raw = raw.replace("candidate:", "", 1)
 
-                if "typ relay" in raw:
-                    log("Received TURN relay candidate from mobile", log_type="info")
-
                 candidate               = candidate_from_sdp(raw)
                 candidate.sdpMid        = cand_data.get("sdpMid")
                 candidate.sdpMLineIndex = cand_data.get("sdpMLineIndex")
                 await self.pc.addIceCandidate(candidate)
         except Exception as e:
-            log(f"Error adding ICE candidate: {e}", log_type="error")
+            _log(details=f"Add ICE candidate failed: {e}", log_type="error")
 
     # ─────────────────────────── BITRATE ─────────────────────────────────────
 
@@ -350,7 +401,11 @@ class WebRTCPeer:
 
     # ─────────────────────────── CLEANUP / STOP ──────────────────────────────
 
-    async def cleanup(self) -> None:
+    async def _cleanup(self) -> None:
+        """
+        Internal cleanup — called from connection state callbacks.
+        Logs internally, does not raise.
+        """
         try:
             if self.pc:
                 await self.pc.close()
@@ -359,36 +414,51 @@ class WebRTCPeer:
                 self.video_track.stop()
                 self.video_track = None
 
+            for ref in [
+                self.offer_ref,
+                self.answer_ref,
+                self.ice_candidates_raspi_ref,
+                self.ice_candidates_mobile_ref,
+            ]:
+                try:
+                    ref.delete()
+                except Exception:
+                    pass
+
             try:
-                self.offer_ref.delete()
-                self.answer_ref.delete()
-                self.ice_candidates_raspi_ref.delete()
-                self.ice_candidates_mobile_ref.delete()
                 self.connection_state_ref.set("disconnected")
             except Exception:
                 pass
 
             self.candidates_sent = 0
-            log("Cleanup complete, listening for next offer", log_type="info")
         except Exception as e:
-            log(f"Cleanup error: {e}", log_type="error")
+            _log(details=f"Cleanup error: {e}", log_type="error")
 
     async def stop(self) -> None:
-        log("Stopping WebRTC peer", log_type="info")
+        """
+        Gracefully stop the peer.
+
+        Raises:
+            WebRTCStopError: If an unexpected error occurs during stop.
+        """
         self.is_running = False
-        await self.cleanup()
+        try:
+            await self._cleanup()
+        except Exception as e:
+            raise WebRTCStopError(
+                f"Error stopping WebRTC peer: {e}. Source: {__name__}"
+            ) from e
 
     def __repr__(self) -> str:
         return f"WebRTCPeer(user={self.user_uid}, device={self.device_uid})"
 
 
-# ─────────────────────────── HELPER ──────────────────────────────────────────
+# ─────────────────────────── PUBLIC HELPER ───────────────────────────────────
 
 async def run_webrtc_peer(
     user_uid                  : str,
     device_uid                : str,
     capture,
-    pc_mode                   : bool,
     frame_dimension           : dict,
     on_connection_state_change: Optional[Callable] = None,
     frame_buffer              = None,
@@ -397,16 +467,18 @@ async def run_webrtc_peer(
     turn_password             : str = None
 ) -> WebRTCPeer:
     """
-    Convenience function to create and start a WebRTCPeer.
+    Create and start a WebRTCPeer.
+
+    Raises:
+        WebRTCStartError: Propagated from WebRTCPeer.start().
 
     Returns:
-        Running WebRTCPeer instance
+        Running WebRTCPeer instance.
     """
     peer = WebRTCPeer(
         user_uid                   = user_uid,
         device_uid                 = device_uid,
         capture                    = capture,
-        pc_mode                    = pc_mode,
         frame_dimension            = frame_dimension,
         on_connection_state_change = on_connection_state_change,
         frame_buffer               = frame_buffer,

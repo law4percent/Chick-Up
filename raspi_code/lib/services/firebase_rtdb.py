@@ -3,21 +3,41 @@ Firebase RTDB Module
 Loc: lib/services/firebase_rtdb.py
 
 Class-based wrapper for Firebase Realtime Database operations.
-All return formats preserved from original to avoid breaking other modules.
+
+Logging contract:
+    This is a service module — it raises exceptions only.
+    All logging is handled by the calling process.
 """
 
 import firebase_admin
 from firebase_admin import credentials, db
 from datetime import datetime
 import time
-import logging
 from typing import Optional
 
 from . import utils
-from lib import logger_config
 
-logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
 
+# ─────────────────────────── EXCEPTIONS ──────────────────────────────────────
+
+class FirebaseError(Exception):
+    """Base exception for all Firebase RTDB errors."""
+    pass
+
+class FirebaseInitError(FirebaseError):
+    """Raised when Firebase app initialization fails."""
+    pass
+
+class FirebaseReadError(FirebaseError):
+    """Raised when a Firebase RTDB read operation fails."""
+    pass
+
+class FirebaseWriteError(FirebaseError):
+    """Raised when a Firebase RTDB write operation fails."""
+    pass
+
+
+# ─────────────────────────── FIREBASE RTDB CLASS ─────────────────────────────
 
 class FirebaseRTDB:
     """
@@ -30,22 +50,17 @@ class FirebaseRTDB:
     - Schedule trigger logic with cooldown tracking
     - Timestamp freshness checks
 
+    This class raises exceptions — all logging is handled by the caller.
+
     Example usage:
         firebase = FirebaseRTDB()
+        firebase.initialize()
 
-        # Initialize once at startup
-        result = firebase.initialize()
-        if result["status"] == "error":
-            print(result["message"])
-            exit()
-
-        # Setup references for a specific user/device
         refs = firebase.setup_refs(
             user_uid   = "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
             device_uid = "DEV_001"
         )
 
-        # Read all relevant RTDB state in one call
         state = firebase.read(refs, min_to_stop=1)
         print(state["current_live_button_state"])
         print(state["current_feed_schedule_state"])
@@ -56,45 +71,44 @@ class FirebaseRTDB:
     DATABASE_URL         = "https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/"
 
     def __init__(self):
-        self._initialized             = False
+        self._initialized              = False
         self._last_triggered_schedules = {}
 
     # ─────────────────────────── INIT ────────────────────────────────────────
 
-    def initialize(self) -> dict:
+    def initialize(self) -> None:
         """
-        Initialize Firebase app (safe to call multiple times — only inits once).
+        Initialize Firebase app. Safe to call multiple times — only inits once.
 
-        Returns:
-            {"status": "success"} or {"status": "error", "message": str}
+        Raises:
+            FirebaseInitError: If the service account key is missing or
+                               Firebase initialization fails.
         """
-        # Already initialized (firebase_admin singleton)
         if self._initialized or len(firebase_admin._apps) > 0:
             self._initialized = True
-            return {"status": "success"}
+            return
 
-        full_path = utils.join_path_with_os_adaptability(
-            self.SERVICE_ACC_KEY_PATH,
-            self.SERVICE_ACC_KEY_FILE,
-            __name__,
-            False
-        )
-
-        check = utils.file_existence_check_point(full_path, __name__)
-        if check["status"] == "error":
-            return check
+        try:
+            full_path = utils.join_and_ensure_path(
+                target_directory   = self.SERVICE_ACC_KEY_PATH,
+                filename           = self.SERVICE_ACC_KEY_FILE,
+                source             = __name__,
+                create_if_missing  = False
+            )
+            utils.ensure_file_exists(full_path, source=__name__)
+        except (utils.PathError, utils.FileError) as e:
+            raise FirebaseInitError(
+                f"Service account key not found: {e}. Source: {__name__}"
+            ) from e
 
         try:
             cred = credentials.Certificate(full_path)
             firebase_admin.initialize_app(cred, {"databaseURL": self.DATABASE_URL})
             self._initialized = True
-            logger.info("Firebase RTDB initialized successfully.")
-            return {"status": "success"}
         except Exception as e:
-            return {
-                "status" : "error",
-                "message": f"{e}. Initializing Firebase RTDB failed. Source: {__name__}"
-            }
+            raise FirebaseInitError(
+                f"Firebase initialization failed: {e}. Source: {__name__}"
+            ) from e
 
     # ─────────────────────────── REFS SETUP ──────────────────────────────────
 
@@ -107,7 +121,7 @@ class FirebaseRTDB:
             device_uid: Device UID from .env
 
         Returns:
-            Dict of database references (same format as original setup_RTDB)
+            Dict of database references.
         """
         return {
             "df_app_button_ref"      : db.reference(f"buttons/{user_uid}/{device_uid}/feedButton/lastUpdateAt"),
@@ -122,20 +136,28 @@ class FirebaseRTDB:
 
     def read(self, database_ref: dict, min_to_stop: int = 1) -> dict:
         """
-        Read all relevant state from Firebase RTDB.
+        Read all relevant state from Firebase RTDB in one call.
 
         Args:
             database_ref: Dict of references from setup_refs()
             min_to_stop:  Minutes window to consider a button press "fresh"
 
         Returns:
-            Dict with current states (same format as original read_RTDB)
+            Dict with current states.
+
+        Raises:
+            FirebaseReadError: If any Firebase read operation fails.
         """
-        df_datetime   = database_ref["df_app_button_ref"].get()
-        wr_datetime   = database_ref["wr_app_button_ref"].get()
-        feed_schedule = database_ref["feed_schedule_ref"].get()
-        live_status   = database_ref["live_button_status_ref"].get()
-        settings      = database_ref["user_settings_ref"].get() or {}
+        try:
+            df_datetime   = database_ref["df_app_button_ref"].get()
+            wr_datetime   = database_ref["wr_app_button_ref"].get()
+            feed_schedule = database_ref["feed_schedule_ref"].get()
+            live_status   = database_ref["live_button_status_ref"].get()
+            settings      = database_ref["user_settings_ref"].get() or {}
+        except Exception as e:
+            raise FirebaseReadError(
+                f"Firebase RTDB read failed: {e}. Source: {__name__}"
+            ) from e
 
         feed_settings  = settings.get("feed",  {})
         water_settings = settings.get("water", {})
@@ -158,15 +180,10 @@ class FirebaseRTDB:
     def is_fresh(self, timestamp_value, min_to_stop: int) -> bool:
         """
         Check if a timestamp is within min_to_stop minutes of now.
-        Handles both Unix ms timestamps (Firebase serverTimestamp) and
-        legacy datetime strings ("MM/DD/YYYY HH:MM:SS").
+        Handles Unix ms timestamps (int/float) and legacy datetime strings
+        ("MM/DD/YYYY HH:MM:SS").
 
-        Args:
-            timestamp_value: Unix ms int/float or datetime string
-            min_to_stop:     Minutes window to consider fresh
-
-        Returns:
-            bool
+        Returns False silently on any unrecognised input or parse failure.
         """
         try:
             now_ms = time.time() * 1000
@@ -174,37 +191,30 @@ class FirebaseRTDB:
             if isinstance(timestamp_value, (int, float)):
                 timestamp_ms = float(timestamp_value)
             elif isinstance(timestamp_value, str):
-                dt = datetime.strptime(timestamp_value, "%m/%d/%Y %H:%M:%S")
+                dt           = datetime.strptime(timestamp_value, "%m/%d/%Y %H:%M:%S")
                 timestamp_ms = dt.timestamp() * 1000
             else:
-                logger.error(f"Unknown timestamp format: {type(timestamp_value)}")
                 return False
 
-            diff_minutes = (now_ms - timestamp_ms) / (1000 * 60)
-            return diff_minutes <= min_to_stop
+            return (now_ms - timestamp_ms) / (1000 * 60) <= min_to_stop
 
-        except Exception as e:
-            logger.error(f"is_fresh failed: {e}, value: {timestamp_value}")
+        except Exception:
             return False
 
     def is_schedule_triggered(self, schedule_data: dict) -> bool:
         """
-        Check if any schedule should trigger right now.
-        Includes 60-second cooldown to prevent duplicate triggers.
+        Check if any enabled schedule should trigger right now.
+        Includes a 60-second cooldown to prevent duplicate triggers.
 
-        Args:
-            schedule_data: Dict of schedule objects from Firebase
-
-        Returns:
-            bool: True if at least one schedule triggers
+        Returns False silently on bad/missing data.
         """
         if not schedule_data:
             return False
 
-        now              = datetime.now()
-        today_day_index  = now.weekday()   # Monday=0, Sunday=6
-        now_time         = now.strftime("%H:%M")
-        is_triggered     = False
+        now             = datetime.now()
+        today_day_index = now.weekday()   # Monday=0, Sunday=6
+        now_time        = now.strftime("%H:%M")
+        is_triggered    = False
 
         for schedule_id, schedule in schedule_data.items():
             days       = schedule.get("days", [])
@@ -215,13 +225,12 @@ class FirebaseRTDB:
                 continue
             if today_day_index not in days:
                 continue
+
             if sched_time != now_time:
-                # Reset tracking if we've passed the schedule time
+                # Reset tracking once we've passed the scheduled time
                 if schedule_id in self._last_triggered_schedules:
                     try:
-                        sched_dt = datetime.strptime(sched_time, "%H:%M")
-                        now_dt   = datetime.strptime(now_time,   "%H:%M")
-                        if now_dt < sched_dt:
+                        if datetime.strptime(now_time, "%H:%M") < datetime.strptime(sched_time, "%H:%M"):
                             del self._last_triggered_schedules[schedule_id]
                     except Exception:
                         pass
@@ -229,11 +238,9 @@ class FirebaseRTDB:
 
             # 60-second cooldown guard
             last_trigger = self._last_triggered_schedules.get(schedule_id)
-            if last_trigger:
-                if (now - last_trigger).total_seconds() < 60:
-                    continue
+            if last_trigger and (now - last_trigger).total_seconds() < 60:
+                continue
 
-            logger.info(f"Schedule {schedule_id} triggered at {now_time}")
             is_triggered = True
             self._last_triggered_schedules[schedule_id] = now
 
@@ -241,33 +248,31 @@ class FirebaseRTDB:
 
     def livestream_on(self, value) -> bool:
         """
-        Interpret Firebase liveStreamButton value as bool.
-
-        Args:
-            value: Any Firebase value
-
-        Returns:
-            bool
+        Interpret a Firebase liveStreamButton value as bool.
+        Returns False on None or unrecognised values.
         """
         if value is None:
             return False
         if isinstance(value, bool):
             return value
-        return str(value).strip().lower() in ["1", "true", "yes", "on"]
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     def __repr__(self) -> str:
         return f"FirebaseRTDB(initialized={self._initialized})"
 
 
 # ─────────────────────────── MODULE-LEVEL SINGLETON ──────────────────────────
-# Preserved from original for backwards compatibility with existing callers.
+# Backwards-compatible wrappers — callers use these directly.
 
 _firebase = FirebaseRTDB()
 
 
-def initialize_firebase() -> dict:
-    """Module-level wrapper — backwards compatible with original."""
-    return _firebase.initialize()
+def initialize_firebase() -> None:
+    """
+    Initialize Firebase. Raises FirebaseInitError on failure.
+    Module-level wrapper around FirebaseRTDB.initialize().
+    """
+    _firebase.initialize()
 
 
 def setup_RTDB(user_uid: str, device_uid: str) -> dict:
@@ -276,7 +281,10 @@ def setup_RTDB(user_uid: str, device_uid: str) -> dict:
 
 
 def read_RTDB(database_ref: dict, min_to_stop: int = 1) -> dict:
-    """Module-level wrapper — backwards compatible with original."""
+    """
+    Read RTDB state. Raises FirebaseReadError on failure.
+    Module-level wrapper around FirebaseRTDB.read().
+    """
     return _firebase.read(database_ref, min_to_stop)
 
 
