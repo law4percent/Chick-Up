@@ -105,11 +105,50 @@ safe_pip_install "aiortc>=1.5.0"
 safe_pip_install opencv-python-headless
 safe_pip_install firebase-admin
 safe_pip_install RPi.GPIO
+safe_pip_install python-dotenv
 
 # -----------------------------
-# 8. CAMERA SYMLINK FIX
+# 8. CREATE .ENV FILE (IF MISSING)
 # -----------------------------
-echo "=== 8. Linking Camera Modules ==="
+echo "=== 8. Checking .env File ==="
+
+if [ ! -f ".env" ]; then
+    echo "Creating .env template..."
+    cat <<EOF > .env
+# ===== CHICK-UP ENVIRONMENT VARIABLES =====
+
+
+# Device Info
+DEVICE_UID=
+PRODUCTION_MODE=
+
+CAMERA_INDEX=0
+IS_WEB_CAM=false
+FRAME_WIDTH=1280
+FRAME_HEIGHT=720
+
+TEST_USER_UID=agjtuFg6YIcJWNfbDsc8QAlMEtj1
+TEST_USERNAME=honey
+
+# WebRTC / Signaling
+TURN_SERVER_URL=
+TURN_USERNAME=
+TURN_PASSWORD=
+
+DATABASE_URL=https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/
+EOF
+
+    chmod 600 .env
+    echo "✓ .env template created."
+    echo "⚠ IMPORTANT: Edit .env and fill in your real credentials."
+else
+    echo "✓ .env already exists."
+fi
+
+# -----------------------------
+# 9. CAMERA SYMLINK FIX
+# -----------------------------
+echo "=== 9. Linking Camera Modules ==="
 
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 SITE_PACKAGES="$VIRTUAL_ENV/lib/python$PYTHON_VERSION/site-packages"
@@ -118,15 +157,15 @@ ln -sf /usr/lib/python3/dist-packages/libcamera* "$SITE_PACKAGES/" || true
 ln -sf /usr/lib/python3/dist-packages/picamera2* "$SITE_PACKAGES/" || true
 
 # -----------------------------
-# 9. GPIO PERMISSIONS FIX
+# 10. GPIO PERMISSIONS FIX
 # -----------------------------
-echo "=== 9. Configuring GPIO Permissions ==="
+echo "=== 10. Configuring GPIO Permissions ==="
 sudo usermod -aG gpio $USER || true
 
 # -----------------------------
-# 10. VERIFY INSTALLATION
+# 11. VERIFY INSTALLATION
 # -----------------------------
-echo "=== 10. Verifying Installation ==="
+echo "=== 11. Verifying Installation ==="
 
 echo "--- I2C Devices ---"
 sudo i2cdetect -y 1 || echo "⚠ I2C bus check failed"
@@ -145,10 +184,12 @@ echo "-----------------------------------------"
 echo "✓ FULL Setup Complete!"
 echo ""
 echo "IMPORTANT:"
-echo "Reboot required for I2C & GPIO group changes."
-echo "Run: sudo reboot"
+echo "1. Reboot required for I2C & GPIO group changes."
+echo "   Run: sudo reboot"
 echo ""
-echo "After reboot:"
-echo "source chick-up-env/bin/activate"
-echo "python main.py"
+echo "2. Edit .env before running the system."
+echo ""
+echo "3. After reboot:"
+echo "   source chick-up-env/bin/activate"
+echo "   python main.py"
 echo "-----------------------------------------"
