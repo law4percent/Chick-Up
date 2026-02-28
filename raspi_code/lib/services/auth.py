@@ -322,7 +322,7 @@ class AuthService:
                 return None
 
             # Countdown display
-            self.lcd.write_at(1, 0, f"Expires in {remaining:2d}s  ")
+            self.lcd.show([f"Code: {code}", f"Expires in {remaining:2d}s"])
 
             # Poll for pairing completion
             try:
