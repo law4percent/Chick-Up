@@ -208,11 +208,24 @@ def _update_button_timestamp(database_ref: dict, button_type: str) -> None:
         ) from e
 
 
-def _log_analytics(user_uid: str, action_type: str, volume_percent: float) -> None:
+def _log_analytics(
+    user_uid      : str,
+    action_type   : str,
+    volume_percent: float,
+    source        : str = "keypad",
+) -> None:
     """
     Write an analytics entry to analytics/logs/{userId}.
     Matches analyticsService.ts logAction() shape so AnalyticsScreen can
-    read both app and keypad logs together.
+    read app, keypad, and schedule logs together.
+
+    Args:
+        user_uid:       Firebase user UID
+        action_type:    "feed" or "water"
+        volume_percent: Level change recorded after the action completes
+        source:         "keypad" | "schedule" | "app"
+                        Defaults to "keypad". Pass "schedule" for automated
+                        schedule triggers so analytics can distinguish them.
 
     Raises:
         FirebaseWriteError: If the Firebase push fails.
@@ -227,7 +240,7 @@ def _log_analytics(user_uid: str, action_type: str, volume_percent: float) -> No
         "time"          : now.strftime("%H:%M:%S"),
         "dayOfWeek"     : _PY_TO_JS_DAY[now.weekday()],
         "userId"        : user_uid,
-        "source"        : "keypad",
+        "source"        : source,
     }
     try:
         db.reference(f"analytics/logs/{user_uid}").push(log_entry)
@@ -448,10 +461,17 @@ def process_B(**kwargs) -> None:
     last_acted_feed_timestamp  = None
     last_acted_water_timestamp = None
 
+    # Schedule dedup guard — mirrors the app button timestamp pattern.
+    # Stores "scheduleId:HH:MM" of the last schedule we acted on so a
+    # schedule that stays True for an entire minute only fires ONCE,
+    # even if dispense_active becomes False before the minute ends.
+    last_acted_schedule_key = None
+
     water_level_before_refill   = 0.0
     feed_level_before_dispense  = 0.0
     prev_refill_active          = False
     prev_dispense_active        = False
+    pending_feed_source         = "keypad"  # source of the current/last dispense trigger
 
     last_lcd_update      = 0.0
     LCD_UPDATE_INTERVAL  = 1.0    # seconds
@@ -580,10 +600,30 @@ def process_B(**kwargs) -> None:
                 raw_water_timestamp != last_acted_water_timestamp
             )
 
+            # Schedule new-trigger detection — rising-edge guard identical to
+            # feed_app_new_press. current_feed_schedule_state is True for the
+            # entire 60-second window when now_time == schedule time. Without
+            # this guard, if dispense_active clears before the minute ends the
+            # schedule would fire a SECOND time in the same minute.
+            #
+            # Key format: "{scheduleId}:{HH:MM}" — resets automatically when
+            # the next minute starts and is_schedule_triggered() returns False.
+            schedule_key = None
+            if current_feed_schedule_state:
+                # is_schedule_triggered() already identified which schedule fired;
+                # use current time as the dedup key (minute-level granularity).
+                from datetime import datetime as _dt
+                schedule_key = f"sched:{_dt.now().strftime('%H:%M')}"
+
+            feed_schedule_new_trigger = (
+                current_feed_schedule_state and
+                schedule_key != last_acted_schedule_key
+            )
+
             feed_button_pressed = (
                 current_feed_physical_button_state or
                 feed_app_new_press                 or
-                current_feed_schedule_state
+                feed_schedule_new_trigger
             ) and not dispense_active
 
             water_button_pressed = (
@@ -591,11 +631,22 @@ def process_B(**kwargs) -> None:
                 water_app_new_press
             )
 
-            # Acknowledge timestamps once we act on them
+            # Determine analytics source for this dispense trigger
+            # (evaluated before acknowledgment so the flag is still set)
+            if feed_schedule_new_trigger and not current_feed_physical_button_state and not feed_app_new_press:
+                pending_feed_source = "schedule"
+            elif feed_app_new_press:
+                pending_feed_source = "app"
+            else:
+                pending_feed_source = "keypad"
+
+            # Acknowledge timestamps / schedule keys once we act on them
             if feed_app_new_press:
                 last_acted_feed_timestamp  = raw_feed_timestamp
             if water_app_new_press:
                 last_acted_water_timestamp = raw_water_timestamp
+            if feed_schedule_new_trigger:
+                last_acted_schedule_key    = schedule_key
 
             # ── Boot stabilization ────────────────────────────────────
             # Skip motor / refill / dispense logic for the first
@@ -647,10 +698,16 @@ def process_B(**kwargs) -> None:
             # ── Analytics on action completion ────────────────────────
             if prev_dispense_active and not dispense_active:
                 try:
-                    _log_analytics(user_uid, "feed", max(feed_level_before_dispense - current_feed_level, 0))
+                    _log_analytics(
+                        user_uid,
+                        "feed",
+                        max(feed_level_before_dispense - current_feed_level, 0),
+                        source=pending_feed_source,
+                    )
                 except firebase_rtdb.FirebaseWriteError as e:
                     log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
                 feed_level_before_dispense = 0.0
+                pending_feed_source        = "keypad"  # reset for next trigger
 
             if prev_refill_active and not refill_active:
                 try:
