@@ -3,3 +3,5 @@ docs
 *.log
 .vscode
 .git
+android
+ios
