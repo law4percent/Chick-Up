@@ -20,8 +20,12 @@ class AuthService {
    *   2. Create Firebase Auth user
    *   3. Write users/{uid}
    *   4. Write usernames/{username}
-   *   5. Initialize all default DB settings (settings, TURN config)  ← NEW
-   *   6. Sign out (user must log in explicitly)
+   *   5. Initialize default DB settings (feed, water, updatedAt)
+   *      NOTE: does NOT write TURN credentials — those live in .env only
+   *   6. Sign out — user must log in explicitly
+   *
+   * On any DB failure after step 2, the Auth user is deleted to prevent
+   * orphaned accounts (Auth user with no matching RTDB profile).
    */
   async signUp(formData: SignUpFormData): Promise<void> {
     let userCreated    = false;
@@ -63,9 +67,9 @@ class AuthService {
         email: formData.email,
       });
 
-      // ── Step 5: Initialize all default DB settings ───────────────────
-      // This writes settings/{uid} including TURN server config from .env
-      // The Raspi will not work until these defaults exist in Firebase.
+      // ── Step 5: Initialize default settings ─────────────────────────
+      // Writes settings/{uid}/feed, /water, /updatedAt.
+      // TURN credentials are NOT written here — they come from .env at runtime.
       await settingsService.initializeUserDefaults(user.uid);
 
       // ── Step 6: Sign out — user must log in explicitly ───────────────
@@ -74,20 +78,20 @@ class AuthService {
       console.log('✅ User registered and defaults initialized');
 
     } catch (error: any) {
-      // If DB write failed but Auth user was created — clean up orphan
+      // If DB write failed but Auth user was created — delete the orphan
       if (userCreated && userCredential?.user) {
         try {
           await userCredential.user.delete();
           console.log('🧹 Cleaned up orphaned auth user');
         } catch (deleteError) {
-          console.error('❌ Failed to clean up auth user:', deleteError);
+          console.error('❌ Failed to clean up orphaned auth user:', deleteError);
         }
       }
 
       if (error.code === 'auth/email-already-in-use') throw new Error('Email already in use');
       if (error.code === 'auth/weak-password')        throw new Error('Password should be at least 6 characters');
       if (error.code === 'auth/invalid-email')        throw new Error('Invalid email address');
-      if (error.code === 'PERMISSION_DENIED')         throw new Error('Database permission denied. Please check Firebase rules.');
+      if (error.code === 'PERMISSION_DENIED')         throw new Error('Database permission denied. Check Firebase rules.');
 
       console.error('❌ Sign-up error:', { code: error.code, message: error.message });
       throw error;
@@ -120,7 +124,7 @@ class AuthService {
       if (error.code === 'auth/too-many-requests')
         throw new Error('Too many failed attempts. Please try again later');
       if (error.code === 'PERMISSION_DENIED')
-        throw new Error('Database permission denied. Please check Firebase rules.');
+        throw new Error('Database permission denied. Check Firebase rules.');
 
       console.error('❌ Login error:', { code: error.code, message: error.message });
       throw error;

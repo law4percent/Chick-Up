@@ -248,12 +248,15 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       const userId = auth.currentUser?.uid;
       if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
       setWaterButtonDisabled(true); setWaterCountdown(3);
-      await analyticsService.logAction(userId, 'water', 'refill', 0);
+      // Write button timestamp FIRST — this is the actual command to the raspi.
+      // Only log analytics if the write succeeds so that pressing buttons while
+      // the raspi is offline does not pollute the analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'water');
+      await analyticsService.logAction(userId, 'water', 'refill', 0);
       Alert.alert('Success', 'Water refill command sent!');
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', error.message || 'Failed to refill water');
+      Alert.alert('Error', error.message || 'Failed to send command. Check your connection.');
       setWaterButtonDisabled(false); setWaterCountdown(0);
     }
   };
@@ -264,12 +267,15 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       const userId = auth.currentUser?.uid;
       if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
       setFeedButtonDisabled(true); setFeedCountdown(3);
-      await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
+      // Write button timestamp FIRST — this is the actual command to the raspi.
+      // Only log analytics if the write succeeds so offline button presses
+      // don't pollute analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'feed');
+      await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
       Alert.alert('Success', `Feed dispense command sent! (${feedVolume}%)`);
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', error.message || 'Failed to dispense feed');
+      Alert.alert('Error', error.message || 'Failed to send command. Check your connection.');
       setFeedButtonDisabled(false); setFeedCountdown(0);
     }
   };

@@ -7,22 +7,11 @@ import { UserSettings, DispenseSettings, WaterSettings } from '../types/types';
 
 const DEFAULT_DISPENSE_COUNTDOWN_MS = 60_000; // 60s — matches raspi default
 
-/**
- * TURN server credentials loaded from app .env at build time.
- *
- * Add these to your .env file:
- *   EXPO_PUBLIC_TURN_SERVER_URL=turn:159.223.47.213:3478
- *   EXPO_PUBLIC_TURN_USERNAME=webrtc
- *   EXPO_PUBLIC_TURN_PASSWORD=your_generated_password
- *
- * These are written to Firebase once on account creation under
- * settings/{userId}/turnServer/ so the raspi can read them too.
- * They are NEVER stored in plain source code.
- */
-const TURN_SERVER_URL      = process.env.EXPO_PUBLIC_TURN_SERVER_URL ?? '';
-const TURN_USERNAME        = process.env.EXPO_PUBLIC_TURN_USERNAME   ?? '';
-const TURN_PASSWORD        = process.env.EXPO_PUBLIC_TURN_PASSWORD   ?? '';
-const TURN_CONFIG_VALID    = !!(TURN_SERVER_URL && TURN_USERNAME && TURN_PASSWORD);
+// TURN credentials are intentionally NOT stored in Firebase.
+// They are loaded directly from .env in webrtcService.ts at stream-start.
+// Storing them in Firebase (even under settings/{userId}) would expose them
+// to any authenticated user who can read the RTDB.
+// The raspi reads TURN from its own credentials/.env — no Firebase needed.
 
 
 // ─────────────────────────── SERVICE ─────────────────────────────────────────
@@ -71,15 +60,16 @@ class SettingsService {
    * Called once from authService.signUp() immediately after account creation.
    * The Raspi depends on these values existing in Firebase before it can run.
    *
-   * Writes:
+   * Writes only:
    *   settings/{userId}/feed
    *   settings/{userId}/water
-   *   settings/{userId}/turnServer   ← TURN credentials from .env
    *   settings/{userId}/updatedAt
+   *
+   * Does NOT write turnServer — TURN credentials come from .env only.
    */
   async initializeUserDefaults(userId: string): Promise<void> {
     try {
-      const defaults: any = {
+      const defaults = {
         feed: {
           thresholdPercent:      20,
           dispenseVolumePercent: 10,
@@ -93,23 +83,8 @@ class SettingsService {
         updatedAt: Date.now(),
       };
 
-      // Write TURN config only if all three env vars are set
-      if (TURN_CONFIG_VALID) {
-        defaults.turnServer = {
-          serverUrl: TURN_SERVER_URL,
-          username:  TURN_USERNAME,
-          password:  TURN_PASSWORD,
-        };
-      } else {
-        console.warn(
-          '⚠️ TURN credentials missing from .env — ' +
-          'set EXPO_PUBLIC_TURN_SERVER_URL, EXPO_PUBLIC_TURN_USERNAME, EXPO_PUBLIC_TURN_PASSWORD. ' +
-          'Live streaming may fail on mobile data.'
-        );
-      }
-
       await set(ref(database, `settings/${userId}`), defaults);
-      console.log('✅ User defaults initialized', TURN_CONFIG_VALID ? '(TURN config included)' : '(no TURN config)');
+      console.log('✅ User defaults initialized');
 
     } catch (error) {
       console.error('❌ Error initializing user defaults:', error);
@@ -118,25 +93,33 @@ class SettingsService {
   }
 
   /**
-   * Initialize default settings (alias kept for backwards compat).
-   * Prefer initializeUserDefaults() for new code — it also writes TURN config.
+   * Alias kept for backwards compatibility.
    */
   async initializeSettings(userId: string): Promise<void> {
     return this.initializeUserDefaults(userId);
   }
 
   /**
-   * Update user settings (deep merge to preserve nested fields).
+   * Update user settings.
+   *
+   * Writes feed, water, and updatedAt as individual granular writes —
+   * never as a full set() on settings/{userId}. A full set() would delete
+   * any sibling keys that exist at that path (future admin-written fields,
+   * or other app versions writing additional keys).
    */
   async updateSettings(userId: string, settings: Partial<UserSettings>): Promise<void> {
     try {
-      const existing = await this.getSettings(userId);
-      const updated: UserSettings = {
-        feed: { ...existing?.feed,  ...settings.feed  },
-        water:{ ...existing?.water, ...settings.water },
-        updatedAt: Date.now(),
-      } as UserSettings;
-      await set(ref(database, `settings/${userId}`), updated);
+      const writes: Promise<void>[] = [];
+
+      if (settings.feed) {
+        writes.push(set(ref(database, `settings/${userId}/feed`), settings.feed));
+      }
+      if (settings.water) {
+        writes.push(set(ref(database, `settings/${userId}/water`), settings.water));
+      }
+      writes.push(set(ref(database, `settings/${userId}/updatedAt`), Date.now()));
+
+      await Promise.all(writes);
       console.log('✅ Settings updated');
     } catch (error) {
       console.error('❌ Error updating settings:', error);

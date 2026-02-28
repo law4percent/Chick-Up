@@ -6,14 +6,18 @@ import {
   MediaStream,
 } from 'react-native-webrtc';
 import { database } from '../config/firebase.config';
-import { ref, set, onValue, push, remove, off, get } from 'firebase/database';
-import { TurnServerConfig } from '../types/types';
+import { ref, set, onValue, push, remove, off } from 'firebase/database';
 
 /**
  * WebRTC Service — signaling via Firebase RTDB, video relay via TURN.
  *
- * TURN config is loaded from Firebase at stream-start, NOT hardcoded.
- * Path: settings/{userId}/turnServer/  (TurnServerConfig shape)
+ * TURN config is loaded from .env at build time — NOT from Firebase.
+ * This keeps credentials out of the database entirely.
+ *
+ * Add to your .env file:
+ *   EXPO_PUBLIC_TURN_SERVER_URL=143.198.45.67:3478
+ *   EXPO_PUBLIC_TURN_USERNAME=webrtc
+ *   EXPO_PUBLIC_TURN_PASSWORD=your_strong_password
  *
  * URL normalization mirrors webrtc_peer.py exactly:
  *   strips any existing turn:/turns:/stun: prefix, rebuilds as
@@ -28,12 +32,12 @@ import { TurnServerConfig } from '../types/types';
  *   liveStream/{userId}/{deviceUid}/liveStreamButton             ← app writes
  */
 
-// ─────────────────────────── TURN URL NORMALIZATION ──────────────────────────
+// ─────────────────────────── TURN FROM .ENV ──────────────────────────────────
 
 /**
  * Strip any scheme prefix (turn: / turns: / stun:) then rebuild correctly.
  * Matches the normalization in webrtc_peer.py so both sides produce valid URIs
- * regardless of how the URL is stored in Firebase.
+ * regardless of how the URL is stored.
  */
 function normalizeTurnHost(raw: string): string {
   let host = raw.trim();
@@ -46,32 +50,37 @@ function normalizeTurnHost(raw: string): string {
   return host;
 }
 
-interface RTCIceServer {
-  urls: string | string[];
-  username?: string;
-  credential?: string;
-}
+const TURN_URL  = process.env.EXPO_PUBLIC_TURN_SERVER_URL ?? '';
+const TURN_USER = process.env.EXPO_PUBLIC_TURN_USERNAME   ?? '';
+const TURN_PASS = process.env.EXPO_PUBLIC_TURN_PASSWORD   ?? '';
 
-function buildIceServers(turn: TurnServerConfig | null): RTCIceServer[] {
-  const servers: RTCIceServer[] = [
+function buildIceServers() {
+  const servers: any[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ];
 
-  if (turn) {
-    const host = normalizeTurnHost(turn.serverUrl);
+  if (TURN_URL && TURN_USER && TURN_PASS) {
+    const host = normalizeTurnHost(TURN_URL);
     servers.push({
       urls: [
         `turn:${host}?transport=udp`,  // UDP first — lower latency
         `turn:${host}?transport=tcp`,  // TCP fallback for CGNAT / strict firewall
       ],
-      username:   turn.username,
-      credential: turn.password,
+      username:   TURN_USER,
+      credential: TURN_PASS,
     });
+    console.log('[WebRTC] TURN loaded from .env:', `turn:${host}`);
+  } else {
+    console.warn('[WebRTC] ⚠️ TURN not configured in .env — may fail on mobile data (CGNAT).');
+    console.warn('[WebRTC]   Set EXPO_PUBLIC_TURN_SERVER_URL, EXPO_PUBLIC_TURN_USERNAME, EXPO_PUBLIC_TURN_PASSWORD');
   }
 
   return servers;
 }
+
+// Build once at module load — env vars are static at runtime
+const ICE_SERVERS = buildIceServers();
 
 // ─────────────────────────── SERVICE ─────────────────────────────────────────
 
@@ -82,8 +91,8 @@ class WebRTCService {
   private deviceUid:      string | null = null;
   private isInitialized:  boolean = false;
 
-  private answerListener:   (() => void) | null = null;
-  private raspiIceListener: (() => void) | null = null;
+  private answerListener:   any = null;
+  private raspiIceListener: any = null;
 
   private onRemoteStreamCallback:    ((stream: MediaStream) => void) | null = null;
   private onConnectionStateCallback: ((state: string) => void) | null = null;
@@ -97,36 +106,16 @@ class WebRTCService {
     return ref(database, `liveStream/${this.userId}/${this.deviceUid}/${subpath}`);
   }
 
-  // ── Load TURN config from Firebase ───────────────────────────────────────────
-
-  /**
-   * Reads TurnServerConfig from settings/{userId}/turnServer/.
-   * Returns null silently if not configured — gracefully falls back to STUN only.
-   */
-  private async loadTurnConfig(): Promise<TurnServerConfig | null> {
-    if (!this.userId) return null;
-    try {
-      const snap = await get(ref(database, `settings/${this.userId}/turnServer`));
-      if (!snap.exists()) {
-        console.warn('[WebRTC] ⚠️ No TURN config found at settings/{userId}/turnServer');
-        console.warn('[WebRTC]   Connection may fail on CGNAT mobile networks.');
-        return null;
-      }
-      const cfg = snap.val() as TurnServerConfig;
-      if (!cfg.serverUrl || !cfg.username || !cfg.password) {
-        console.warn('[WebRTC] ⚠️ TURN config is incomplete — missing serverUrl/username/password');
-        return null;
-      }
-      console.log('[WebRTC] ✅ TURN config loaded:', cfg.serverUrl);
-      return cfg;
-    } catch (e) {
-      console.warn('[WebRTC] ⚠️ Could not load TURN config from Firebase:', e);
-      return null;
-    }
-  }
-
   // ── Initialize ────────────────────────────────────────────────────────────────
 
+  /**
+   * Create RTCPeerConnection with ICE servers from .env.
+   *
+   * Safe to call multiple times — if already initialized, cleans up first.
+   * This prevents the "Call initialize() before startConnection()" error
+   * that can occur when stop → start happens quickly (cleanup sets
+   * isInitialized=false, but the UI calls startConnection before initialize).
+   */
   async initialize(
     userId:             string,
     deviceUid:          string,
@@ -134,8 +123,19 @@ class WebRTCService {
     onConnectionState?: (state: string) => void,
     onError?:           (error: Error) => void,
   ): Promise<void> {
+    // If already initialized with same userId+deviceUid, no-op
+    if (this.isInitialized && this.userId === userId && this.deviceUid === deviceUid) {
+      console.log('[WebRTC] Already initialized for this session, skipping re-init');
+      return;
+    }
+
+    // If initialized for a different session, clean up first
+    if (this.isInitialized) {
+      await this._internalCleanup();
+    }
+
     try {
-      console.log('[WebRTC] Initializing with Firebase TURN config...');
+      console.log('[WebRTC] Initializing...');
 
       this.userId    = userId;
       this.deviceUid = deviceUid;
@@ -143,18 +143,13 @@ class WebRTCService {
       this.onConnectionStateCallback = onConnectionState ?? null;
       this.onErrorCallback           = onError ?? null;
 
-      // Load TURN from Firebase — never hardcoded
-      const turnConfig = await this.loadTurnConfig();
-
-      this.peerConnection = new RTCPeerConnection({
-        iceServers: buildIceServers(turnConfig),
-      });
+      this.peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       const pc = this.peerConnection as any;
 
       pc.onicecandidate = (event: any) => {
         if (!event.candidate) return;
         const c: string = event.candidate.candidate;
-        if (c.includes('typ host'))  { this.iceStats.host++;  console.log('[WebRTC] 🏠 host candidate'); }
+        if (c.includes('typ host'))  { this.iceStats.host++;  console.log('[WebRTC] 🏠 host'); }
         if (c.includes('typ srflx')) { this.iceStats.srflx++; console.log('[WebRTC] 🌐 srflx (STUN)'); }
         if (c.includes('typ relay')) { this.iceStats.relay++; console.log('[WebRTC] 🔄 relay (TURN) ✅'); }
         this.sendIceCandidate(event.candidate);
@@ -165,7 +160,7 @@ class WebRTCService {
         if (pc.iceGatheringState === 'complete') {
           console.log('[WebRTC] 📊 ICE stats:', this.iceStats);
           if (this.iceStats.relay === 0) {
-            console.warn('[WebRTC] ⚠️ No relay candidates — TURN server may be unreachable or misconfigured.');
+            console.warn('[WebRTC] ⚠️ No relay candidates. Check TURN .env vars and VPS firewall.');
           }
         }
       };
@@ -188,7 +183,7 @@ class WebRTCService {
         if (state === 'connected') console.log('[WebRTC] 🎉 Connected! Stats:', this.iceStats);
         if (state === 'failed' || state === 'closed') {
           console.log('[WebRTC] 📊 Final stats:', this.iceStats);
-          this.cleanup();
+          this._internalCleanup();
         }
       };
 
@@ -198,7 +193,7 @@ class WebRTCService {
         if (state === 'failed') {
           console.error('[WebRTC] ❌ ICE failed. Stats:', this.iceStats);
           if (this.iceStats.relay === 0) {
-            console.error('[WebRTC]   → No relay candidates — add TURN config to Firebase: settings/{userId}/turnServer');
+            console.error('[WebRTC]   → No relay candidates. Verify TURN server .env and VPS is running.');
           }
         }
       };
@@ -241,7 +236,7 @@ class WebRTCService {
       await set(this.liveStreamRef('offer'), {
         sdp: offer.sdp, type: offer.type, timestamp: Date.now(),
       });
-      console.log('[WebRTC] Offer sent to Firebase');
+      console.log('[WebRTC] Offer sent');
 
       this.listenForAnswer();
       this.listenForRaspiIceCandidates();
@@ -273,7 +268,7 @@ class WebRTCService {
         console.error('[WebRTC] setRemoteDescription error:', e);
         this.onErrorCallback?.(e as Error);
       }
-    }) as any;
+    });
   }
 
   // ── Raspi ICE candidates listener ─────────────────────────────────────────────
@@ -294,17 +289,17 @@ class WebRTCService {
             }),
           );
           const isRelay = (d.candidate as string).includes('typ relay');
-          console.log(`[WebRTC] ✅ Added raspi ICE${isRelay ? ' 🔄 TURN relay' : ''}`);
+          console.log(`[WebRTC] ✅ raspi ICE${isRelay ? ' 🔄 TURN relay' : ''}`);
         } catch (e) {
           console.error('[WebRTC] addIceCandidate error:', e);
         }
       }
 
-      if ((this.peerConnection as any).connectionState === 'connected') {
+      if ((this.peerConnection as any)?.connectionState === 'connected') {
         off(iceCandidatesRef);
         this.raspiIceListener = null;
       }
-    }) as any;
+    });
   }
 
   // ── Send local ICE to Firebase ────────────────────────────────────────────────
@@ -326,22 +321,28 @@ class WebRTCService {
 
   // ── Stop ──────────────────────────────────────────────────────────────────────
 
+  /**
+   * Stop the stream and clean up.
+   *
+   * Guards against being called when never started (e.g. component unmount
+   * before any stream was opened) — avoids orphan Firebase writes.
+   */
   async stopConnection(): Promise<void> {
+    if (!this.userId || !this.deviceUid) {
+      // Never started — nothing to clean up in Firebase
+      return;
+    }
     console.log('[WebRTC] Stopping...');
     try {
-      if (this.userId && this.deviceUid) {
-        await set(this.liveStreamRef('liveStreamButton'), false);
-        await this.updateConnectionState('disconnected');
-      }
-      await this.cleanup();
-    } catch (e) {
-      console.error('[WebRTC] stopConnection error:', e);
-    }
+      await set(this.liveStreamRef('liveStreamButton'), false);
+      await this.updateConnectionState('disconnected');
+    } catch { /* non-fatal */ }
+    await this._internalCleanup();
   }
 
-  // ── Cleanup ───────────────────────────────────────────────────────────────────
+  // ── Internal cleanup (no Firebase writes) ────────────────────────────────────
 
-  private async cleanup(): Promise<void> {
+  private async _internalCleanup(): Promise<void> {
     if (this.answerListener && this.userId && this.deviceUid) {
       off(this.liveStreamRef('answer'));
       this.answerListener = null;
@@ -356,7 +357,6 @@ class WebRTCService {
     await this.cleanupFirebaseSignaling();
     this.iceStats      = { host: 0, srflx: 0, relay: 0 };
     this.isInitialized = false;
-    console.log('[WebRTC] Cleanup complete');
   }
 
   private async cleanupFirebaseSignaling(): Promise<void> {

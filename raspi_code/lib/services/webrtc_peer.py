@@ -324,7 +324,12 @@ class WebRTCPeer:
             if modified_sdp != answer.sdp:
                 answer = RTCSessionDescription(sdp=modified_sdp, type=answer.type)
 
+            # setLocalDescription triggers ICE gathering. Wait for it to
+            # complete before sending the answer — otherwise socket.send()
+            # fires on a half-initialised ICE agent and raises an exception,
+            # and host/srflx/relay candidates all stay at 0.
             await self.pc.setLocalDescription(answer)
+            await self._wait_for_ice_gather(timeout=10.0)
 
             self.answer_ref.set({
                 "sdp"       : self.pc.localDescription.sdp,
@@ -345,6 +350,33 @@ class WebRTCPeer:
                 self.connection_state_ref.set("failed")
             except Exception:
                 pass
+
+    async def _wait_for_ice_gather(self, timeout: float = 10.0) -> None:
+        """
+        Block until iceGatheringState == 'complete' or timeout expires.
+
+        Without this wait, the raspi sends the answer SDP before local ICE
+        candidates are ready. The subsequent STUN/TURN socket writes land on
+        sockets that aiortc has already started tearing down, which produces:
+            socket.send() raised exception
+        and leaves host/srflx/relay candidate counts all at 0.
+
+        10 seconds is generous — normal ICE gather on a Pi with WiFi takes
+        under 2 seconds for host candidates.
+        """
+        deadline = time.time() + timeout
+        while self.pc and self.pc.iceGatheringState != "complete":
+            if time.time() > deadline:
+                _log(
+                    details=(
+                        f"ICE gather timed out after {timeout:.0f}s — "
+                        f"state={getattr(self.pc, 'iceGatheringState', 'gone')} "
+                        f"stats={self.ice_stats}"
+                    ),
+                    log_type="warning"
+                )
+                return
+            await asyncio.sleep(0.1)
 
     # ─────────────────────────── ICE CANDIDATES ──────────────────────────────
 

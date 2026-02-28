@@ -192,31 +192,73 @@ class AuthService:
 
     def _show_pairing_menu(self) -> dict:
         """
-        Show LCD menu and wait for keypress:
-            A → pairing flow
-            B → shutdown
+        Cursor-based LCD menu — navigated with the keypad.
+
+        Keys:
+            2       → move cursor UP
+            8       → move cursor DOWN
+            A       → confirm selection
+            (any)   → ignored
+
+        Menu items:
+            0: Login     → start pairing flow
+            1: Shutdown  → clean shutdown
+
+        The LCD is 16×2. Layout with cursor on item 0:
+            Line 0: "> Login         "
+            Line 1: "  Shutdown      "
+
+        When cursor moves to item 1:
+            Line 0: "  Login         "
+            Line 1: "> Shutdown      "
         """
+        MENU_ITEMS = ["Login", "Shutdown"]
+        cursor     = 0                       # index of currently highlighted item
+        NUM_ITEMS  = len(MENU_ITEMS)
+        VISIBLE    = 2                        # LCD rows
+
+        def _render(cur: int) -> None:
+            lines = []
+            # Show the window of items that keeps the cursor visible
+            # For a 2-row LCD and 2 items this is simply items[0] and items[1]
+            start = max(0, min(cur, NUM_ITEMS - VISIBLE))
+            for i in range(start, start + VISIBLE):
+                prefix = "> " if i == cur else "  "
+                label  = MENU_ITEMS[i] if i < NUM_ITEMS else ""
+                lines.append(f"{prefix}{label:<14}")  # 2 + 14 = 16 chars
+            self.lcd.show(lines)
+
+        # Initial render
+        _render(cursor)
+
         while True:
-            self.lcd.show([
-                " CHICK-UP SYSTEM",
-                "================",
-                "A. Login",
-                "B. Shutdown"
-            ])
+            key = self.keypad.wait_for_key(valid_keys=["2", "8", "A"])
 
-            key = self.keypad.wait_for_key(valid_keys=["A", "B"])
+            if key == "2":
+                # Scroll UP — wrap around
+                cursor = (cursor - 1) % NUM_ITEMS
+                _render(cursor)
 
-            if key == "A":
-                result = self._pairing_flow()
-                if result:
-                    return result
-                # Pairing failed/expired → loop back to menu
+            elif key == "8":
+                # Scroll DOWN — wrap around
+                cursor = (cursor + 1) % NUM_ITEMS
+                _render(cursor)
 
-            elif key == "B":
-                self.lcd.show(["Shutting down...", "Goodbye!"], duration=2)
-                self.lcd.clear()
-                os.system("sudo shutdown -h now")
-                raise SystemExit
+            elif key == "A":
+                selected = MENU_ITEMS[cursor]
+
+                if selected == "Login":
+                    result = self._pairing_flow()
+                    if result:
+                        return result
+                    # Pairing failed/expired → redraw menu and wait again
+                    _render(cursor)
+
+                elif selected == "Shutdown":
+                    self.lcd.show(["Shutting down...", "Goodbye!"], duration=2)
+                    self.lcd.clear()
+                    os.system("sudo shutdown -h now")
+                    raise SystemExit
 
     # ─────────────────────────── PAIRING FLOW ────────────────────────────────
 
@@ -414,6 +456,32 @@ class AuthService:
         return credentials
 
     # ─────────────────────────── HELPERS ─────────────────────────────────────
+
+    def logout(self, credentials: dict) -> None:
+        """
+        Delete local credentials and clean up Firebase.
+        Called by main.py after both processes have been stopped.
+
+        Args:
+            credentials: The credentials dict that was active — used to
+                         remove users/{userUid}/linkedDevice from Firebase.
+        """
+        # Delete local credentials file
+        if os.path.exists(self._cred_path):
+            try:
+                os.remove(self._cred_path)
+            except Exception as e:
+                self.lcd.show(["Logout failed", str(e)[:16]], duration=2)
+                return
+
+        # Best-effort: remove linkedDevice from Firebase so the app
+        # immediately shows the device as unpaired
+        try:
+            db.reference(f"users/{credentials['userUid']}/linkedDevice").delete()
+        except Exception:
+            pass  # Non-critical
+
+        self.lcd.show(["Logged out!", "Pairing menu..."], duration=2)
 
     def _generate_device_code(self) -> str:
         """

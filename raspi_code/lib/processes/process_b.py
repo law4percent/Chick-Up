@@ -22,14 +22,13 @@ from lib.services.hardware import (
 from lib.services.hardware.keypad_controller import Keypad4x4, KeypadError
 from lib.services.hardware.motor_controller  import MotorError, MotorSetupError
 from lib.services.logger import get_logger
-from lib.services.utils  import normalize_path
 
 log = get_logger("process_b.py")
 
 # ─────────────────────────── DISPENSE COUNTDOWN CONFIG ───────────────────────
 
 DEFAULT_DISPENSE_COUNTDOWN_MS = 1000 * 60          # 60 seconds — hard fallback
-_COUNTDOWN_CACHE_PATH         = normalize_path("credentials/dispense_countdown_ms.txt")
+_COUNTDOWN_CACHE_PATH         = "credentials/dispense_countdown_ms.txt"
 
 
 def _load_cached_countdown() -> int | None:
@@ -143,6 +142,7 @@ def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
             current_water_level                 : float
             current_feed_physical_button_state  : bool
             current_water_physical_button_state : bool
+            raw_key                             : str | None  — the raw key pressed
 
     Raises:
         KeypadError: If keypad scan fails.
@@ -165,6 +165,7 @@ def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
         "current_water_level"                   : _convert_to_percentage(water_level),
         "current_feed_physical_button_state"    : current_feed_physical_button_state,
         "current_water_physical_button_state"   : current_water_physical_button_state,
+        "raw_key"                               : key,
     }
 
 
@@ -342,23 +343,25 @@ def process_B(**kwargs) -> None:
     Hardware control process — sensors, motors, LCD, Firebase sync.
 
     Expected kwargs["process_B_args"] keys:
-        TASK_NAME        : str
-        status_checker   : multiprocessing.Event
-        live_status      : multiprocessing.Event
-        USER_CREDENTIAL  : dict  {userUid, deviceUid}
-        LCD_I2C_ADDR     : int   (default 0x27)
+        TASK_NAME          : str
+        status_checker     : multiprocessing.Event
+        live_status        : multiprocessing.Event
+        logout_requested   : multiprocessing.Event  — set when user holds D for 3 s
+        USER_CREDENTIAL    : dict  {userUid, deviceUid}
+        LCD_I2C_ADDR       : int   (default 0x27)
 
     DISPENSE_COUNTDOWN_TIME is no longer passed from main.py.
     Process B reads it from settings/{userUid}/feed/dispenseCountdownMs after
     Firebase is initialized. Falls back to a local cache file, then to the
     hardcoded DEFAULT_DISPENSE_COUNTDOWN_MS if both are unavailable.
     """
-    args           = kwargs["process_B_args"]
-    TASK_NAME      = args["TASK_NAME"]
-    status_checker = args["status_checker"]
-    live_status    = args["live_status"]
-    USER_CREDENTIAL= args["USER_CREDENTIAL"]
-    LCD_I2C_ADDR   = args.get("LCD_I2C_ADDR", 0x27)
+    args              = kwargs["process_B_args"]
+    TASK_NAME         = args["TASK_NAME"]
+    status_checker    = args["status_checker"]
+    live_status       = args["live_status"]
+    logout_requested  = args["logout_requested"]
+    USER_CREDENTIAL   = args["USER_CREDENTIAL"]
+    LCD_I2C_ADDR      = args.get("LCD_I2C_ADDR", 0x27)
 
     log(details=f"{TASK_NAME} - Running", log_type="info")
 
@@ -431,6 +434,14 @@ def process_B(**kwargs) -> None:
     dispense_countdown_start = 0
     MAX_REFILL_LEVEL         = 95
 
+    # Boot stabilization — skip motor logic for the first N ticks.
+    # Without this, sensors read 0.0% on the very first loop iteration
+    # (before the ultrasonic median filter has a stable reading), which
+    # causes auto-refill to fire immediately if water_threshold_warning > 0.
+    # 20 ticks × 100 ms = 2 seconds of settling time.
+    BOOT_STABILIZATION_TICKS = 20
+    boot_ticks_elapsed        = 0
+
     # Last button timestamps the device has already acted on.
     # Prevents re-triggering while is_fresh() still returns True
     # (the app timestamp stays "fresh" for 60s after a single press).
@@ -447,6 +458,13 @@ def process_B(**kwargs) -> None:
 
     last_db_error_log    = 0.0
     DB_ERROR_LOG_INTERVAL = 10.0  # suppress repeated DB error logs
+
+    # ── Logout via D-key hold ─────────────────────────────────────────
+    # Holding D for LOGOUT_HOLD_SECONDS triggers a logout request.
+    # main.py monitors logout_requested Event and handles the actual logout.
+    LOGOUT_HOLD_SECONDS  = 3.0
+    d_key_hold_start     = 0.0   # monotonic time when D was first seen held
+    d_key_held           = False
 
     # ── Main loop ─────────────────────────────────────────────────────────
     try:
@@ -465,10 +483,32 @@ def process_B(**kwargs) -> None:
                 current_water_level                 = pins_data["current_water_level"]
                 current_feed_physical_button_state  = pins_data["current_feed_physical_button_state"]
                 current_water_physical_button_state = pins_data["current_water_physical_button_state"]
+                raw_key                             = pins_data["raw_key"]
             except Exception as e:
                 log(details=f"{TASK_NAME} - Sensor read failed: {e}", log_type="error")
                 status_checker.clear()
                 break
+
+            # ── D-key hold → logout request ───────────────────────────
+            # Hold D for LOGOUT_HOLD_SECONDS to request a logout.
+            # main.py monitors the logout_requested Event and handles
+            # stopping processes + calling auth.logout() + re-pairing.
+            if raw_key == "D":
+                if not d_key_held:
+                    d_key_held       = True
+                    d_key_hold_start = time.monotonic()
+                elif time.monotonic() - d_key_hold_start >= LOGOUT_HOLD_SECONDS:
+                    log(details=f"{TASK_NAME} - Logout requested via D-key hold", log_type="info")
+                    if lcd_obj:
+                        try:
+                            lcd_obj.show(["Hold D: Logout", "Please wait..."])
+                        except Exception:
+                            pass
+                    logout_requested.set()
+                    break
+            else:
+                d_key_held       = False
+                d_key_hold_start = 0.0
 
             # ── Read Firebase ─────────────────────────────────────────
             try:
@@ -556,6 +596,16 @@ def process_B(**kwargs) -> None:
                 last_acted_feed_timestamp  = raw_feed_timestamp
             if water_app_new_press:
                 last_acted_water_timestamp = raw_water_timestamp
+
+            # ── Boot stabilization ────────────────────────────────────
+            # Skip motor / refill / dispense logic for the first
+            # BOOT_STABILIZATION_TICKS iterations so ultrasonic sensors
+            # have time to produce stable readings. Without this, 0%
+            # sensor readings at boot can trigger auto-refill immediately
+            # if auto-refill is enabled and the threshold is > 0.
+            if boot_ticks_elapsed < BOOT_STABILIZATION_TICKS:
+                boot_ticks_elapsed += 1
+                continue
 
             # ── Snapshot levels before new action starts ──────────────
             if feed_button_pressed and not dispense_active:
