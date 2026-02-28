@@ -49,6 +49,12 @@ TURN_USERNAME   = os.getenv("TURN_USERNAME")
 TURN_PASSWORD   = os.getenv("TURN_PASSWORD")
 
 
+log(f'CAMERA_INDEX raw: {repr(os.getenv('CAMERA_INDEX'))}', log_type="debug")
+log(f'TURN_SERVER_URL:  {repr(os.getenv('TURN_SERVER_URL'))}', log_type="debug")
+log(f'TURN_USERNAME:    {repr(os.getenv('TURN_USERNAME'))}', log_type="debug")
+log(f'TURN_PASSWORD:    {repr(os.getenv('TURN_PASSWORD'))}', log_type="debug")
+
+
 def main(**kargs) -> None:
     """
     System entry point.
