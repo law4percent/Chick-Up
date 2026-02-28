@@ -17,10 +17,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mr_itnology.chick_up"
+      "bundleIdentifier": "com.mritnology.chickup"
     },
     "android": {
-      "package": "com.mr_itnology.chick_up",
+      "package": "com.mritnology.chickup",
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
