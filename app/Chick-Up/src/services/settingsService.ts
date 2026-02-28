@@ -1,7 +1,9 @@
 // src/services/settingsService.ts
 import { ref, onValue, off, set, get } from 'firebase/database';
 import { database } from '../config/firebase.config';
-import { UserSettings, DispenseSettings, /*NotificationSettings,*/ WaterSettings } from '../types/types';
+import { UserSettings, DispenseSettings, WaterSettings } from '../types/types';
+
+const DEFAULT_DISPENSE_COUNTDOWN_MS = 60_000; // 60 s — matches raspi DEFAULT_DISPENSE_COUNTDOWN_MS
 
 class SettingsService {
   /**
@@ -14,25 +16,21 @@ class SettingsService {
   ): () => void {
     const settingsRef = ref(database, `settings/${userId}`);
 
-    const unsubscribe = onValue(
+    onValue(
       settingsRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          const data = snapshot.val() as UserSettings;
-          callback(data);
+          callback(snapshot.val() as UserSettings);
         } else {
           callback(null);
         }
       },
       (error) => {
         console.error('❌ Settings subscription error:', error);
-        if (onError) {
-          onError(error);
-        }
+        onError?.(error);
       }
     );
 
-    // Return cleanup function
     return () => off(settingsRef);
   }
 
@@ -41,13 +39,8 @@ class SettingsService {
    */
   async getSettings(userId: string): Promise<UserSettings | null> {
     try {
-      const settingsRef = ref(database, `settings/${userId}`);
-      const snapshot = await get(settingsRef);
-
-      if (snapshot.exists()) {
-        return snapshot.val() as UserSettings;
-      }
-      return null;
+      const snapshot = await get(ref(database, `settings/${userId}`));
+      return snapshot.exists() ? (snapshot.val() as UserSettings) : null;
     } catch (error) {
       console.error('❌ Error fetching settings:', error);
       throw error;
@@ -55,31 +48,24 @@ class SettingsService {
   }
 
   /**
-   * Update user settings
+   * Update user settings (deep merge to preserve nested fields)
    */
   async updateSettings(userId: string, settings: Partial<UserSettings>): Promise<void> {
     try {
-      const settingsRef = ref(database, `settings/${userId}`);
-      const existingSettings = await this.getSettings(userId);
-
-      // Deep merge to ensure nested water settings are properly preserved
-      const updatedSettings: UserSettings = {
-        // notifications: {
-        //   ...existingSettings?.notifications,
-        //   ...settings.notifications,
-        // },
+      const existing = await this.getSettings(userId);
+      const updated: UserSettings = {
         feed: {
-          ...existingSettings?.feed,
+          ...existing?.feed,
           ...settings.feed,
         },
         water: {
-          ...existingSettings?.water,
+          ...existing?.water,
           ...settings.water,
         },
         updatedAt: Date.now(),
       } as UserSettings;
 
-      await set(settingsRef, updatedSettings);
+      await set(ref(database, `settings/${userId}`), updated);
       console.log('✅ Settings updated successfully');
     } catch (error) {
       console.error('❌ Error updating settings:', error);
@@ -88,33 +74,23 @@ class SettingsService {
   }
 
   /**
-   * Update notification settings
-   */
-  async updateNotificationSettings(
-    userId: string,
-    // notifications: NotificationSettings
-  ): Promise<void> {
-    try {
-      // await set(ref(database, `settings/${userId}/notifications`), notifications);
-      await set(ref(database, `settings/${userId}/updatedAt`), Date.now());
-      console.log('✅ Notification settings updated');
-    } catch (error) {
-      console.error('❌ Error updating notification settings:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update feed settings
+   * Update feed settings.
+   * Includes dispenseCountdownMs — raspi picks this up on next boot
+   * and also live mid-session via its 100 ms read loop.
    */
   async updateFeedSettings(userId: string, feedSettings: DispenseSettings): Promise<void> {
     try {
-      // Validate inputs
       if (feedSettings.thresholdPercent < 0 || feedSettings.thresholdPercent > 100) {
         throw new Error('Threshold must be between 0 and 100');
       }
       if (feedSettings.dispenseVolumePercent < 0 || feedSettings.dispenseVolumePercent > 100) {
         throw new Error('Dispense volume must be between 0 and 100');
+      }
+      if (
+        feedSettings.dispenseCountdownMs !== undefined &&
+        (feedSettings.dispenseCountdownMs < 5_000 || feedSettings.dispenseCountdownMs > 300_000)
+      ) {
+        throw new Error('Dispense countdown must be between 5 000 ms (5 s) and 300 000 ms (5 min)');
       }
 
       await set(ref(database, `settings/${userId}/feed`), feedSettings);
@@ -131,7 +107,6 @@ class SettingsService {
    */
   async updateWaterSettings(userId: string, waterSettings: WaterSettings): Promise<void> {
     try {
-      // Validate inputs
       if (waterSettings.thresholdPercent < 0 || waterSettings.thresholdPercent > 100) {
         throw new Error('Threshold must be between 0 and 100');
       }
@@ -149,21 +124,20 @@ class SettingsService {
   }
 
   /**
-   * Initialize default settings for a new user
+   * Initialize default settings for a new user.
+   * dispenseCountdownMs defaults to 60 000 ms — matches raspi hardcoded default.
    */
   async initializeSettings(userId: string): Promise<void> {
     try {
       const defaultSettings: UserSettings = {
-        // notifications: {
-        //   smsEnabled: true,
-        // },
         feed: {
-          thresholdPercent: 20,
+          thresholdPercent:      20,
           dispenseVolumePercent: 10,
+          dispenseCountdownMs:   DEFAULT_DISPENSE_COUNTDOWN_MS,
         },
         water: {
-          thresholdPercent: 20,
-          autoRefillEnabled: false,
+          thresholdPercent:    20,
+          autoRefillEnabled:   false,
           autoRefillThreshold: 80,
         },
         updatedAt: Date.now(),
@@ -183,31 +157,36 @@ class SettingsService {
   async getThreshold(userId: string, type: 'water' | 'feed'): Promise<number> {
     try {
       const settings = await this.getSettings(userId);
-      if (!settings) {
-        return 20; // Default threshold
-      }
-      return type === 'water' 
-        ? settings.water.thresholdPercent 
+      if (!settings) return 20;
+      return type === 'water'
+        ? settings.water.thresholdPercent
         : settings.feed.thresholdPercent;
-    } catch (error) {
-      console.error(`❌ Error getting ${type} threshold:`, error);
-      return 20; // Fallback to default
+    } catch {
+      return 20;
     }
   }
 
   /**
-   * Get dispense volume for a specific type
+   * Get dispense volume
    */
   async getDispenseVolume(userId: string, type: 'feed'): Promise<number> {
     try {
       const settings = await this.getSettings(userId);
-      if (!settings) {
-        return 10; // Default feed volume
-      }
-      return settings.feed.dispenseVolumePercent;
-    } catch (error) {
-      console.error(`❌ Error getting ${type} dispense volume:`, error);
-      return 10; // Fallback to default
+      return settings?.feed.dispenseVolumePercent ?? 10;
+    } catch {
+      return 10;
+    }
+  }
+
+  /**
+   * Get dispense countdown in milliseconds
+   */
+  async getDispenseCountdownMs(userId: string): Promise<number> {
+    try {
+      const settings = await this.getSettings(userId);
+      return settings?.feed.dispenseCountdownMs ?? DEFAULT_DISPENSE_COUNTDOWN_MS;
+    } catch {
+      return DEFAULT_DISPENSE_COUNTDOWN_MS;
     }
   }
 }

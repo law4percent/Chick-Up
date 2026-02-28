@@ -17,7 +17,7 @@ export interface UsernameMapping {
 
 // Navigation types
 export type RootStackParamList = {
-  Auth: undefined;  // Direct auth screen (no nested stack)
+  Auth: undefined;
   Main: undefined;
 };
 
@@ -61,6 +61,15 @@ export interface SensorData {
 export interface DispenseSettings {
   thresholdPercent: number;
   dispenseVolumePercent: number;
+  /**
+   * How long the feed motor runs per dispense, in milliseconds.
+   * Written to Firebase as-is — raspi reads it from
+   * settings/{userUid}/feed/dispenseCountdownMs.
+   * UI should display and accept seconds (divide/multiply by 1000).
+   * Valid range: 5 000 – 300 000 ms (5 s – 5 min).
+   * Default: 60 000 ms (60 s).
+   */
+  dispenseCountdownMs: number;
 }
 
 export interface WaterSettings {
@@ -75,13 +84,59 @@ export interface UserSettings {
   updatedAt: number;
 }
 
+// ─────────────────────────── PAIRING ─────────────────────────────────────────
+
+/**
+ * Shape written by the raspi to /device_code/{code}/ when it starts pairing.
+ * The app reads this to get deviceUid, then writes back PairingAppWrite.
+ */
+export interface DeviceCodeEntry {
+  deviceUid: string;   // e.g. "DEV_001"
+  createdAt: number;   // Unix ms — used to detect expiry (60 s)
+  status: 'pending' | 'paired' | 'expired';
+}
+
+/**
+ * What the app writes back to /device_code/{code}/ to complete pairing.
+ * The raspi polls for status === "paired" and reads userUid + username.
+ */
+export interface PairingAppWrite {
+  userUid:  string;
+  username: string;
+  status:   'paired';
+}
+
+/**
+ * Stored locally in AsyncStorage after a successful pairing.
+ */
+export interface LinkedDevice {
+  deviceUid: string;
+  linkedAt:  number;  // Unix ms
+}
+
+// ─────────────────────────── WEBRTC / TURN ───────────────────────────────────
+
+/**
+ * TURN server configuration stored in Firebase at
+ * settings/{userUid}/turnServer/
+ * Written by the user (or admin) — read by the app at stream start.
+ *
+ * serverUrl may be bare "host:port" or prefixed "turn:host:port" —
+ * normalizeTurnHost() handles both, matching webrtc_peer.py logic.
+ */
+export interface TurnServerConfig {
+  serverUrl: string;   // e.g. "143.198.45.67:3478" or "turn:143.198.45.67:3478"
+  username:  string;   // e.g. "webrtc"
+  password:  string;
+}
+
 // Schedule data structure for feeding
 export interface FeedSchedule {
   id: string;
   userId: string;
   enabled: boolean;
-  time: string; // HH:MM format
-  days: number[]; // 0=Sunday, 1=Monday, etc.
+  time: string;       // HH:MM format
+  days: number[];     // 0=Sunday … 6=Saturday
   volumePercent: number;
   createdAt: number;
   updatedAt: number;
