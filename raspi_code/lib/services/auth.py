@@ -293,11 +293,12 @@ class AuthService:
             ) from e
 
         # ── Step 3: Show code on LCD ──────────────────────────────────────
+        # 16x2 LCD — only 2 lines visible.
+        # Line 0: the code (most important — user needs to type this in the app)
+        # Line 1: countdown, updated every tick below
         self.lcd.show([
-            "Enter code in app:",
-            f">>> {code} <<<",
-            "Expires in 60s",
-            "* to cancel"
+            f"Code: {code}",
+            "Expires in 60s  "
         ])
 
         # ── Step 4: Poll Firebase ─────────────────────────────────────────
@@ -321,7 +322,7 @@ class AuthService:
                 return None
 
             # Countdown display
-            self.lcd.write_at(0, 2, f"Expires in {remaining:2d}s  ")
+            self.lcd.write_at(1, 0, f"Expires in {remaining:2d}s  ")
 
             # Poll for pairing completion
             try:
