@@ -1,6 +1,6 @@
 credentials/.env
 credentials/serviceAccountKey.json
-credentials/credentials.txt
+credentials/user_credentials.txt
 
 logs
 
