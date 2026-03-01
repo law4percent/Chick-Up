@@ -33,8 +33,8 @@ FEED_MOTOR  = 17   # GPIO 17 — Feed dispenser relay
 WATER_MOTOR = 27   # GPIO 27 — Water pump relay
 
 # Relay logic — change if your relay module is active LOW
-ON  = GPIO.HIGH    # Set to GPIO.LOW  if relay is active LOW
-OFF = GPIO.LOW     # Set to GPIO.HIGH if relay is active LOW
+ON  = GPIO.LOW    # Set to GPIO.LOW  if relay is active LOW
+OFF = GPIO.HIGH     # Set to GPIO.HIGH if relay is active LOW
 
 
 # ─────────────────────────── SETUP ───────────────────────────────────────────
