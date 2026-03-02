@@ -234,12 +234,12 @@ Each file is capped at 10 MB and rolls over automatically.
 | [AUTORUN.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/AUTORUN.md) | How to make the device start automatically on power-on |
 | [README_APP.md](https://github.com/law4percent/Chick-Up/blob/main/app/Chick-Up/README.md) | Full mobile app documentation |
 | [USER_MANUAL.md](https://github.com/law4percent/Chick-Up/blob/main/docs/USER_MANUAL.md) | Step-by-step guide for everyday use (no technical background needed) |
-| [MAIN_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/MAIN_FLOW.md) | Detailed diagram of how main.py works |
-| [PROCESS_A_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/PROCESS_A_FLOW.md) | How the video streaming process works |
-| [PROCESS_B_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/PROCESS_B_FLOW.md) | How the hardware control process works |
-| [REFILL_LOGIC.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/REFILL_LOGIC.md) | How the auto water-refill logic works |
+| [MAIN_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/MAIN_FLOW.md) | Detailed diagram of how main.py works |
+| [PROCESS_A_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/PROCESS_A_FLOW.md) | How the video streaming process works |
+| [PROCESS_B_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/PROCESS_B_FLOW.md) | How the hardware control process works |
+| [REFILL_LOGIC.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/REFILL_FLOW.md) | How the auto water-refill logic works |
 
-
+https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/MAIN_FLOW.md
 ## License
 
 This project is licensed under the [MIT License](https://github.com/law4percent/Chick-Up?tab=MIT-1-ov-file).
