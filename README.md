@@ -239,7 +239,8 @@ Each file is capped at 10 MB and rolls over automatically.
 | [PROCESS_B_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/PROCESS_B_FLOW.md) | How the hardware control process works |
 | [REFILL_LOGIC.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/REFILL_FLOW.md) | How the auto water-refill logic works |
 
-https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/system_flow/MAIN_FLOW.md
+---
+
 ## License
 
 This project is licensed under the [MIT License](https://github.com/law4percent/Chick-Up?tab=MIT-1-ov-file).
