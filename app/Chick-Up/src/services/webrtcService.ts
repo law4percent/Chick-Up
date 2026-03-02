@@ -1,451 +1,381 @@
 // src/services/webrtcService.ts
-import { 
-  RTCPeerConnection, 
-  RTCIceCandidate, 
+import {
+  RTCPeerConnection,
+  RTCIceCandidate,
   RTCSessionDescription,
   MediaStream,
-  mediaDevices
 } from 'react-native-webrtc';
 import { database } from '../config/firebase.config';
 import { ref, set, onValue, push, remove, off } from 'firebase/database';
 
 /**
- * WebRTC Service for React Native
- * Handles peer-to-peer video streaming with Raspberry Pi
- * Uses Firebase Realtime Database for signaling
+ * WebRTC Service — signaling via Firebase RTDB, video relay via TURN.
+ *
+ * TURN config is loaded from .env at build time — NOT from Firebase.
+ * This keeps credentials out of the database entirely.
+ *
+ * Add to your .env file:
+ *   EXPO_PUBLIC_TURN_SERVER_URL=143.198.45.67:3478
+ *   EXPO_PUBLIC_TURN_USERNAME=webrtc
+ *   EXPO_PUBLIC_TURN_PASSWORD=your_strong_password
+ *
+ * URL normalization mirrors webrtc_peer.py exactly:
+ *   strips any existing turn:/turns:/stun: prefix, rebuilds as
+ *   turn:{host}?transport=udp  and  turn:{host}?transport=tcp
+ *
+ * Firebase signaling paths:
+ *   liveStream/{userId}/{deviceUid}/offer                        ← app writes
+ *   liveStream/{userId}/{deviceUid}/answer                       ← app reads
+ *   liveStream/{userId}/{deviceUid}/iceCandidates/mobile/{push}  ← app writes
+ *   liveStream/{userId}/{deviceUid}/iceCandidates/raspi/{push}   ← app reads
+ *   liveStream/{userId}/{deviceUid}/connectionState              ← app writes
+ *   liveStream/{userId}/{deviceUid}/liveStreamButton             ← app writes
  */
 
-interface WebRTCConfig {
-  iceServers: Array<{
-    urls: string | string[];
-  }>;
+// ─────────────────────────── TURN FROM .ENV ──────────────────────────────────
+
+/**
+ * Strip any scheme prefix (turn: / turns: / stun:) then rebuild correctly.
+ * Matches the normalization in webrtc_peer.py so both sides produce valid URIs
+ * regardless of how the URL is stored.
+ */
+function normalizeTurnHost(raw: string): string {
+  let host = raw.trim();
+  for (const prefix of ['turns:', 'turn:', 'stun:']) {
+    if (host.startsWith(prefix)) {
+      host = host.slice(prefix.length);
+      break;
+    }
+  }
+  return host;
 }
 
-// Google's free STUN servers for NAT traversal
-const WEBRTC_CONFIG: WebRTCConfig = {
-  iceServers: [
+const TURN_URL  = process.env.EXPO_PUBLIC_TURN_SERVER_URL ?? '';
+const TURN_USER = process.env.EXPO_PUBLIC_TURN_USERNAME   ?? '';
+const TURN_PASS = process.env.EXPO_PUBLIC_TURN_PASSWORD   ?? '';
+
+function buildIceServers() {
+  const servers: any[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-};
+  ];
+
+  if (TURN_URL && TURN_USER && TURN_PASS) {
+    const host = normalizeTurnHost(TURN_URL);
+    servers.push({
+      urls: [
+        `turn:${host}?transport=udp`,  // UDP first — lower latency
+        `turn:${host}?transport=tcp`,  // TCP fallback for CGNAT / strict firewall
+      ],
+      username:   TURN_USER,
+      credential: TURN_PASS,
+    });
+    console.log('[WebRTC] TURN loaded from .env:', `turn:${host}`);
+  } else {
+    console.warn('[WebRTC] ⚠️ TURN not configured in .env — may fail on mobile data (CGNAT).');
+    console.warn('[WebRTC]   Set EXPO_PUBLIC_TURN_SERVER_URL, EXPO_PUBLIC_TURN_USERNAME, EXPO_PUBLIC_TURN_PASSWORD');
+  }
+
+  return servers;
+}
+
+// Build once at module load — env vars are static at runtime
+const ICE_SERVERS = buildIceServers();
+
+// ─────────────────────────── SERVICE ─────────────────────────────────────────
 
 class WebRTCService {
   private peerConnection: RTCPeerConnection | null = null;
-  private remoteStream: MediaStream | null = null;
-  private userId: string | null = null;
-  private deviceUid: string | null = null;
-  private isInitialized: boolean = false;
-  
-  // Firebase listeners
-  private answerListener: (() => void) | null = null;
-  private raspiIceListener: (() => void) | null = null;
-  
-  // Callbacks
-  private onRemoteStreamCallback: ((stream: MediaStream) => void) | null = null;
+  private remoteStream:   MediaStream | null = null;
+  private userId:         string | null = null;
+  private deviceUid:      string | null = null;
+  private isInitialized:  boolean = false;
+
+  private answerListener:   any = null;
+  private raspiIceListener: any = null;
+
+  private onRemoteStreamCallback:    ((stream: MediaStream) => void) | null = null;
   private onConnectionStateCallback: ((state: string) => void) | null = null;
-  private onErrorCallback: ((error: Error) => void) | null = null;
+  private onErrorCallback:           ((error: Error) => void) | null = null;
+
+  private iceStats = { host: 0, srflx: 0, relay: 0 };
+
+  // ── Path helper ──────────────────────────────────────────────────────────────
+
+  private liveStreamRef(subpath: string) {
+    return ref(database, `liveStream/${this.userId}/${this.deviceUid}/${subpath}`);
+  }
+
+  // ── Initialize ────────────────────────────────────────────────────────────────
 
   /**
-   * Initialize WebRTC service
+   * Create RTCPeerConnection with ICE servers from .env.
+   *
+   * Safe to call multiple times — if already initialized, cleans up first.
+   * This prevents the "Call initialize() before startConnection()" error
+   * that can occur when stop → start happens quickly (cleanup sets
+   * isInitialized=false, but the UI calls startConnection before initialize).
    */
   async initialize(
-    userId: string,
-    deviceUid: string,
-    onRemoteStream: (stream: MediaStream) => void,
+    userId:             string,
+    deviceUid:          string,
+    onRemoteStream:     (stream: MediaStream) => void,
     onConnectionState?: (state: string) => void,
-    onError?: (error: Error) => void
+    onError?:           (error: Error) => void,
   ): Promise<void> {
+    // If already initialized with same userId+deviceUid, no-op
+    if (this.isInitialized && this.userId === userId && this.deviceUid === deviceUid) {
+      console.log('[WebRTC] Already initialized for this session, skipping re-init');
+      return;
+    }
+
+    // If initialized for a different session, clean up first
+    if (this.isInitialized) {
+      await this._internalCleanup();
+    }
+
     try {
-      console.log('[WebRTC] Initializing service...');
-      
-      this.userId = userId;
+      console.log('[WebRTC] Initializing...');
+
+      this.userId    = userId;
       this.deviceUid = deviceUid;
-      this.onRemoteStreamCallback = onRemoteStream;
-      this.onConnectionStateCallback = onConnectionState || null;
-      this.onErrorCallback = onError || null;
-      
-      // Create peer connection
-      this.peerConnection = new RTCPeerConnection(WEBRTC_CONFIG);
-      
-      // Cast to any to satisfy TypeScript - the library's type definitions
-      // don't expose these properties, but they exist at runtime
+      this.onRemoteStreamCallback    = onRemoteStream;
+      this.onConnectionStateCallback = onConnectionState ?? null;
+      this.onErrorCallback           = onError ?? null;
+
+      this.peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       const pc = this.peerConnection as any;
-      
-      // Handle ICE candidates
+
       pc.onicecandidate = (event: any) => {
-        if (event.candidate) {
-          console.log('[WebRTC] ICE candidate generated');
-          this.sendIceCandidate(event.candidate);
+        if (!event.candidate) return;
+        const c: string = event.candidate.candidate;
+        if (c.includes('typ host'))  { this.iceStats.host++;  console.log('[WebRTC] 🏠 host'); }
+        if (c.includes('typ srflx')) { this.iceStats.srflx++; console.log('[WebRTC] 🌐 srflx (STUN)'); }
+        if (c.includes('typ relay')) { this.iceStats.relay++; console.log('[WebRTC] 🔄 relay (TURN) ✅'); }
+        this.sendIceCandidate(event.candidate);
+      };
+
+      pc.onicegatheringstatechange = () => {
+        console.log('[WebRTC] ICE gathering:', pc.iceGatheringState);
+        if (pc.iceGatheringState === 'complete') {
+          console.log('[WebRTC] 📊 ICE stats:', this.iceStats);
+          if (this.iceStats.relay === 0) {
+            console.warn('[WebRTC] ⚠️ No relay candidates. Check TURN .env vars and VPS firewall.');
+          }
         }
       };
-      
-      // FIXED: Use modern ontrack instead of deprecated onaddstream
+
       pc.ontrack = (event: any) => {
-        console.log('[WebRTC] 🎥 Remote track received:', event.track.kind);
-        
-        if (event.streams && event.streams.length > 0) {
-          console.log('[WebRTC] ✅ Remote stream available');
+        console.log('[WebRTC] 🎥 Remote track:', event.track.kind);
+        if (event.streams?.[0]) {
           this.remoteStream = event.streams[0];
-          
-          if (this.onRemoteStreamCallback) {
-            this.onRemoteStreamCallback(event.streams[0]);
-          }
         } else {
-          // Some implementations don't provide streams in the event
-          // Create a MediaStream manually from the track
-          console.log('[WebRTC] Creating stream from track');
-          if (!this.remoteStream) {
-            this.remoteStream = new MediaStream();
-          }
-          this.remoteStream.addTrack(event.track);
-          
-          if (this.onRemoteStreamCallback) {
-            this.onRemoteStreamCallback(this.remoteStream);
-          }
+          if (!this.remoteStream) this.remoteStream = new MediaStream();
+          (this.remoteStream as any).addTrack(event.track);
         }
+        this.onRemoteStreamCallback?.(this.remoteStream!);
       };
-      
-      // Handle connection state changes
+
       pc.onconnectionstatechange = () => {
-        const state = this.peerConnection?.connectionState || 'unknown';
+        const state: string = pc.connectionState ?? 'unknown';
         console.log('[WebRTC] Connection state:', state);
-        
-        if (this.onConnectionStateCallback) {
-          this.onConnectionStateCallback(state);
-        }
-        
-        // Auto-cleanup on failure
+        this.onConnectionStateCallback?.(state);
+        if (state === 'connected') console.log('[WebRTC] 🎉 Connected! Stats:', this.iceStats);
         if (state === 'failed' || state === 'closed') {
-          this.cleanup();
+          console.log('[WebRTC] 📊 Final stats:', this.iceStats);
+          this._internalCleanup();
         }
       };
-      
-      // Handle ICE connection state
+
       pc.oniceconnectionstatechange = () => {
-        const state = this.peerConnection?.iceConnectionState || 'unknown';
-        console.log('[WebRTC] ICE connection state:', state);
+        const state: string = pc.iceConnectionState ?? 'unknown';
+        console.log('[WebRTC] ICE connection:', state);
+        if (state === 'failed') {
+          console.error('[WebRTC] ❌ ICE failed. Stats:', this.iceStats);
+          if (this.iceStats.relay === 0) {
+            console.error('[WebRTC]   → No relay candidates. Verify TURN server .env and VPS is running.');
+          }
+        }
       };
-      
+
       this.isInitialized = true;
-      console.log('[WebRTC] Service initialized successfully');
-      
+      console.log('[WebRTC] ✅ Initialized');
+
     } catch (error) {
-      console.error('[WebRTC] Initialization error:', error);
-      if (this.onErrorCallback) {
-        this.onErrorCallback(error as Error);
-      }
+      console.error('[WebRTC] Init error:', error);
+      this.onErrorCallback?.(error as Error);
       throw error;
     }
   }
 
-  /**
-   * Start WebRTC connection
-   * Creates offer and sends to Raspberry Pi via Firebase
-   */
+  // ── Start connection ──────────────────────────────────────────────────────────
+
   async startConnection(): Promise<void> {
     if (!this.isInitialized || !this.peerConnection) {
-      throw new Error('WebRTC service not initialized');
+      throw new Error('Call initialize() before startConnection().');
     }
-    
     if (!this.userId || !this.deviceUid) {
-      throw new Error('User ID or Device UID not set');
+      throw new Error('userId / deviceUid not set.');
     }
-    
+
     try {
       console.log('[WebRTC] Starting connection...');
-      
-      // Clean up any existing signaling data
+      this.iceStats = { host: 0, srflx: 0, relay: 0 };
+
       await this.cleanupFirebaseSignaling();
-      
-      // Update connection state
       await this.updateConnectionState('connecting');
-      
-      // Create offer
+
+      // Tell raspi to start streaming
+      await set(this.liveStreamRef('liveStreamButton'), true);
+
       const offer = await this.peerConnection.createOffer({
         offerToReceiveVideo: true,
-        offerToReceiveAudio: false, // We're only doing video
+        offerToReceiveAudio: false,
       });
-      
       await this.peerConnection.setLocalDescription(offer);
-      console.log('[WebRTC] Offer created and set as local description');
-      
-      // Send offer to Raspberry Pi via Firebase
-      const offerRef = ref(
-        database,
-        `liveStream/${this.userId}/${this.deviceUid}/offer`
-      );
-      
-      await set(offerRef, {
-        sdp: offer.sdp,
-        type: offer.type,
-        timestamp: Date.now(),
+      await set(this.liveStreamRef('offer'), {
+        sdp: offer.sdp, type: offer.type, timestamp: Date.now(),
       });
-      
-      console.log('[WebRTC] Offer sent to Firebase');
-      
-      // Listen for answer from Raspberry Pi
+      console.log('[WebRTC] Offer sent');
+
       this.listenForAnswer();
-      
-      // Listen for ICE candidates from Raspberry Pi
       this.listenForRaspiIceCandidates();
-      
+
     } catch (error) {
-      console.error('[WebRTC] Error starting connection:', error);
+      console.error('[WebRTC] startConnection error:', error);
       await this.updateConnectionState('failed');
-      if (this.onErrorCallback) {
-        this.onErrorCallback(error as Error);
-      }
+      this.onErrorCallback?.(error as Error);
       throw error;
     }
   }
 
-  /**
-   * Listen for answer from Raspberry Pi
-   */
+  // ── Answer listener ───────────────────────────────────────────────────────────
+
   private listenForAnswer(): void {
-    if (!this.userId || !this.deviceUid) return;
-    
-    const answerRef = ref(
-      database,
-      `liveStream/${this.userId}/${this.deviceUid}/answer`
-    );
-    
-    this.answerListener = onValue(answerRef, async (snapshot) => {
-      const answer = snapshot.val();
-      
-      if (answer && answer.sdp && this.peerConnection) {
-        try {
-          console.log('[WebRTC] Answer received from Raspberry Pi');
-          
-          const remoteDescription = new RTCSessionDescription({
-            sdp: answer.sdp,
-            type: answer.type,
-          });
-          
-          await this.peerConnection.setRemoteDescription(remoteDescription);
-          console.log('[WebRTC] ✅ Remote description set successfully');
-          
-          // Stop listening for answer once received
-          if (this.answerListener) {
-            off(answerRef);
-            this.answerListener = null;
-          }
-          
-        } catch (error) {
-          console.error('[WebRTC] Error setting remote description:', error);
-          if (this.onErrorCallback) {
-            this.onErrorCallback(error as Error);
-          }
-        }
+    const answerRef = this.liveStreamRef('answer');
+    this.answerListener = onValue(answerRef, async (snap) => {
+      const answer = snap.val();
+      if (!answer?.sdp || !this.peerConnection) return;
+      if (this.peerConnection.remoteDescription) return;
+      try {
+        await this.peerConnection.setRemoteDescription(
+          new RTCSessionDescription({ sdp: answer.sdp, type: answer.type }),
+        );
+        console.log('[WebRTC] ✅ Remote description set');
+        off(answerRef);
+        this.answerListener = null;
+      } catch (e) {
+        console.error('[WebRTC] setRemoteDescription error:', e);
+        this.onErrorCallback?.(e as Error);
       }
     });
   }
 
-  /**
-   * Listen for ICE candidates from Raspberry Pi
-   */
+  // ── Raspi ICE candidates listener ─────────────────────────────────────────────
+
   private listenForRaspiIceCandidates(): void {
-    if (!this.userId || !this.deviceUid) return;
-    
-    const iceCandidatesRef = ref(
-      database,
-      `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/raspi`
-    );
-    
-    this.raspiIceListener = onValue(iceCandidatesRef, async (snapshot) => {
-      const candidates = snapshot.val();
-      
-      if (candidates && this.peerConnection) {
-        // Process each candidate
-        for (const key in candidates) {
-          const candidateData = candidates[key];
-          
-          if (candidateData && candidateData.candidate) {
-            try {
-              const candidate = new RTCIceCandidate({
-                candidate: candidateData.candidate,
-                sdpMid: candidateData.sdpMid,
-                sdpMLineIndex: candidateData.sdpMLineIndex,
-              });
-              
-              await this.peerConnection.addIceCandidate(candidate);
-              console.log('[WebRTC] ✅ Added ICE candidate from Raspberry Pi');
-              
-            } catch (error) {
-              console.error('[WebRTC] Error adding ICE candidate:', error);
-            }
-          }
+    const iceCandidatesRef = this.liveStreamRef('iceCandidates/raspi');
+    this.raspiIceListener = onValue(iceCandidatesRef, async (snap) => {
+      const candidates = snap.val();
+      if (!candidates || !this.peerConnection) return;
+
+      for (const key of Object.keys(candidates)) {
+        const d = candidates[key];
+        if (!d?.candidate) continue;
+        try {
+          await this.peerConnection.addIceCandidate(
+            new RTCIceCandidate({
+              candidate: d.candidate, sdpMid: d.sdpMid, sdpMLineIndex: d.sdpMLineIndex,
+            }),
+          );
+          const isRelay = (d.candidate as string).includes('typ relay');
+          console.log(`[WebRTC] ✅ raspi ICE${isRelay ? ' 🔄 TURN relay' : ''}`);
+        } catch (e) {
+          console.error('[WebRTC] addIceCandidate error:', e);
         }
-        
-        // Stop listening once connected
-        if (this.peerConnection.connectionState === 'connected') {
-          if (this.raspiIceListener) {
-            off(iceCandidatesRef);
-            this.raspiIceListener = null;
-          }
-        }
+      }
+
+      if ((this.peerConnection as any)?.connectionState === 'connected') {
+        off(iceCandidatesRef);
+        this.raspiIceListener = null;
       }
     });
   }
 
-  /**
-   * Send ICE candidate to Raspberry Pi via Firebase
-   */
+  // ── Send local ICE to Firebase ────────────────────────────────────────────────
+
   private async sendIceCandidate(candidate: RTCIceCandidate): Promise<void> {
-    if (!this.userId || !this.deviceUid) return;
-    
     try {
-      const iceCandidatesRef = ref(
-        database,
-        `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/mobile`
-      );
-      
-      const candidateRef = push(iceCandidatesRef);
-      
-      await set(candidateRef, {
-        candidate: candidate.candidate,
-        sdpMid: candidate.sdpMid,
-        sdpMLineIndex: candidate.sdpMLineIndex,
-        timestamp: Date.now(),
+      await set(push(this.liveStreamRef('iceCandidates/mobile')), {
+        candidate: candidate.candidate, sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex, timestamp: Date.now(),
       });
-      
-      console.log('[WebRTC] ✅ ICE candidate sent to Firebase');
-      
-    } catch (error) {
-      console.error('[WebRTC] Error sending ICE candidate:', error);
+    } catch (e) {
+      console.error('[WebRTC] sendIceCandidate error:', e);
     }
   }
 
-  /**
-   * Update connection state in Firebase
-   */
   private async updateConnectionState(state: string): Promise<void> {
-    if (!this.userId || !this.deviceUid) return;
-    
-    try {
-      const stateRef = ref(
-        database,
-        `liveStream/${this.userId}/${this.deviceUid}/connectionState`
-      );
-      
-      await set(stateRef, state);
-      
-    } catch (error) {
-      console.error('[WebRTC] Error updating connection state:', error);
-    }
+    try { await set(this.liveStreamRef('connectionState'), state); } catch { /* non-fatal */ }
   }
 
-  /**
-   * Clean up Firebase signaling data
-   */
-  private async cleanupFirebaseSignaling(): Promise<void> {
-    if (!this.userId || !this.deviceUid) return;
-    
-    try {
-      // Use remove() instead of set(null) for cleaner deletion
-      const offerRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/offer`);
-      const answerRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/answer`);
-      const mobileIceRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/mobile`);
-      const raspiIceRef = ref(database, `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/raspi`);
-      
-      await Promise.all([
-        remove(offerRef),
-        remove(answerRef),
-        remove(mobileIceRef),
-        remove(raspiIceRef)
-      ]);
-      
-      console.log('[WebRTC] Firebase signaling data cleaned up');
-      
-    } catch (error) {
-      console.error('[WebRTC] Error cleaning up Firebase signaling:', error);
-    }
-  }
+  // ── Stop ──────────────────────────────────────────────────────────────────────
 
   /**
-   * Stop WebRTC connection and cleanup
+   * Stop the stream and clean up.
+   *
+   * Guards against being called when never started (e.g. component unmount
+   * before any stream was opened) — avoids orphan Firebase writes.
    */
   async stopConnection(): Promise<void> {
-    console.log('[WebRTC] Stopping connection...');
-    
-    try {
-      // Update connection state
-      await this.updateConnectionState('disconnected');
-      
-      // Clean up
-      await this.cleanup();
-      
-      console.log('[WebRTC] Connection stopped');
-      
-    } catch (error) {
-      console.error('[WebRTC] Error stopping connection:', error);
+    if (!this.userId || !this.deviceUid) {
+      // Never started — nothing to clean up in Firebase
+      return;
     }
+    console.log('[WebRTC] Stopping...');
+    try {
+      await set(this.liveStreamRef('liveStreamButton'), false);
+      await this.updateConnectionState('disconnected');
+    } catch { /* non-fatal */ }
+    await this._internalCleanup();
   }
 
-  /**
-   * Cleanup WebRTC resources
-   */
-  private async cleanup(): Promise<void> {
-    console.log('[WebRTC] Cleaning up resources...');
-    
-    // Remove Firebase listeners
+  // ── Internal cleanup (no Firebase writes) ────────────────────────────────────
+
+  private async _internalCleanup(): Promise<void> {
     if (this.answerListener && this.userId && this.deviceUid) {
-      const answerRef = ref(
-        database,
-        `liveStream/${this.userId}/${this.deviceUid}/answer`
-      );
-      off(answerRef);
+      off(this.liveStreamRef('answer'));
       this.answerListener = null;
     }
-    
     if (this.raspiIceListener && this.userId && this.deviceUid) {
-      const iceCandidatesRef = ref(
-        database,
-        `liveStream/${this.userId}/${this.deviceUid}/iceCandidates/raspi`
-      );
-      off(iceCandidatesRef);
+      off(this.liveStreamRef('iceCandidates/raspi'));
       this.raspiIceListener = null;
     }
-    
-    // Close peer connection
-    if (this.peerConnection) {
-      this.peerConnection.close();
-      this.peerConnection = null;
-    }
-    
-    // Clear remote stream
-    this.remoteStream = null;
-    
-    // Clean up Firebase signaling data
+    this.peerConnection?.close();
+    this.peerConnection = null;
+    this.remoteStream   = null;
     await this.cleanupFirebaseSignaling();
-    
+    this.iceStats      = { host: 0, srflx: 0, relay: 0 };
     this.isInitialized = false;
-    
-    console.log('[WebRTC] Cleanup complete');
   }
 
-  /**
-   * Get current remote stream
-   */
-  getRemoteStream(): MediaStream | null {
-    return this.remoteStream;
+  private async cleanupFirebaseSignaling(): Promise<void> {
+    if (!this.userId || !this.deviceUid) return;
+    try {
+      await Promise.all([
+        remove(this.liveStreamRef('offer')),
+        remove(this.liveStreamRef('answer')),
+        remove(this.liveStreamRef('iceCandidates/mobile')),
+      ]);
+    } catch { /* best-effort */ }
   }
 
-  /**
-   * Get current connection state
-   */
-  getConnectionState(): string {
-    return this.peerConnection?.connectionState || 'unknown';
-  }
+  // ── Accessors ─────────────────────────────────────────────────────────────────
 
-  /**
-   * Check if service is initialized
-   */
-  isServiceInitialized(): boolean {
-    return this.isInitialized;
-  }
+  getRemoteStream():      MediaStream | null { return this.remoteStream; }
+  getConnectionState():   string { return (this.peerConnection as any)?.connectionState ?? 'unknown'; }
+  isServiceInitialized(): boolean { return this.isInitialized; }
+  getIceStats():          typeof this.iceStats { return { ...this.iceStats }; }
 }
 
-// Export singleton instance
 export default new WebRTCService();

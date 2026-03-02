@@ -1,281 +1,208 @@
 """
-Path: raspi_code/lib/processes/process_a.py
+Path: lib/processes/process_a.py
 Description:
-- Video streaming process with WebRTC support
-- Captures video from camera or file, resizes frames, and streams to WebRTC peer
-- Displays video in a window with toggle controls
-- Logs performance metrics and connection status
+    Video streaming process — WebRTC + TURN server.
+    Captures from webcam or Picamera2, streams via WebRTC peer.
+    No local display. No annotation. Pure streaming only.
 """
+
 import cv2
-from lib.services.hardware import camera_controller as camera
-from lib.services import webrtc_peer
-import logging
 import time
 import asyncio
-from firebase_admin import db, credentials
-from lib.services import firebase_rtdb
 import threading
-import numpy as np
 
-from lib import logger_config
+from lib.services.hardware import camera_controller as camera
+from lib.services.hardware.camera_controller import CameraError
+from lib.services.webrtc_peer import run_webrtc_peer, WebRTCStartError, WebRTCStopError
+from lib.services import firebase_rtdb
+from lib.services.firebase_rtdb import FirebaseInitError
+from lib.services.logger import get_logger
 
-logger = logger_config.setup_logger(name=__name__, level=logging.INFO)
-
-
-def _check_points(VIDEO_FILE: str, PC_MODE: bool, IS_WEB_CAM: bool, CAMERA_INDEX: int, FRAME_DIMENSION: dict) -> dict:
-    """Validate and configure camera settings."""
-    config_result = camera.config_camera(PC_MODE, IS_WEB_CAM, VIDEO_FILE, CAMERA_INDEX, FRAME_DIMENSION)
-    if config_result["status"] == "error":
-        return config_result
-
-    return {
-        "status"    : "success",
-        "capture"   : config_result["capture"]
-    }
+log = get_logger("process_a.py")
 
 
-def setup_RTDB(user_uid: str, device_uid: str) -> dict:
-    """Setup Firebase RTDB references for WebRTC signaling."""
-    return {}
-
+# ─────────────────────────── SHARED FRAME BUFFER ─────────────────────────────
 
 class SharedFrameBuffer:
-    """Thread-safe buffer to share frames between camera capture and WebRTC streaming."""
+    """Thread-safe buffer to share frames between camera capture and WebRTC."""
+
     def __init__(self):
-        self._frame = None
-        self._lock = threading.Lock()
-        self._new_frame_available = threading.Event()
-        self._update_count = 0
-        self._read_count = 0
-    
-    def update(self, frame):
-        """Update the buffer with a new frame."""
+        self._frame     = None
+        self._lock      = threading.Lock()
+        self._new_frame = threading.Event()
+
+    def update(self, frame) -> None:
         with self._lock:
             self._frame = frame.copy() if frame is not None else None
-            self._new_frame_available.set()
-            self._update_count += 1
-    
-    def get(self):
-        """Get the latest frame from the buffer."""
-        with self._lock:
-            self._read_count += 1
-            return self._frame.copy() if self._frame is not None else None
-    
-    def get_stats(self):
-        """Get buffer statistics."""
-        with self._lock:
-            return {
-                'updates': self._update_count,
-                'reads': self._read_count,
-                'has_frame': self._frame is not None
-            }
-    
-    def wait_for_frame(self, timeout=1.0):
-        """Wait for a new frame to be available."""
-        return self._new_frame_available.wait(timeout)
-    
-    def clear_event(self):
-        """Clear the new frame event."""
-        self._new_frame_available.clear()
+            self._new_frame.set()
 
+    def get(self):
+        with self._lock:
+            return self._frame.copy() if self._frame is not None else None
+
+    def wait_for_frame(self, timeout: float = 1.0) -> bool:
+        return self._new_frame.wait(timeout)
+
+    def clear_event(self) -> None:
+        self._new_frame.clear()
+
+
+# ─────────────────────────── PROCESS A ───────────────────────────────────────
 
 def process_A(**kwargs) -> None:
-    """Main video streaming process with WebRTC support."""
-    # Configuration
-    process_A_args      = kwargs["process_A_args"]
-    TASK_NAME           = process_A_args["TASK_NAME"]
-    live_status         = process_A_args["live_status"]
-    status_checker      = process_A_args["status_checker"]
-    FRAME_DIMENSION     = process_A_args["FRAME_DIMENSION"]
-    IS_WEB_CAM          = process_A_args["IS_WEB_CAM"]
-    PC_MODE             = process_A_args["PC_MODE"]
-    CAMERA_INDEX        = process_A_args["CAMERA_INDEX"]
-    VIDEO_FILE          = process_A_args["VIDEO_FILE"]
-    SAVE_LOGS           = process_A_args["SAVE_LOGS"]
-    SHOW_WINDOW         = process_A_args["SHOW_WINDOW"]
-    USER_CREDENTIAL     = process_A_args["USER_CREDENTIAL"]
-    
-    print(f"{TASK_NAME} - Running✅")
-    if SAVE_LOGS:
-        logger.info(f"{TASK_NAME} - Running")
+    """
+    Main video streaming process — WebRTC + TURN support.
 
-    # Validate configuration
-    check_point_result = _check_points(
-        VIDEO_FILE      = VIDEO_FILE, 
-        PC_MODE         = PC_MODE,
-        CAMERA_INDEX    = CAMERA_INDEX, 
-        IS_WEB_CAM      = IS_WEB_CAM,
-        FRAME_DIMENSION = FRAME_DIMENSION
-    )
-    if check_point_result["status"] == "error":
-        if SAVE_LOGS:
-            logger.error(f"{TASK_NAME} - {check_point_result['message']}")
-        status_checker.clear()
-        exit()
-        
-    # Initialize camera
-    capture = None
-    if not PC_MODE:
-        capture = check_point_result["capture"]
-        capture.start()
-    else:
-        capture = check_point_result["capture"]
-        
-    # Setup display window
-    window_name, window_visible_state = camera.setup_windows(window_visible_state=SHOW_WINDOW)
+    Expected kwargs["process_A_args"] keys:
+        TASK_NAME       : str
+        live_status     : multiprocessing.Event
+        status_checker  : multiprocessing.Event
+        FRAME_DIMENSION : dict  {"width": int, "height": int}
+        IS_WEB_CAM      : bool
+        CAMERA_INDEX    : int
+        USER_CREDENTIAL : dict  {userUid, deviceUid, ...}
+        TURN_SERVER_URL : str
+        TURN_USERNAME   : str
+        TURN_PASSWORD   : str
+    """
+    args            = kwargs["process_A_args"]
+    TASK_NAME       = args["TASK_NAME"]
+    live_status     = args["live_status"]
+    status_checker  = args["status_checker"]
+    FRAME_DIMENSION = args["FRAME_DIMENSION"]
+    IS_WEB_CAM      = args["IS_WEB_CAM"]
+    CAMERA_INDEX    = args["CAMERA_INDEX"]
+    USER_CREDENTIAL = args["USER_CREDENTIAL"]
+    TURN_SERVER_URL = args["TURN_SERVER_URL"]
+    TURN_USERNAME   = args["TURN_USERNAME"]
+    TURN_PASSWORD   = args["TURN_PASSWORD"]
 
-    # Initialize Firebase
-    init_result = firebase_rtdb.initialize_firebase()
-    if init_result["status"] == "error":
+    log(details=f"{TASK_NAME} - Running", log_type="info")
+
+    # ── Init camera ───────────────────────────────────────────────────────
+    try:
+        capture = camera.config_camera(
+            IS_WEB_CAM      = IS_WEB_CAM,
+            CAMERA_INDEX    = CAMERA_INDEX,
+            FRAME_DIMENSION = FRAME_DIMENSION
+        )
+    except CameraError as e:
+        log(details=f"{TASK_NAME} - Camera init failed: {e}", log_type="error")
         status_checker.clear()
-        if SAVE_LOGS:
-            logger.error(f"{TASK_NAME} - {init_result['message']}. Source: {__name__}")
-        if not PC_MODE:
-            try:
-                import RPi.GPIO as GPIO
-                GPIO.cleanup()
-            except:
-                pass
-        exit()
-    
-    user_uid    = USER_CREDENTIAL["userUid"]
-    device_uid  = USER_CREDENTIAL["deviceUid"]
-    
-    logger.info(f"Initializing WebRTC for user={user_uid}, device={device_uid}")
-    
-    # Create shared frame buffer
+        return
+
+    # ── Init Firebase ─────────────────────────────────────────────────────
+    try:
+        firebase_rtdb.initialize_firebase()
+    except FirebaseInitError as e:
+        log(details=f"{TASK_NAME} - Firebase init failed: {e}", log_type="error")
+        status_checker.clear()
+        _safe_cleanup(capture, IS_WEB_CAM, TASK_NAME)
+        return
+
+    user_uid   = USER_CREDENTIAL["userUid"]
+    device_uid = USER_CREDENTIAL["deviceUid"]
+
+    # ── Shared frame buffer ───────────────────────────────────────────────
     frame_buffer = SharedFrameBuffer()
-    
-    # Create event loop
+
+    # ── Async event loop ──────────────────────────────────────────────────
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    # WebRTC peer instance
+
     webrtc_peer_instance = None
-    
-    # Connection state callback
-    def on_connection_state_change(state):
-        """Callback for WebRTC connection state changes."""
-        logger.info(f"WebRTC connection state: {state}")
-        
+
+    # ── Connection state callback ─────────────────────────────────────────
+    def on_connection_state_change(state: str) -> None:
         if state == "connected":
-            logger.info("WebRTC connected - streaming active")
             live_status.set()
         elif state in ["disconnected", "failed", "closed"]:
-            logger.info(f"WebRTC {state}")
+            log(details=f"{TASK_NAME} - WebRTC state: {state}", log_type="warning")
             live_status.clear()
-    
-    # Initialize WebRTC peer
+
+    # ── Init WebRTC peer ──────────────────────────────────────────────────
     try:
         webrtc_peer_instance = loop.run_until_complete(
-            webrtc_peer.run_webrtc_peer(
-                user_uid=user_uid,
-                device_uid=device_uid,
-                capture=capture,
-                pc_mode=PC_MODE,
-                frame_dimension=FRAME_DIMENSION,
-                on_connection_state_change=on_connection_state_change,
-                frame_buffer=frame_buffer
+            run_webrtc_peer(
+                user_uid                   = user_uid,
+                device_uid                 = device_uid,
+                capture                    = capture,
+                frame_dimension            = FRAME_DIMENSION,
+                on_connection_state_change = on_connection_state_change,
+                frame_buffer               = frame_buffer,
+                turn_server_url            = TURN_SERVER_URL,
+                turn_username              = TURN_USERNAME,
+                turn_password              = TURN_PASSWORD
             )
         )
-        
-        logger.info("WebRTC peer initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize WebRTC peer: {e}")
+    except WebRTCStartError as e:
+        log(details=f"{TASK_NAME} - WebRTC peer init failed: {e}", log_type="error")
         status_checker.clear()
-        clean_result = camera.clean_up_camera(capture, PC_MODE)
-        exit()
-    
-    # MAIN STREAMING LOOP
-    async def main_streaming_loop():
-        """Main async loop for frame capture and display."""
-        nonlocal window_visible_state
-        
-        frame_count = 0
-        start_time = time.time()
+        _safe_cleanup(capture, IS_WEB_CAM, TASK_NAME)
+        return
+
+    # ── Main streaming loop ───────────────────────────────────────────────
+    async def _streaming_loop():
+        frame_count  = 0
+        start_time   = time.time()
         last_fps_log = start_time
-        
-        logger.info("Main streaming loop started")
-        
+
         while status_checker.is_set():
-            # Single capture point
-            if PC_MODE:
-                ret, raw_frame = capture.read()
-                if not ret:
-                    if not IS_WEB_CAM:
-                        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        continue
-                    logger.error("Failed to read from camera")
-                    status_checker.clear()
-                    break
-            else:
-                raw_frame = capture.capture_array()
-            
-            # Resize
-            raw_frame = cv2.resize(raw_frame, (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"]))
-            
-            # Update shared buffer
+            raw_frame = capture.capture_array()
+
+            if raw_frame is None:
+                log(details=f"{TASK_NAME} - Camera returned empty frame", log_type="warning")
+                status_checker.clear()
+                break
+
+            raw_frame = cv2.resize(
+                raw_frame,
+                (FRAME_DIMENSION["width"], FRAME_DIMENSION["height"])
+            )
+
             frame_buffer.update(raw_frame)
             frame_count += 1
-            
-            # Display window
-            if SHOW_WINDOW and window_visible_state:
-                cv2.imshow(window_name, raw_frame)
-                
-                key = cv2.waitKey(1) & 0xFF
-                
-                if key == ord('c'):
-                    cv2.destroyWindow(window_name)
-                    window_visible_state = False
-                    logger.info("Window hidden")
-                
-                elif key == ord('w'):
-                    if not window_visible_state:
-                        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-                        window_visible_state = True
-                        logger.info("Window shown")
-            
-            # FPS logging (every 30 seconds)
-            current_time = time.time()
-            if current_time - last_fps_log >= 30.0:
-                elapsed = current_time - start_time
-                fps = frame_count / elapsed
-                logger.info(f"Capture stats - FPS: {fps:.1f}, Total frames: {frame_count}")
-                last_fps_log = current_time
-            
-            # Hand control to WebRTC
+
+            # FPS log every 60 seconds
+            now = time.time()
+            if now - last_fps_log >= 60.0:
+                fps = frame_count / (now - start_time)
+                log(details=f"{TASK_NAME} - FPS: {fps:.1f} | Frames: {frame_count}", log_type="info")
+                last_fps_log = now
+
             await asyncio.sleep(0.01)
-    
+
+    # ── Run ───────────────────────────────────────────────────────────────
     try:
-        # Run the main loop
-        loop.run_until_complete(main_streaming_loop())
-        
+        loop.run_until_complete(_streaming_loop())
     except KeyboardInterrupt:
-        logger.info("Keyboard interrupt detected")
+        log(details=f"{TASK_NAME} - KeyboardInterrupt received", log_type="warning")
         status_checker.clear()
-    
     except Exception as e:
-        logger.error(f"Unexpected error: {e}", exc_info=True)
+        log(details=f"{TASK_NAME} - Unexpected error in streaming loop: {e}", log_type="error")
         status_checker.clear()
-    
     finally:
-        # Cleanup WebRTC peer
         if webrtc_peer_instance:
             try:
                 loop.run_until_complete(webrtc_peer_instance.stop())
-                logger.info("WebRTC peer stopped")
-            except Exception as e:
-                logger.error(f"Error stopping WebRTC peer: {e}")
-        
-        # Cleanup camera
-        clean_result = camera.clean_up_camera(capture, PC_MODE)
-        if clean_result["status"] == "error":
-            logger.error(f"{clean_result['message']}")
-        
-        # Close event loop
+            except WebRTCStopError as e:
+                log(details=f"{TASK_NAME} - WebRTC stop error: {e}", log_type="warning")
+
+        _safe_cleanup(capture, IS_WEB_CAM, TASK_NAME)
+
         try:
             loop.close()
-        except:
+        except Exception:
             pass
-        
-        logger.info(f"{TASK_NAME} - Process stopped")
+
+        log(details=f"{TASK_NAME} - Process stopped", log_type="info")
+
+
+# ─────────────────────────── HELPERS ─────────────────────────────────────────
+
+def _safe_cleanup(capture, IS_WEB_CAM: bool, task_name: str) -> None:
+    """Attempt camera cleanup and log on failure."""
+    try:
+        camera.clean_up_camera(capture, IS_WEB_CAM)
+    except Exception as e:
+        log(details=f"{task_name} - Camera cleanup failed: {e}", log_type="warning")

@@ -3,3 +3,6 @@ docs
 *.log
 .vscode
 .git
+android
+ios
+README.md

@@ -5,7 +5,7 @@ import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
 import { RTCView } from 'react-native-webrtc';
 import type { MediaStream } from 'react-native-webrtc';
-import { MainDrawerParamList } from '../types/types';
+import { MainDrawerParamList, DeviceCodeEntry } from '../types/types';
 import sensorService from '../services/sensorService';
 import buttonService from '../services/buttonService';
 import settingsService from '../services/settingsService';
@@ -15,63 +15,57 @@ import { auth } from '../config/firebase.config';
 import deviceService from '../services/deviceService';
 
 type DashboardScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, 'Dashboard'>;
-
-interface Props {
-  navigation: DashboardScreenNavigationProp;
-}
+interface Props { navigation: DashboardScreenNavigationProp; }
 
 const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [waterLevel, setWaterLevel] = useState(0);
-  const [feedLevel, setFeedLevel] = useState(0);
+  const [feedLevel,  setFeedLevel]  = useState(0);
   const [lastWaterDate, setLastWaterDate] = useState('--/--/----');
   const [lastWaterTime, setLastWaterTime] = useState('--:--:--');
-  const [lastFeedDate, setLastFeedDate] = useState('--/--/----');
-  const [lastFeedTime, setLastFeedTime] = useState('--:--:--');
+  const [lastFeedDate,  setLastFeedDate]  = useState('--/--/----');
+  const [lastFeedTime,  setLastFeedTime]  = useState('--:--:--');
 
-  // Settings for dynamic thresholds
   const [waterThreshold, setWaterThreshold] = useState(20);
-  const [feedThreshold, setFeedThreshold] = useState(20);
-  const [feedVolume, setFeedVolume] = useState(10);
+  const [feedThreshold,  setFeedThreshold]  = useState(20);
+  const [feedVolume,     setFeedVolume]     = useState(10);
 
-  // Dispense button states
   const [waterButtonDisabled, setWaterButtonDisabled] = useState(false);
-  const [feedButtonDisabled, setFeedButtonDisabled] = useState(false);
+  const [feedButtonDisabled,  setFeedButtonDisabled]  = useState(false);
   const [waterCountdown, setWaterCountdown] = useState(0);
-  const [feedCountdown, setFeedCountdown] = useState(0);
+  const [feedCountdown,  setFeedCountdown]  = useState(0);
 
   const isWaterLow = waterLevel < waterThreshold;
-  const isFeedLow = feedLevel < feedThreshold;
+  const isFeedLow  = feedLevel  < feedThreshold;
 
   const [linkedDeviceUid, setLinkedDeviceUid] = useState<string | null>(null);
-  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showLinkModal,   setShowLinkModal]   = useState(false);
 
-  const [deviceUidInput, setDeviceUidInput] = useState('');
-  const [verifying, setVerifying] = useState(false);
-  const [deviceExists, setDeviceExists] = useState<boolean | null>(null);
+  // ── Pairing state ──────────────────────────────────────────────────────────
+  // The user enters a 6-char code shown on the raspi LCD.
+  // We look up /device_code/{code}/ to get the deviceUid, then write back
+  // userUid + username + status:"paired" to complete the pairing.
+  const [pairingCode,    setPairingCode]    = useState('');
+  const [looking,        setLooking]        = useState(false);  // lookup in progress
+  const [pairingEntry,   setPairingEntry]   = useState<DeviceCodeEntry | null>(null); // found entry
+  const [pairingError,   setPairingError]   = useState<string | null>(null);
+  const [pairing,        setPairing]        = useState(false);  // completePairing in progress
 
-  // WebRTC states
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [showStreamModal, setShowStreamModal] = useState(false);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [connectionState, setConnectionState] = useState<string>('disconnected');
-  const [streamError, setStreamError] = useState<string | null>(null);
+  // WebRTC
+  const [isStreaming,       setIsStreaming]       = useState(false);
+  const [showStreamModal,   setShowStreamModal]   = useState(false);
+  const [remoteStream,      setRemoteStream]      = useState<MediaStream | null>(null);
+  const [connectionState,   setConnectionState]   = useState<string>('disconnected');
+  const [streamError,       setStreamError]       = useState<string | null>(null);
 
+  // ── Stream toggle ──────────────────────────────────────────────────────────
   const handleToggleStream = async () => {
-    if (!linkedDeviceUid) {
-      Alert.alert('No Device', 'Please link a device first');
-      return;
-    }
-
+    if (!linkedDeviceUid) { Alert.alert('No Device', 'Please pair a device first'); return; }
     try {
       const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
+      if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
 
       if (isStreaming) {
-        // Stop stream
         await webrtcService.stopConnection();
         setIsStreaming(false);
         setRemoteStream(null);
@@ -79,49 +73,27 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         setStreamError(null);
         setShowStreamModal(false);
       } else {
-        // Start stream
         setStreamError(null);
         setConnectionState('connecting');
         setShowStreamModal(true);
-        
-        // Initialize WebRTC service ONLY if not already initialized
+
         if (!webrtcService.isServiceInitialized()) {
           await webrtcService.initialize(
             userId,
             linkedDeviceUid,
-            (stream) => {
-              console.log('Remote stream received in component');
-              setRemoteStream(stream);
-            },
-            (state) => {
-              console.log('Connection state changed:', state);
+            (stream) => { setRemoteStream(stream); },
+            (state)  => {
               setConnectionState(state);
-              
-              if (state === 'connected') {
-                setIsStreaming(true);
-                setStreamError(null);
-              } else if (state === 'failed') {
-                setStreamError('Connection failed. Please try again.');
-                setIsStreaming(false);
-              } else if (state === 'closed') {
-                setIsStreaming(false);
-                setRemoteStream(null);
-              }
+              if (state === 'connected')  { setIsStreaming(true); setStreamError(null); }
+              if (state === 'failed')     { setStreamError('Connection failed. Please try again.'); setIsStreaming(false); }
+              if (state === 'closed')     { setIsStreaming(false); setRemoteStream(null); }
             },
-            (error) => {
-              console.error('WebRTC error:', error);
-              setStreamError(error.message);
-              setIsStreaming(false);
-            }
+            (error) => { setStreamError(error.message); setIsStreaming(false); }
           );
         }
-
-        // Start connection
         await webrtcService.startConnection();
       }
-      
     } catch (error: any) {
-      console.error('Error toggling stream:', error);
       setStreamError(error.message || 'Failed to toggle stream');
       Alert.alert('Error', error.message || 'Failed to toggle stream');
       setIsStreaming(false);
@@ -129,175 +101,132 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  // Cleanup WebRTC on unmount - FIXED
-  useEffect(() => {
-    return () => {
-      webrtcService.stopConnection();
-    };
-  }, []); // Empty dependency array - only run on unmount
+  useEffect(() => { return () => { webrtcService.stopConnection(); }; }, []);
 
+  // ── Subscribe to linked device ────────────────────────────────────────────
+  // Uses a real-time subscription instead of a one-time read so the app
+  // reacts immediately when the Pi calls auth.logout() and deletes
+  // users/{uid}/linkedDevice from Firebase — no manual refresh needed.
   useEffect(() => {
-    const loadLinkedDevice = async () => {
-      setLoading(true);
-      const userId = auth.currentUser?.uid;
-      if (userId) {
-        const deviceUid = await deviceService.getLinkedDevice(userId);
-        setLinkedDeviceUid(deviceUid);
-      }
-    };
-    loadLinkedDevice();
+    const userId = auth.currentUser?.uid;
+    if (!userId) { setLoading(false); return; }
+
+    setLoading(true);
+    const unsubscribe = deviceService.subscribeLinkedDevice(
+      userId,
+      (uid) => {
+        setLinkedDeviceUid(uid);
+        setLoading(false);
+        // If the Pi just logged out (uid === null), stop any active stream
+        if (uid === null) {
+          webrtcService.stopConnection();
+          setIsStreaming(false);
+          setRemoteStream(null);
+          setConnectionState('disconnected');
+          setShowStreamModal(false);
+        }
+      },
+      (error) => {
+        console.error('linkedDevice subscription error:', error);
+        setLoading(false);
+      },
+    );
+    return () => unsubscribe();
   }, []);
 
-  const handleVerifyDevice = async () => {
-    if (!deviceUidInput.trim()) return;
-    
-    setVerifying(true);
+  // ── Pairing: step 1 — look up the code ────────────────────────────────────
+  const handleLookupCode = async () => {
+    if (!pairingCode.trim()) return;
+    setLooking(true);
+    setPairingError(null);
+    setPairingEntry(null);
     try {
-      const exists = await deviceService.verifyDevice(deviceUidInput.trim());
-      setDeviceExists(exists);
-      
-      if (!exists) {
-        Alert.alert('Not Found', 'This device UID does not exist in the system.');
-      }
+      const entry = await deviceService.lookupPairingCode(pairingCode);
+      setPairingEntry(entry);
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to verify device. Please try again.');
-      setDeviceExists(false);
+      setPairingError(error.message);
     } finally {
-      setVerifying(false);
+      setLooking(false);
     }
   };
 
-  const handleLinkDevice = async () => {
-    const userId = auth.currentUser?.uid;
-    if (!userId || !deviceUidInput) return;
-
+  // ── Pairing: step 2 — complete pairing ────────────────────────────────────
+  const handlePairDevice = async () => {
+    if (!pairingEntry) return;
+    setPairing(true);
     try {
-      await deviceService.linkDeviceToUser(userId, deviceUidInput.trim());
-      setLinkedDeviceUid(deviceUidInput.trim());
+      await deviceService.completePairing(pairingCode, pairingEntry.deviceUid);
+      setLinkedDeviceUid(pairingEntry.deviceUid);
       setShowLinkModal(false);
-      setDeviceUidInput('');
-      setDeviceExists(null);
-      Alert.alert('Success', 'Device linked successfully!');
+      setPairingCode('');
+      setPairingEntry(null);
+      setPairingError(null);
+      Alert.alert('Paired!', `Device ${pairingEntry.deviceUid} linked successfully.`);
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to link device. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to complete pairing. Please try again.');
+    } finally {
+      setPairing(false);
     }
   };
 
-  // Load sensor data and settings on mount
+  const handleClosePairingModal = () => {
+    setShowLinkModal(false);
+    setPairingCode('');
+    setPairingEntry(null);
+    setPairingError(null);
+  };
+
+  // ── Sensor / button / settings subscriptions ──────────────────────────────
   useEffect(() => {
     const userId = auth.currentUser?.uid;
-    if (!userId) {
-      Alert.alert('Error', 'User not authenticated');
-      setLoading(false);
-      return;
-    }
-
-    if (!linkedDeviceUid) {
-      setLoading(false);
-      return;
-    }
+    if (!userId || !linkedDeviceUid) { setLoading(false); return; }
 
     const initializeData = async () => {
       try {
-        const existingSensorData = await sensorService.getSensorData(userId, linkedDeviceUid);
-        if (!existingSensorData) {
+        if (!await sensorService.getSensorData(userId, linkedDeviceUid))
           await sensorService.initializeSensorData(userId, linkedDeviceUid);
-        }
-
-        const existingButtonData = await buttonService.getButtonData(userId, linkedDeviceUid);
-        if (!existingButtonData) {
+        if (!await buttonService.getButtonData(userId, linkedDeviceUid))
           await buttonService.initializeButtonData(userId, linkedDeviceUid);
-        }
-
-        const existingSettings = await settingsService.getSettings(userId);
-        if (!existingSettings) {
+        if (!await settingsService.getSettings(userId))
           await settingsService.initializeSettings(userId);
-        }
-      } catch (error) {
-        console.error('Error initializing data:', error);
-      }
+      } catch (e) { console.error('Init error:', e); }
     };
-
     initializeData();
 
-    const unsubscribeSensor = sensorService.subscribeSensorData(
-      userId,
-      linkedDeviceUid,
+    const unsubSensor = sensorService.subscribeSensorData(userId, linkedDeviceUid,
       (data) => {
-        if (data) {
-          setWaterLevel(data.waterLevel);
-          setFeedLevel(data.feedLevel);
-        }
+        if (data) { setWaterLevel(data.waterLevel); setFeedLevel(data.feedLevel); }
         setLoading(false);
       },
-      (error) => {
-        console.error('Sensor subscription error:', error);
-        Alert.alert('Error', 'Failed to load sensor data');
-        setLoading(false);
-      }
+      (e) => { console.error(e); setLoading(false); }
     );
 
-    const unsubscribeButton = buttonService.subscribeButtonData(
-      userId,
-      linkedDeviceUid,
+    const unsubButton = buttonService.subscribeButtonData(userId, linkedDeviceUid,
       (data) => {
-        if (data) {
-          if (data.waterButton?.lastUpdateAt) {
-            const waterTimestamp = data.waterButton.lastUpdateAt;
-            if (typeof waterTimestamp === 'number') {
-              const date = new Date(waterTimestamp);
-              const formatted = date.toLocaleString('en-US', {
-                timeZone: 'Asia/Manila',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-              });
-              const [datePart, timePart] = formatted.split(', ');
-              setLastWaterDate(datePart);
-              setLastWaterTime(timePart);
-            } else {
-              const [datePart, timePart] = waterTimestamp.split(' ');
-              setLastWaterDate(datePart);
-              setLastWaterTime(timePart);
-            }
+        if (!data) return;
+        const fmt = (ts: number | string) => {
+          if (typeof ts === 'number') {
+            const d = new Date(ts).toLocaleString('en-US', {
+              timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+              hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+            });
+            return d.split(', ');
           }
-          
-          if (data.feedButton?.lastUpdateAt) {
-            const feedTimestamp = data.feedButton.lastUpdateAt;
-            if (typeof feedTimestamp === 'number') {
-              const date = new Date(feedTimestamp);
-              const formatted = date.toLocaleString('en-US', {
-                timeZone: 'Asia/Manila',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-              });
-              const [datePart, timePart] = formatted.split(', ');
-              setLastFeedDate(datePart);
-              setLastFeedTime(timePart);
-            } else {
-              const [datePart, timePart] = feedTimestamp.split(' ');
-              setLastFeedDate(datePart);
-              setLastFeedTime(timePart);
-            }
-          }
+          return ts.split(' ');
+        };
+        if (data.waterButton?.lastUpdateAt) {
+          const [d, t] = fmt(data.waterButton.lastUpdateAt);
+          setLastWaterDate(d); setLastWaterTime(t);
+        }
+        if (data.feedButton?.lastUpdateAt) {
+          const [d, t] = fmt(data.feedButton.lastUpdateAt);
+          setLastFeedDate(d); setLastFeedTime(t);
         }
       },
-      (error) => {
-        console.error('Button subscription error:', error);
-      }
+      (e) => console.error(e)
     );
 
-    const unsubscribeSettings = settingsService.subscribeSettings(
-      userId,
+    const unsubSettings = settingsService.subscribeSettings(userId,
       (settings) => {
         if (settings) {
           setWaterThreshold(settings.water.thresholdPercent || 20);
@@ -305,123 +234,76 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           setFeedVolume(settings.feed.dispenseVolumePercent);
         }
       },
-      (error) => {
-        console.error('Settings subscription error:', error);
-      }
+      (e) => console.error(e)
     );
 
-    return () => {
-      unsubscribeSensor();
-      unsubscribeButton();
-      unsubscribeSettings();
-    };
+    return () => { unsubSensor(); unsubButton(); unsubSettings(); };
   }, [linkedDeviceUid]);
 
-  // Water button countdown effect
+  // ── Countdown timers ───────────────────────────────────────────────────────
   useEffect(() => {
     if (waterCountdown > 0) {
-      const timer = setTimeout(() => setWaterCountdown(waterCountdown - 1), 1000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setWaterCountdown(c => c - 1), 1000);
+      return () => clearTimeout(t);
     } else if (waterCountdown === 0 && waterButtonDisabled) {
       setWaterButtonDisabled(false);
     }
   }, [waterCountdown, waterButtonDisabled]);
 
-  // Feed button countdown effect
   useEffect(() => {
     if (feedCountdown > 0) {
-      const timer = setTimeout(() => setFeedCountdown(feedCountdown - 1), 1000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setFeedCountdown(c => c - 1), 1000);
+      return () => clearTimeout(t);
     } else if (feedCountdown === 0 && feedButtonDisabled) {
       setFeedButtonDisabled(false);
     }
   }, [feedCountdown, feedButtonDisabled]);
 
+  // ── Action buttons ─────────────────────────────────────────────────────────
   const handleWaterRefill = async () => {
-    if (!linkedDeviceUid) {
-      Alert.alert('No Device', 'Please link a device first');
-      return;
-    }
-
+    if (!linkedDeviceUid) { Alert.alert('No Device', 'Please pair a device first'); return; }
     try {
       const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      setWaterButtonDisabled(true);
-      setWaterCountdown(3);
-
-      await analyticsService.logAction(userId, 'water', 'refill', 0);
+      if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
+      setWaterButtonDisabled(true); setWaterCountdown(3);
+      // Write button timestamp FIRST — this is the actual command to the raspi.
+      // Only log analytics if the write succeeds so that pressing buttons while
+      // the raspi is offline does not pollute the analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'water');
-
+      await analyticsService.logAction(userId, 'water', 'refill', 0);
       Alert.alert('Success', 'Water refill command sent!');
     } catch (error: any) {
-      console.error('Error refilling water:', error);
-      Alert.alert('Error', error.message || 'Failed to refill water');
-      setWaterButtonDisabled(false);
-      setWaterCountdown(0);
+      console.error(error);
+      Alert.alert('Error', error.message || 'Failed to send command. Check your connection.');
+      setWaterButtonDisabled(false); setWaterCountdown(0);
     }
   };
 
   const handleFeedDispense = async () => {
-    if (!linkedDeviceUid) {
-      Alert.alert('No Device', 'Please link a device first');
-      return;
-    }
-
+    if (!linkedDeviceUid) { Alert.alert('No Device', 'Please pair a device first'); return; }
     try {
       const userId = auth.currentUser?.uid;
-      if (!userId) {
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-
-      setFeedButtonDisabled(true);
-      setFeedCountdown(3);
-
-      await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
+      if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
+      setFeedButtonDisabled(true); setFeedCountdown(3);
+      // Write button timestamp FIRST — this is the actual command to the raspi.
+      // Only log analytics if the write succeeds so offline button presses
+      // don't pollute analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'feed');
-
+      await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
       Alert.alert('Success', `Feed dispense command sent! (${feedVolume}%)`);
     } catch (error: any) {
-      console.error('Error dispensing feed:', error);
-      Alert.alert('Error', error.message || 'Failed to dispense feed');
-      setFeedButtonDisabled(false);
-      setFeedCountdown(0);
+      console.error(error);
+      Alert.alert('Error', error.message || 'Failed to send command. Check your connection.');
+      setFeedButtonDisabled(false); setFeedCountdown(0);
     }
   };
 
-  // Cleanup WebRTC on unmount
-  useEffect(() => {
-    return () => {
-      if (isStreaming) {
-        webrtcService.stopConnection();
-      }
-    };
-  }, [isStreaming]);
-
-  if (loading) {
+  // ── No device linked screen ────────────────────────────────────────────────
+  if (!loading && !linkedDeviceUid) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-        <Text style={styles.loadingText}>Loading dashboard...</Text>
-      </View>
-    );
-  }
-
-  if (!linkedDeviceUid) {
-    return (
-      <LinearGradient
-        colors={['#FFFEF0', '#FFFEF0']}
-        style={styles.container}
-      >
+      <LinearGradient colors={['#FFFEF0', '#FFFEF0']} style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.menuButton}
-            onPress={() => navigation.openDrawer()}
-          >
+          <TouchableOpacity style={styles.menuButton} onPress={() => navigation.openDrawer()}>
             <Text style={styles.menuIcon}>☰</Text>
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
@@ -432,93 +314,72 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
         <View style={styles.noDeviceContainer}>
           <Text style={styles.noDeviceIcon}>📱</Text>
-          <Text style={styles.noDeviceTitle}>No Device Linked</Text>
+          <Text style={styles.noDeviceTitle}>No Device Paired</Text>
           <Text style={styles.noDeviceMessage}>
-            Please link a device to start monitoring your poultry system
+            Press A on your Chick-Up device to display a 6-character pairing code,
+            then enter it below to link your device.
           </Text>
-          <TouchableOpacity
-            style={styles.linkDeviceButton}
-            onPress={() => setShowLinkModal(true)}
-          >
-            <Text style={styles.linkDeviceButtonText}>Link Device</Text>
+          <TouchableOpacity style={styles.linkDeviceButton} onPress={() => setShowLinkModal(true)}>
+            <Text style={styles.linkDeviceButtonText}>Pair Device</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Link Device Modal */}
-        <Modal
-          visible={showStreamModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            setShowStreamModal(false);
-            // Don't call handleToggleStream here - just close the modal
-            // The stream continues in the background
-          }}
-        >
+        {/* ── Pairing Modal ── */}
+        <Modal visible={showLinkModal} transparent animationType="fade"
+          onRequestClose={handleClosePairingModal}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Link Device</Text>
-              <Text style={styles.modalSubtitle}>Enter your device UID to connect</Text>
-              
+              <Text style={styles.modalTitle}>Pair Device</Text>
+              <Text style={styles.modalSubtitle}>
+                Enter the 6-character code shown on your device's screen
+              </Text>
+
               <TextInput
                 style={styles.deviceInput}
-                placeholder="Enter Device UID"
-                value={deviceUidInput}
-                onChangeText={(text) => {
-                  setDeviceUidInput(text);
-                  setDeviceExists(null);
+                placeholder="e.g.  A3X7KQ"
+                value={pairingCode}
+                onChangeText={(t) => {
+                  setPairingCode(t.toUpperCase());
+                  setPairingEntry(null);
+                  setPairingError(null);
                 }}
-                autoCapitalize="none"
+                autoCapitalize="characters"
+                maxLength={6}
               />
 
-              {verifying && (
-                <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />
-              )}
-
-              {deviceExists === false && (
-                <Text style={styles.errorText}>❌ Device UID not found</Text>
-              )}
-
-              {deviceExists === true && (
-                <Text style={styles.successText}>✅ Device verified!</Text>
+              {looking && <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />}
+              {pairingError && <Text style={styles.errorText}>❌ {pairingError}</Text>}
+              {pairingEntry && (
+                <Text style={styles.successText}>
+                  ✅ Device found: {pairingEntry.deviceUid}
+                </Text>
               )}
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  style={[
-                    styles.modalButton, 
-                    styles.verifyButton,
-                    (!deviceUidInput || verifying) && styles.modalButtonDisabled
-                  ]}
-                  onPress={handleVerifyDevice}
-                  disabled={!deviceUidInput || verifying}
+                  style={[styles.modalButton, styles.verifyButton,
+                    (pairingCode.length < 6 || looking) && styles.modalButtonDisabled]}
+                  onPress={handleLookupCode}
+                  disabled={pairingCode.length < 6 || looking}
                 >
                   <Text style={styles.modalButtonText}>
-                    {verifying ? 'Verifying...' : 'Verify'}
+                    {looking ? 'Looking up...' : 'Look Up'}
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[
-                    styles.modalButton,
-                    styles.linkButton,
-                    !deviceExists && styles.modalButtonDisabled
-                  ]}
-                  onPress={handleLinkDevice}
-                  disabled={!deviceExists}
+                  style={[styles.modalButton, styles.linkButton,
+                    (!pairingEntry || pairing) && styles.modalButtonDisabled]}
+                  onPress={handlePairDevice}
+                  disabled={!pairingEntry || pairing}
                 >
-                  <Text style={styles.modalButtonText}>Link Device</Text>
+                  <Text style={styles.modalButtonText}>
+                    {pairing ? 'Pairing...' : 'Pair'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setShowLinkModal(false);
-                  setDeviceUidInput('');
-                  setDeviceExists(null);
-                }}
-              >
+              <TouchableOpacity style={styles.cancelButton} onPress={handleClosePairingModal}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
@@ -528,17 +389,20 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     );
   }
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+        <Text style={styles.loadingText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
+
+  // ── Main dashboard ─────────────────────────────────────────────────────────
   return (
-    <LinearGradient
-      colors={['#FFFEF0', '#FFFEF0']}
-      style={styles.container}
-    >
-      {/* Header */}
+    <LinearGradient colors={['#FFFEF0', '#FFFEF0']} style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => navigation.openDrawer()}
-        >
+        <TouchableOpacity style={styles.menuButton} onPress={() => navigation.openDrawer()}>
           <Text style={styles.menuIcon}>☰</Text>
         </TouchableOpacity>
         <View style={styles.headerTextContainer}>
@@ -547,18 +411,16 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      {/* Device Badge */}
       <View style={styles.deviceBadge}>
-        <Text style={styles.deviceLabel}>Connected Device:</Text>
+        <Text style={styles.deviceLabel}>Paired Device:</Text>
         <TouchableOpacity onPress={() => setShowLinkModal(true)}>
           <Text style={styles.deviceUid}>{linkedDeviceUid}</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Level Cards Container */}
         <View style={styles.levelCardsContainer}>
-          {/* Water Level Card */}
+          {/* Water Level */}
           <View style={styles.levelCard}>
             <View style={styles.cardHeader}>
               <View style={[styles.iconCircle, { backgroundColor: "#4A90E2" }]}>
@@ -572,35 +434,24 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
             </View>
-
             <View style={styles.levelInfoContainer}>
               <Text style={styles.levelLabel}>Level</Text>
-              <Text style={[styles.levelPercentage, isWaterLow && styles.levelLow]}>
-                {waterLevel}%
-              </Text>
+              <Text style={[styles.levelPercentage, isWaterLow && styles.levelLow]}>{waterLevel}%</Text>
             </View>
-
             <View style={styles.progressBarContainer}>
               <View style={styles.progressBarBg}>
-                <View 
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${waterLevel}%` },
-                    isWaterLow && styles.progressBarLow
-                  ]} 
-                />
+                <View style={[styles.progressBarFill, { width: `${waterLevel}%` }, isWaterLow && styles.progressBarLow]} />
               </View>
             </View>
-
             {isWaterLow && (
               <View style={styles.alertContainer}>
                 <Text style={styles.alertIcon}>⚠️</Text>
-                <Text style={styles.alertText}>Low water level - please refill soon!</Text>
+                <Text style={styles.alertText}>Low water level — please refill soon!</Text>
               </View>
             )}
           </View>
 
-          {/* Feed Level Card */}
+          {/* Feed Level */}
           <View style={styles.levelCard}>
             <View style={styles.cardHeader}>
               <View style={[styles.iconCircle, { backgroundColor: "#FF9500" }]}>
@@ -614,84 +465,52 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
               </View>
             </View>
-
             <View style={styles.levelInfoContainer}>
               <Text style={styles.levelLabel}>Level</Text>
-              <Text style={[styles.levelPercentage, isFeedLow && styles.levelLow]}>
-                {feedLevel}%
-              </Text>
+              <Text style={[styles.levelPercentage, isFeedLow && styles.levelLow]}>{feedLevel}%</Text>
             </View>
-
             <View style={styles.progressBarContainer}>
               <View style={styles.progressBarBg}>
-                <View 
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${feedLevel}%` },
-                    isFeedLow && styles.progressBarLow,
-                    !isFeedLow && { backgroundColor: '#4CAF50' }
-                  ]} 
-                />
+                <View style={[styles.progressBarFill, { width: `${feedLevel}%` },
+                  isFeedLow ? styles.progressBarLow : { backgroundColor: '#4CAF50' }]} />
               </View>
             </View>
-
             {isFeedLow && (
               <View style={styles.alertContainer}>
                 <Text style={styles.alertIcon}>⚠️</Text>
-                <Text style={styles.alertText}>Low feed level - please refill soon!</Text>
+                <Text style={styles.alertText}>Low feed level — please refill soon!</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* Critical Alert Banner */}
         {(isWaterLow || isFeedLow) && (
           <View style={styles.criticalAlert}>
             <Text style={styles.criticalAlertIcon}>⚠️</Text>
             <Text style={styles.criticalAlertText}>
               {isWaterLow && isFeedLow
-                ? 'Water and feed levels are critically low! Please refill both containers.'
-                : isWaterLow
-                ? 'Water level is critically low! Please refill the water container.'
-                : 'Feed level is critically low! Please refill the feed container.'}
+                ? 'Water and feed levels are critically low! Please refill both.'
+                : isWaterLow ? 'Water level is critically low! Please refill.'
+                : 'Feed level is critically low! Please refill.'}
             </Text>
           </View>
         )}
 
-        {/* Action Buttons */}
         <View style={styles.actionButtonsContainer}>
           <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.waterButton,
-              waterButtonDisabled && styles.actionButtonDisabled
-            ]}
-            onPress={handleWaterRefill}
-            disabled={waterButtonDisabled}
-          >
+            style={[styles.actionButton, styles.waterButton, waterButtonDisabled && styles.actionButtonDisabled]}
+            onPress={handleWaterRefill} disabled={waterButtonDisabled}>
             <Text style={styles.actionButtonIcon}>💧</Text>
-            <Text style={styles.actionButtonText}>
-              {waterButtonDisabled ? `Wait ${waterCountdown}s` : 'Refill Water'}
-            </Text>
+            <Text style={styles.actionButtonText}>{waterButtonDisabled ? `Wait ${waterCountdown}s` : 'Refill Water'}</Text>
           </TouchableOpacity>
-
           <TouchableOpacity
-            style={[
-              styles.actionButton,
-              styles.feedButton,
-              feedButtonDisabled && styles.actionButtonDisabled
-            ]}
-            onPress={handleFeedDispense}
-            disabled={feedButtonDisabled}
-          >
+            style={[styles.actionButton, styles.feedButton, feedButtonDisabled && styles.actionButtonDisabled]}
+            onPress={handleFeedDispense} disabled={feedButtonDisabled}>
             <Text style={styles.actionButtonIcon}>🌾</Text>
-            <Text style={styles.actionButtonText}>
-              {feedButtonDisabled ? `Wait ${feedCountdown}s` : 'Dispense Feed'}
-            </Text>
+            <Text style={styles.actionButtonText}>{feedButtonDisabled ? `Wait ${feedCountdown}s` : 'Dispense Feed'}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Quick Stats Card */}
         <View style={styles.statsCard}>
           <Text style={styles.statsTitle}>Last Activity</Text>
           <View style={styles.statsRow}>
@@ -709,51 +528,28 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </ScrollView>
 
-      {/* WebRTC Stream Modal */}
-      <Modal
-        visible={showStreamModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setShowStreamModal(false);
-          if (isStreaming) {
-            handleToggleStream();
-          }
-        }}
-      >
+      {/* ── Stream Modal ── */}
+      <Modal visible={showStreamModal} transparent animationType="fade"
+        onRequestClose={() => { setShowStreamModal(false); if (isStreaming) handleToggleStream(); }}>
         <View style={styles.streamModalOverlay}>
           <View style={styles.streamModalContent}>
             <View style={styles.streamHeader}>
               <Text style={styles.streamTitle}>📹 Live Stream</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowStreamModal(false);
-                  if (isStreaming) {
-                    handleToggleStream();
-                  }
-                }}
-                style={styles.streamCloseButton}
-              >
+              <TouchableOpacity onPress={() => { setShowStreamModal(false); if (isStreaming) handleToggleStream(); }}
+                style={styles.streamCloseButton}>
                 <Text style={styles.streamCloseText}>✕</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.streamFrameContainer}>
               {remoteStream ? (
-                <RTCView
-                  streamURL={remoteStream.toURL()}
-                  style={styles.rtcView}
-                  objectFit="cover"
-                  zOrder={1}
-                />
+                <RTCView streamURL={remoteStream.toURL()} style={styles.rtcView} objectFit="cover" zOrder={1} />
               ) : (
                 <View style={styles.streamPlaceholder}>
                   <Text style={styles.streamPlaceholderIcon}>📷</Text>
                   <Text style={styles.streamPlaceholderText}>
-                    {connectionState === 'connecting' 
-                      ? 'Connecting to Raspberry Pi...' 
-                      : connectionState === 'connected'
-                      ? 'Waiting for video stream...'
+                    {connectionState === 'connecting' ? 'Connecting to Raspberry Pi...'
+                      : connectionState === 'connected' ? 'Waiting for video stream...'
                       : 'No stream available'}
                   </Text>
                   {connectionState === 'connecting' && (
@@ -761,19 +557,17 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                   )}
                 </View>
               )}
-              
-              {/* Connection State Indicator */}
               <View style={styles.connectionIndicator}>
-                <View style={[
-                  styles.connectionDot,
-                  connectionState === 'connected' && styles.connectionDotConnected,
+                <View style={[styles.connectionDot,
+                  connectionState === 'connected'  && styles.connectionDotConnected,
                   connectionState === 'connecting' && styles.connectionDotConnecting,
-                  connectionState === 'failed' && styles.connectionDotFailed,
+                  connectionState === 'failed'     && styles.connectionDotFailed,
                 ]} />
                 <Text style={styles.connectionText}>
-                  {connectionState === 'connected' ? 'LIVE' : 
-                   connectionState === 'connecting' ? 'CONNECTING' :
-                   connectionState === 'failed' ? 'FAILED' : 'DISCONNECTED'}
+                  {connectionState === 'connected'  ? 'LIVE'
+                   : connectionState === 'connecting' ? 'CONNECTING'
+                   : connectionState === 'failed'     ? 'FAILED'
+                   : 'DISCONNECTED'}
                 </Text>
               </View>
             </View>
@@ -786,19 +580,12 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
             <View style={styles.streamControls}>
               <TouchableOpacity
-                style={[
-                  styles.streamControlButton,
-                  isStreaming ? styles.stopButton : styles.startButton
-                ]}
+                style={[styles.streamControlButton, isStreaming ? styles.stopButton : styles.startButton]}
                 onPress={handleToggleStream}
-                disabled={connectionState === 'connecting'}
-              >
+                disabled={connectionState === 'connecting'}>
                 <Text style={styles.streamControlButtonText}>
-                  {connectionState === 'connecting' 
-                    ? '⏳ Connecting...' 
-                    : isStreaming 
-                    ? '⏹ Stop Stream' 
-                    : '▶ Start Stream'}
+                  {connectionState === 'connecting' ? '⏳ Connecting...'
+                    : isStreaming ? '⏹ Stop Stream' : '▶ Start Stream'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -806,628 +593,170 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </Modal>
 
+      {/* ── Pairing modal (change device) ── */}
+      <Modal visible={showLinkModal} transparent animationType="fade"
+        onRequestClose={handleClosePairingModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Pair New Device</Text>
+            <Text style={styles.modalSubtitle}>
+              Press A on your device to show a code, then enter it here
+            </Text>
+
+            <TextInput
+              style={styles.deviceInput}
+              placeholder="6-character code (e.g. A3X7KQ)"
+              value={pairingCode}
+              onChangeText={(t) => {
+                setPairingCode(t.toUpperCase());
+                setPairingEntry(null);
+                setPairingError(null);
+              }}
+              autoCapitalize="characters"
+              maxLength={6}
+            />
+
+            {looking && <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />}
+            {pairingError  && <Text style={styles.errorText}>❌ {pairingError}</Text>}
+            {pairingEntry  && <Text style={styles.successText}>✅ Device found: {pairingEntry.deviceUid}</Text>}
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.verifyButton,
+                  (pairingCode.length < 6 || looking) && styles.modalButtonDisabled]}
+                onPress={handleLookupCode}
+                disabled={pairingCode.length < 6 || looking}>
+                <Text style={styles.modalButtonText}>{looking ? 'Looking up...' : 'Look Up'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.linkButton,
+                  (!pairingEntry || pairing) && styles.modalButtonDisabled]}
+                onPress={handlePairDevice}
+                disabled={!pairingEntry || pairing}>
+                <Text style={styles.modalButtonText}>{pairing ? 'Pairing...' : 'Pair'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.cancelButton} onPress={handleClosePairingModal}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Floating Stream Button */}
       <TouchableOpacity
-        style={[
-          styles.streamButton,
-          isStreaming && styles.streamButtonActive
-        ]}
-        onPress={() => setShowStreamModal(true)}
-      >
+        style={[styles.streamButton, isStreaming && styles.streamButtonActive]}
+        onPress={() => setShowStreamModal(true)}>
         <Text style={styles.streamButtonIcon}>📹</Text>
-        <Text style={styles.streamButtonText}>
-          {isStreaming ? 'View Live Stream' : 'Start Live Stream'}
-        </Text>
+        <Text style={styles.streamButtonText}>{isStreaming ? 'View Live Stream' : 'Start Live Stream'}</Text>
       </TouchableOpacity>
     </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFEF0',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    backgroundColor: '#FFFEF0',
-  },
-  menuButton: {
-    padding: 8,
-  },
-  menuIcon: {
-    fontSize: 28,
-    color: '#333',
-  },
-  headerTextContainer: {
-    marginLeft: 12,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2E7D32',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  levelCardsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  levelCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    width: '48%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  iconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  iconEmoji: {
-    fontSize: 28,
-  },
-  cardHeaderText: {
-    flex: 1,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  currentLevelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  currentLevelText: {
-    fontSize: 12,
-    color: '#999',
-  },
-  warningIcon: {
-    fontSize: 12,
-    marginLeft: 4,
-  },
-  levelInfoContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  levelLabel: {
-    fontSize: 16,
-    color: '#666',
-  },
-  levelPercentage: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-  },
-  levelLow: {
-    color: '#E53935',
-  },
-  progressBarContainer: {
-    marginBottom: 12,
-  },
-  progressBarBg: {
-    height: 8,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#333',
-    borderRadius: 4,
-  },
-  progressBarLow: {
-    backgroundColor: '#E53935',
-  },
-  alertContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#FFEBEE',
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  alertIcon: {
-    fontSize: 14,
-    marginRight: 6,
-  },
-  alertText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#C62828',
-    lineHeight: 16,
-  },
-  criticalAlert: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF9C4',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#F9A825',
-  },
-  criticalAlertIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  criticalAlertText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-  },
-  actionButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  actionButton: {
-    width: '48%',
-    paddingVertical: 20,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  waterButton: {
-    backgroundColor: '#2196F3',
-  },
-  feedButton: {
-    backgroundColor: '#FF9500',
-  },
-  actionButtonDisabled: {
-    backgroundColor: '#BDBDBD',
-    opacity: 0.6,
-  },
-  actionButtonIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  actionButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  statsCard: {
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    backgroundColor: '#FFF9C4',
-  },
-  statsTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#000000ff',
-    marginBottom: 20,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  statColumn: {
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#000000ff',
-    opacity: 0.9,
-    marginBottom: 8,
-  },
-  statDate: {
-    fontSize: 16,
-    color: '#000000ff',
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#000000ff',
-  },
-  deviceBadge: {
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginTop: 10,
-    padding: 12,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  deviceLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginRight: 6,
-  },
-  deviceUid: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-  },
-  noDeviceText: {
-    fontSize: 14,
-    color: '#E53935',
-    fontWeight: '500',
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 30,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#4CAF50',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    width: '85%',
-    maxWidth: 400,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  deviceInput: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16,
-  },
-  verifyIndicator: {
-    marginBottom: 12,
-  },
-  errorText: {
-    color: '#E53935',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  successText: {
-    color: '#4CAF50',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginHorizontal: 4,
-  },
-  verifyButton: {
-    backgroundColor: '#2196F3',
-  },
-  linkButton: {
-    backgroundColor: '#4CAF50',
-  },
-  modalButtonDisabled: {
-    backgroundColor: '#BDBDBD',
-    opacity: 0.5,
-  },
-  modalButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  cancelButton: {
-    paddingVertical: 12,
-  },
-  cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  noDeviceContainer: {
-  flex: 1,
-  justifyContent: 'center',
-  alignItems: 'center',
-  paddingHorizontal: 40,
-  },
-  noDeviceIcon: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  noDeviceTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  noDeviceMessage: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 24,
-  },
-  linkDeviceButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  linkDeviceButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  streamButton: {
-    backgroundColor: '#9C27B0',
-    paddingVertical: 18,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    flexDirection: 'row',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  streamButtonActive: {
-    backgroundColor: '#E53935',
-  },
-  streamButtonIcon: {
-    fontSize: 24,
-    marginRight: 8,
-  },
-  streamButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  streamModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  streamModalContent: {
-    backgroundColor: '#1E1E1E',
-    borderRadius: 20,
-    width: '90%',
-    maxWidth: 500,
-    padding: 20,
-  },
-  streamHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  streamTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  streamCloseButton: {
-    padding: 8,
-  },
-  streamCloseText: {
-    fontSize: 24,
-    color: '#FFFFFF',
-  },
-  streamFrame: {
-    backgroundColor: '#000000',
-    borderRadius: 12,
-    overflow: 'hidden',
-    aspectRatio: 16 / 9,
-    borderWidth: 3,
-    borderColor: '#9C27B0',
-  },
-  streamImage: {
-    width: '100%',
-    height: '100%',
-  },
-  streamPlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#2C2C2C',
-  },
-  streamPlaceholderIcon: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  streamPlaceholderText: {
-    color: '#999',
-    fontSize: 16,
-  },
-  recordingIndicator: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(229, 57, 53, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFFFFF',
-    marginRight: 6,
-  },
-  recordingText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  streamControls: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  streamControlButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  startButton: {
-    backgroundColor: '#4CAF50',
-  },
-  stopButton: {
-    backgroundColor: '#E53935',
-  },
-  streamControlButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  // WebRTC-specific styles
-  streamFrameContainer: {
-    width: '100%',
-    height: 400,
-    backgroundColor: '#000',
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  rtcView: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#000',  // Black background while loading
-  },
-  connectionIndicator: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  connectionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#666',
-    marginRight: 8,
-  },
-  connectionDotConnected: {
-    backgroundColor: '#4CAF50',
-  },
-  connectionDotConnecting: {
-    backgroundColor: '#FF9500',
-  },
-  connectionDotFailed: {
-    backgroundColor: '#F44336',
-  },
-  connectionText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  errorBanner: {
-    backgroundColor: '#FFEBEE',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-  },
-  errorBannerText: {
-    color: '#D32F2F',
-    fontSize: 14,
-    textAlign: 'center',
-  },
+  container:        { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFEF0' },
+  loadingText:      { marginTop: 12, fontSize: 16, color: '#666' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 50, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#FFFEF0' },
+  menuButton:          { padding: 8 },
+  menuIcon:            { fontSize: 28, color: '#333' },
+  headerTextContainer: { marginLeft: 12 },
+  headerTitle:         { fontSize: 24, fontWeight: 'bold', color: '#2E7D32' },
+  headerSubtitle:      { fontSize: 12, color: '#666', marginTop: 2 },
+  content:             { flex: 1, paddingHorizontal: 20 },
+  levelCardsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 20 },
+  levelCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '48%', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  cardHeader:       { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  iconCircle:       { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  iconEmoji:        { fontSize: 28 },
+  cardHeaderText:   { flex: 1 },
+  cardTitle:        { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 4 },
+  currentLevelRow:  { flexDirection: 'row', alignItems: 'center' },
+  currentLevelText: { fontSize: 12, color: '#999' },
+  warningIcon:      { fontSize: 12, marginLeft: 4 },
+  levelInfoContainer:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  levelLabel:          { fontSize: 16, color: '#666' },
+  levelPercentage:     { fontSize: 28, fontWeight: 'bold', color: '#4CAF50' },
+  levelLow:            { color: '#E53935' },
+  progressBarContainer:{ marginBottom: 12 },
+  progressBarBg:       { height: 8, backgroundColor: '#E0E0E0', borderRadius: 4, overflow: 'hidden' },
+  progressBarFill:     { height: '100%', backgroundColor: '#333', borderRadius: 4 },
+  progressBarLow:      { backgroundColor: '#E53935' },
+  alertContainer:      { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#FFEBEE', padding: 10, borderRadius: 8, marginTop: 8 },
+  alertIcon:           { fontSize: 14, marginRight: 6 },
+  alertText:           { flex: 1, fontSize: 11, color: '#C62828', lineHeight: 16 },
+  criticalAlert:       { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF9C4', padding: 16, borderRadius: 12, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#F9A825' },
+  criticalAlertIcon:   { fontSize: 24, marginRight: 12 },
+  criticalAlertText:   { flex: 1, fontSize: 14, color: '#333', fontWeight: '500' },
+  actionButtonsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  actionButton:   { width: '48%', paddingVertical: 20, borderRadius: 16, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
+  waterButton:    { backgroundColor: '#2196F3' },
+  feedButton:     { backgroundColor: '#FF9500' },
+  actionButtonDisabled: { backgroundColor: '#BDBDBD', opacity: 0.6 },
+  actionButtonIcon: { fontSize: 32, marginBottom: 8 },
+  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+  statsCard:  { borderRadius: 20, padding: 24, marginBottom: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, backgroundColor: '#FFF9C4' },
+  statsTitle: { fontSize: 22, fontWeight: 'bold', color: '#000000ff', marginBottom: 20 },
+  statsRow:   { flexDirection: 'row', justifyContent: 'space-around' },
+  statColumn: { alignItems: 'center' },
+  statLabel:  { fontSize: 14, color: '#000000ff', opacity: 0.9, marginBottom: 8 },
+  statDate:   { fontSize: 16, color: '#000000ff', fontWeight: '600', marginBottom: 4 },
+  statValue:  { fontSize: 20, fontWeight: 'bold', color: '#000000ff' },
+  deviceBadge: { backgroundColor: '#FFFFFF', marginHorizontal: 20, marginTop: 10, padding: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  deviceLabel: { fontSize: 12, color: '#666', marginRight: 6 },
+  deviceUid:   { fontSize: 14, fontWeight: 'bold', color: '#4CAF50' },
+  noDeviceContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+  noDeviceIcon:      { fontSize: 80, marginBottom: 20 },
+  noDeviceTitle:     { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 12 },
+  noDeviceMessage:   { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 30, lineHeight: 24 },
+  linkDeviceButton:     { backgroundColor: '#4CAF50', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+  linkDeviceButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 24, width: '85%', maxWidth: 400 },
+  modalTitle:    { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 8, textAlign: 'center' },
+  modalSubtitle: { fontSize: 14, color: '#666', marginBottom: 20, textAlign: 'center' },
+  deviceInput:   { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, padding: 12, fontSize: 18, marginBottom: 16, textAlign: 'center', letterSpacing: 4, fontWeight: 'bold' },
+  verifyIndicator: { marginBottom: 12 },
+  errorText:   { color: '#E53935', fontSize: 14, textAlign: 'center', marginBottom: 12 },
+  successText: { color: '#4CAF50', fontSize: 14, textAlign: 'center', marginBottom: 12 },
+  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  modalButton:        { flex: 1, paddingVertical: 12, borderRadius: 12, marginHorizontal: 4 },
+  verifyButton:       { backgroundColor: '#2196F3' },
+  linkButton:         { backgroundColor: '#4CAF50' },
+  modalButtonDisabled:{ backgroundColor: '#BDBDBD', opacity: 0.5 },
+  modalButtonText:    { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold', textAlign: 'center' },
+  cancelButton:    { paddingVertical: 12 },
+  cancelButtonText:{ color: '#666', fontSize: 16, textAlign: 'center' },
+  streamButton:       { backgroundColor: '#9C27B0', paddingVertical: 18, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginHorizontal: 20, marginBottom: 20, flexDirection: 'row', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
+  streamButtonActive: { backgroundColor: '#E53935' },
+  streamButtonIcon:   { fontSize: 24, marginRight: 8 },
+  streamButtonText:   { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  streamModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' },
+  streamModalContent: { backgroundColor: '#1E1E1E', borderRadius: 20, width: '90%', maxWidth: 500, padding: 20 },
+  streamHeader:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  streamTitle:        { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF' },
+  streamCloseButton:  { padding: 8 },
+  streamCloseText:    { fontSize: 24, color: '#FFFFFF' },
+  streamFrameContainer: { width: '100%', height: 400, backgroundColor: '#000', borderRadius: 12, overflow: 'hidden', position: 'relative' },
+  rtcView:            { width: '100%', height: '100%', backgroundColor: '#000' },
+  streamPlaceholder:  { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2C2C2C' },
+  streamPlaceholderIcon: { fontSize: 48, marginBottom: 12 },
+  streamPlaceholderText: { color: '#999', fontSize: 16 },
+  connectionIndicator: { position: 'absolute', top: 16, left: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  connectionDot:           { width: 8, height: 8, borderRadius: 4, backgroundColor: '#666', marginRight: 8 },
+  connectionDotConnected:  { backgroundColor: '#4CAF50' },
+  connectionDotConnecting: { backgroundColor: '#FF9500' },
+  connectionDotFailed:     { backgroundColor: '#F44336' },
+  connectionText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
+  errorBanner:     { backgroundColor: '#FFEBEE', padding: 12, borderRadius: 8, marginTop: 12 },
+  errorBannerText: { color: '#D32F2F', fontSize: 14, textAlign: 'center' },
+  streamControls:       { flexDirection: 'row', justifyContent: 'center' },
+  streamControlButton:  { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  startButton:          { backgroundColor: '#4CAF50' },
+  stopButton:           { backgroundColor: '#E53935' },
+  streamControlButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });
 
 export default DashboardScreen;

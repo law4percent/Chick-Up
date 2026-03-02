@@ -1,69 +1,195 @@
 #!/bin/bash
-# setup.sh - Optimized for Debian Trixie (Raspberry Pi OS 13)
+# setup.sh - FULL Production Setup for Raspberry Pi OS 13 (Trixie)
 
-# Exit immediately if a command exits with a non-zero status
 set -e
 
-echo "=== 1. Updating System Packages ==="
-sudo apt update && sudo apt upgrade -y
+echo "========================================="
+echo " Chick-Up AI - FULL Raspberry Pi Setup "
+echo "========================================="
 
-echo "=== 2. Installing System Dependencies ==="
-# Note: libatlas-base-dev is replaced by libopenblas-dev in Trixie
-sudo apt install -y build-essential cmake git pkg-config \
+# -----------------------------
+# 0. INTERNET CHECK
+# -----------------------------
+echo "=== 0. Checking Internet ==="
+if ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+    echo "✓ Internet OK"
+else
+    echo "✗ No internet. Aborting."
+    exit 1
+fi
+
+# -----------------------------
+# 1. SYSTEM UPDATE
+# -----------------------------
+echo "=== 1. Updating System ==="
+sudo apt update
+sudo apt upgrade -y
+
+# -----------------------------
+# 2. ENABLE I2C (LCD SUPPORT)
+# -----------------------------
+echo "=== 2. Enabling I2C Interface ==="
+sudo raspi-config nonint do_i2c 0 || true
+sudo apt install -y i2c-tools
+
+# -----------------------------
+# 3. INSTALL SYSTEM DEPENDENCIES
+# -----------------------------
+echo "=== 3. Installing System Dependencies ==="
+
+sudo apt install -y \
+    build-essential cmake git pkg-config \
     python3-dev python3-venv python3-pip \
     libjpeg-dev zlib1g-dev libtiff-dev libpng-dev \
     libavcodec-dev libavformat-dev libswscale-dev libavdevice-dev \
     libblas-dev liblapack-dev gfortran libopenblas-dev \
     libxvidcore-dev libx264-dev libboost-dev libdrm-dev \
     libusb-1.0-0-dev libv4l-dev libopus-dev libvpx-dev libssl-dev \
-    libcamera-dev python3-libcamera python3-picamera2 ffmpeg
+    libcamera-dev python3-libcamera python3-picamera2 \
+    ffmpeg rpicam-apps
 
-echo "=== 3. Creating Virtual Environment ==="
-# --system-site-packages allows the venv to see the global libcamera/picamera2
-if [ -d "webrtc-env" ]; then
-    echo "Virtual environment already exists."
+# -----------------------------
+# 4. CREATE VENV
+# -----------------------------
+echo "=== 4. Creating Virtual Environment ==="
+
+if [ -d "chick-up-env" ]; then
+    echo "✓ Virtual environment exists."
 else
-    python3 -m venv --system-site-packages webrtc-env
-    echo "Virtual environment created."
+    python3 -m venv --system-site-packages chick-up-env
+    echo "✓ Virtual environment created."
 fi
 
-# Activate environment
-source webrtc-env/bin/activate
+source chick-up-env/bin/activate
 
-echo "=== 4. Upgrading Pip and Core Tools ==="
-pip install --upgrade pip setuptools wheel
+# -----------------------------
+# 5. STABLE PIP CONFIG
+# -----------------------------
+echo "=== 5. Configuring Pip ==="
 
-echo "=== 5. Installing Python Stack ==="
-# We install these one by one to ensure clear error tracking
-pip install numpy
-pip install "av>=10.0.0" "aiortc>=1.5.0"
-pip install opencv-python-headless firebase-admin RPi.GPIO
+export PIP_DEFAULT_TIMEOUT=120
+export PIP_RETRIES=5
 
-echo "=== 6. Fixing Symlinks (Trixie/PiOS Specific) ==="
-# This manually ensures the venv can 'see' the camera bindings if system-site-packages fails
+pip install --upgrade pip setuptools wheel \
+    --index-url https://pypi.org/simple \
+    --no-cache-dir
+
+# -----------------------------
+# 6. SAFE INSTALL FUNCTION
+# -----------------------------
+safe_pip_install() {
+    PACKAGE=$1
+    echo "Installing $PACKAGE ..."
+    for i in 1 2 3; do
+        if pip install "$PACKAGE" --index-url https://pypi.org/simple --no-cache-dir; then
+            echo "✓ $PACKAGE installed"
+            return 0
+        else
+            echo "Retry $i failed for $PACKAGE"
+            sleep 3
+        fi
+    done
+    echo "✗ Failed to install $PACKAGE"
+    exit 1
+}
+
+# -----------------------------
+# 7. INSTALL PYTHON PACKAGES
+# -----------------------------
+echo "=== 7. Installing Python Stack ==="
+
+safe_pip_install numpy
+safe_pip_install smbus2
+safe_pip_install "av>=10.0.0"
+safe_pip_install "aiortc>=1.5.0"
+safe_pip_install opencv-python-headless
+safe_pip_install firebase-admin
+safe_pip_install RPi.GPIO
+safe_pip_install python-dotenv
+
+# -----------------------------
+# 8. CREATE .ENV FILE (IF MISSING)
+# -----------------------------
+echo "=== 8. Checking .env File ==="
+
+if [ ! -f ".env" ]; then
+    echo "Creating .env template..."
+    cat <<EOF > .env
+# ===== CHICK-UP ENVIRONMENT VARIABLES =====
+
+
+# Device Info
+DEVICE_UID=
+PRODUCTION_MODE=
+
+CAMERA_INDEX=0
+IS_WEB_CAM=false
+FRAME_WIDTH=1280
+FRAME_HEIGHT=720
+
+TEST_USER_UID=agjtuFg6YIcJWNfbDsc8QAlMEtj1
+TEST_USERNAME=honey
+
+# WebRTC / Signaling
+TURN_SERVER_URL=
+TURN_USERNAME=
+TURN_PASSWORD=
+
+DATABASE_URL=https://chick-up-1c2df-default-rtdb.asia-southeast1.firebasedatabase.app/
+EOF
+
+    chmod 600 .env
+    echo "✓ .env template created."
+    echo "⚠ IMPORTANT: Edit .env and fill in your real credentials."
+else
+    echo "✓ .env already exists."
+fi
+
+# -----------------------------
+# 9. CAMERA SYMLINK FIX
+# -----------------------------
+echo "=== 9. Linking Camera Modules ==="
+
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 SITE_PACKAGES="$VIRTUAL_ENV/lib/python$PYTHON_VERSION/site-packages"
 
-echo "Linking system camera modules to $SITE_PACKAGES..."
-ln -sf /usr/lib/python3/dist-packages/libcamera* "$SITE_PACKAGES/"
-ln -sf /usr/lib/python3/dist-packages/picamera2* "$SITE_PACKAGES/"
+ln -sf /usr/lib/python3/dist-packages/libcamera* "$SITE_PACKAGES/" || true
+ln -sf /usr/lib/python3/dist-packages/picamera2* "$SITE_PACKAGES/" || true
 
-echo "=== 7. Verifying Hardware & Software ==="
-echo "--- Camera Check ---"
-if command -v rpicam-hello &> /dev/null; then
-    rpicam-hello --list-cameras || echo "Warning: No camera found on CSI port."
-else
-    echo "rpicam-apps not found. Running: sudo apt install rpicam-apps"
-    sudo apt install -y rpicam-apps
-fi
+# -----------------------------
+# 10. GPIO PERMISSIONS FIX
+# -----------------------------
+echo "=== 10. Configuring GPIO Permissions ==="
+sudo usermod -aG gpio $USER || true
 
-echo "--- Module Check ---"
-python3 -c "import libcamera; import picamera2; print('? libcamera/picamera2: OK')" || echo "? Camera import failed"
-python3 -c "import cv2; print(f'? OpenCV: {cv2.__version__}')" || echo "? OpenCV failed"
-python3 -c "import aiortc; print(f'? aiortc: {aiortc.__version__}')" || echo "? WebRTC failed"
+# -----------------------------
+# 11. VERIFY INSTALLATION
+# -----------------------------
+echo "=== 11. Verifying Installation ==="
 
-echo "---"
-echo "=== Setup Complete! ==="
-echo "Run your code with:"
-echo "source webrtc-env/bin/activate"
-echo "python main.py"
+echo "--- I2C Devices ---"
+sudo i2cdetect -y 1 || echo "⚠ I2C bus check failed"
+
+echo "--- Camera ---"
+rpicam-hello --list-cameras || echo "⚠ No camera detected"
+
+echo "--- Python Modules ---"
+python3 -c "import RPi.GPIO; print('✓ GPIO OK')" || echo "✗ GPIO failed"
+python3 -c "import smbus2; print('✓ smbus2 OK')" || echo "✗ smbus2 failed"
+python3 -c "import cv2; print(f'✓ OpenCV {cv2.__version__}')" || echo "✗ OpenCV failed"
+python3 -c "import aiortc; print(f'✓ aiortc {aiortc.__version__}')" || echo "✗ WebRTC failed"
+python3 -c "import firebase_admin; print('✓ Firebase OK')" || echo "✗ Firebase failed"
+
+echo "-----------------------------------------"
+echo "✓ FULL Setup Complete!"
+echo ""
+echo "IMPORTANT:"
+echo "1. Reboot required for I2C & GPIO group changes."
+echo "   Run: sudo reboot"
+echo ""
+echo "2. Edit .env before running the system."
+echo ""
+echo "3. After reboot:"
+echo "   source chick-up-env/bin/activate"
+echo "   python main.py"
+echo "-----------------------------------------"

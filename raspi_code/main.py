@@ -1,117 +1,212 @@
-from lib.processes import process_a, process_b, process_c
-from multiprocessing import Process, Queue, Event
-from lib.services import handle_pairing
-from lib import logger_config
-import logging
+"""
+main.py — System Entry Point
 
-logger = logger_config.setup_logger(name=__name__, level=logging.DEBUG)
-        
-def main(**kargs) -> None:
-    
-    user_credentials = handle_pairing.pair_it(
-        DEVICE_UID      = kargs["DEVICE_UID"], 
-        PRODUCTION_MODE = kargs["PRODUCTION_MODE"], 
-        SAVE_LOGS       = kargs["SAVE_LOGS"],
-        TEST_CREDENTIALS= kargs["TEST_CREDENTIALS"]
-    )
-    kargs["process_A_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
-    kargs["process_B_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
-    kargs["process_C_args"]["USER_CREDENTIAL"] = user_credentials["user_credentials"]
+System Flow:
+    1. Init LCD + Keypad (once — hardware never re-initialized)
+    2. AuthService.authenticate()
+       - credentials/user_credentials.txt exists → re-validate → load
+       - Missing → cursor-menu: Login (pair) or Shutdown
+    3. Start Process A + Process B
+    4. Wait for processes to finish OR for logout_requested Event
+       - logout_requested → terminate processes → call auth.logout() → loop to step 2
+       - normal exit → clean shutdown
 
-    task_A = Process(
-        target = process_a.process_A, 
-        kwargs = {"process_A_args": kargs["process_A_args"]}
-    )
-    task_B = Process(
-        target = process_b.process_B, 
-        kwargs = {"process_B_args": kargs["process_B_args"]}
-    )
-    task_C = Process(
-        target = process_c.process_C, 
-        kwargs = {"process_C_args": kargs["process_C_args"]}
-    )
+Logout flow (while running):
+    - User holds D key on keypad for 3 seconds inside Process B
+    - Process B sets logout_requested Event and exits its loop
+    - main.py sees the event, terminates both processes
+    - Calls auth.logout() — deletes user_credentials.txt, cleans Firebase
+    - Loops back to authenticate() — cursor menu reappears on LCD
+"""
 
-    task_A.start()
-    task_B.start()
-    task_C.start()
+import os
+from multiprocessing import Process, Event
 
-    try:
-        # Keep main process alive until children finish
-        task_A.join()
-        task_B.join()
-        task_C.join()
-    except KeyboardInterrupt:
-        print("Stopping all processes...")
-    finally:
-        # Terminate any alive processes
-        for task in [task_A, task_B, task_C]:
+from lib.processes import process_a, process_b
+from lib.services.auth import (
+    AuthService,
+    FirebaseInitError,
+    CredentialsError,
+    PairingError,
+    ValidationError,
+)
+from lib.services.hardware.lcd_controller    import LCD_I2C, LCDSize
+from lib.services.hardware.keypad_controller import Keypad4x4
+from lib.services.logger import get_logger
+from lib.services.utils  import normalize_path
+
+from dotenv import load_dotenv
+load_dotenv(normalize_path("credentials/.env"))
+
+log = get_logger("main.py")
+
+PRODUCTION_MODE  = os.getenv("PRODUCTION_MODE", "").lower() in {"1", "true", "yes"}
+DEVICE_UID       = os.getenv("DEVICE_UID")
+CAMERA_INDEX     = int(os.getenv("CAMERA_INDEX"))
+IS_WEB_CAM       = os.getenv("IS_WEB_CAM", "").lower() in {"1", "true", "yes"}
+FRAME_WIDTH      = int(os.getenv("FRAME_WIDTH"))
+FRAME_HEIGHT     = int(os.getenv("FRAME_HEIGHT"))
+TEST_USER_UID    = os.getenv("TEST_USER_UID")
+TEST_USERNAME    = os.getenv("TEST_USERNAME")
+TEST_CREDENTIALS = {
+    "username"  : TEST_USERNAME,
+    "userUid"   : TEST_USER_UID,
+    "deviceUid" : DEVICE_UID,
+}
+TURN_SERVER_URL  = os.getenv("TURN_SERVER_URL")
+TURN_USERNAME    = os.getenv("TURN_USERNAME")
+TURN_PASSWORD    = os.getenv("TURN_PASSWORD")
+
+
+def _stop_processes(task_A: Process, task_B: Process) -> None:
+    """Terminate both processes and wait for them to exit."""
+    for task in [task_A, task_B]:
+        if task.is_alive():
+            task.terminate()
+            task.join(timeout=5)
             if task.is_alive():
-                task.terminate()
+                task.kill()
                 task.join()
 
 
-if __name__ == "__main__":
-    # ===== MANUALLY TO ADJUST =====
-    PRODUCTION_MODE     = False
-    PC_MODE             = False
-    SAVE_LOGS           = True
-    DEVICE_UID          = "DEV_001"
-    TEST_CREDENTIALS    = {
-        "username"  : "honey",
-        "userUid"   : "agjtuFg6YIcJWNfbDsc8QAlMEtj1",
-        "deviceUid" : DEVICE_UID
-    }
-    
-    queue_frame         = Queue(maxsize = 1)
-    live_status         = Event()
-    annotated_option    = Event()
-    status_checker      = Event()
-    number_of_instances = Queue(maxsize = 1)
-    status_checker.set()
-    live_status.set()
-    live_status.clear()
-    
-    main(
-        PRODUCTION_MODE = PRODUCTION_MODE,
-        SAVE_LOGS       = SAVE_LOGS,
-        DEVICE_UID      = DEVICE_UID,
-        TEST_CREDENTIALS= TEST_CREDENTIALS,
-        process_A_args  = {
-            "TASK_NAME"             : "Process A",
-            "queue_frame"           : queue_frame,
-            "live_status"           : live_status,
-            "annotated_option"      : annotated_option,
-            "status_checker"        : status_checker,
-            "number_of_instances"   : number_of_instances,
-            "YOLO_CONFIDENCE"       : 0.25,
-            "FRAME_DIMENSION"       : {"width": 1280, "height": 720}, # RECOMMEND ==> {"width": 640, "height": 480}
-            "IS_WEB_CAM"            : False,
-            "PC_MODE"               : PC_MODE,
-            "CAMERA_INDEX"          : 0,
-            "VIDEO_FILE"            : "video/chicken.mp4",
-            "SAVE_LOGS"             : SAVE_LOGS,
-            "SHOW_WINDOW"           : False,
-	    "USER_CREDENTIAL"       : {},	
-            "PRODUCTION_MODE"       : PRODUCTION_MODE
-        },
-        process_B_args  = {
-            "TASK_NAME"             : "Process B",
-            "status_checker"        : status_checker,
-            "queue_frame"           : queue_frame,
-            "live_status"           : live_status,
-            "number_of_instances"   : number_of_instances,
-            "USER_CREDENTIAL"       : {},
-            "SAVE_LOGS"             : SAVE_LOGS
-        },
-        process_C_args  = {
-            "TASK_NAME"                 : "Process C",
-            "DISPENSE_COUNTDOWN_TIME"   : 1000 * 60, # 1min or 60 secs
-            "status_checker"            : status_checker,
-            "live_status"               : live_status,
-            "annotated_option"          : annotated_option,
-            "USER_CREDENTIAL"           : {},
-            "PC_MODE"                   : PC_MODE,
-            "SAVE_LOGS"                 : SAVE_LOGS
-        }
+def main() -> None:
+    """
+    System entry point — outer loop handles logout and re-authentication.
+    """
+
+    # ── Init hardware once ────────────────────────────────────────────────
+    try:
+        lcd    = LCD_I2C(address=0x27, size=LCDSize.LCD_16x2)
+        keypad = Keypad4x4()
+    except Exception as e:
+        log(details=f"Hardware init failed: {e}", log_type="error")
+        return
+
+    auth = AuthService(
+        device_uid       = DEVICE_UID,
+        lcd              = lcd,
+        keypad           = keypad,
+        production_mode  = PRODUCTION_MODE,
+        test_credentials = TEST_CREDENTIALS,
     )
-    
+
+    # ── Auth + run loop ───────────────────────────────────────────────────
+    while True:
+
+        # ── Step 1: Authenticate ──────────────────────────────────────────
+        try:
+            user_credentials = auth.authenticate()
+        except FirebaseInitError as e:
+            log(details=f"Firebase init error during auth: {e}", log_type="error")
+            lcd.show(["Firebase error", "Check network"], duration=3)
+            break
+        except CredentialsError as e:
+            log(details=f"Credentials error during auth: {e}", log_type="error")
+            break
+        except PairingError as e:
+            log(details=f"Pairing error during auth: {e}", log_type="error")
+            lcd.show(["Pairing failed", "Try again"], duration=3)
+            continue  # Loop back to menu — let user retry
+        except ValidationError as e:
+            log(details=f"Validation error during auth: {e}", log_type="warning")
+            continue  # Credentials were invalid, deleted — loop to menu
+        except SystemExit:
+            log(details="Shutdown requested from LCD menu", log_type="info")
+            break
+        except Exception as e:
+            log(details=f"Unexpected auth error: {e}", log_type="error")
+            break
+
+        log(
+            details=(
+                f"Authenticated — "
+                f"username={user_credentials['username']} "
+                f"userUid={user_credentials['userUid']} "
+                f"deviceUid={user_credentials['deviceUid']}"
+            ),
+            log_type="info"
+        )
+
+        # ── Step 2: Shared IPC primitives (recreated each session) ────────
+        live_status       = Event()
+        status_checker    = Event()
+        logout_requested  = Event()
+
+        status_checker.set()
+        live_status.clear()
+        logout_requested.clear()
+
+        # ── Step 3: Start processes ───────────────────────────────────────
+        task_A = Process(
+            target=process_a.process_A,
+            kwargs={"process_A_args": {
+                "TASK_NAME"       : "Process A",
+                "live_status"     : live_status,
+                "status_checker"  : status_checker,
+                "FRAME_DIMENSION" : {"width": FRAME_WIDTH, "height": FRAME_HEIGHT},
+                "IS_WEB_CAM"      : IS_WEB_CAM,
+                "CAMERA_INDEX"    : CAMERA_INDEX,
+                "USER_CREDENTIAL" : user_credentials,
+                "TURN_SERVER_URL" : TURN_SERVER_URL,
+                "TURN_USERNAME"   : TURN_USERNAME,
+                "TURN_PASSWORD"   : TURN_PASSWORD,
+            }}
+        )
+
+        task_B = Process(
+            target=process_b.process_B,
+            kwargs={"process_B_args": {
+                "TASK_NAME"        : "Process B",
+                "status_checker"   : status_checker,
+                "live_status"      : live_status,
+                "logout_requested" : logout_requested,
+                "USER_CREDENTIAL"  : user_credentials,
+                "LCD_I2C_ADDR"     : 0x27,
+                # DISPENSE_COUNTDOWN_TIME read from Firebase by Process B directly
+            }}
+        )
+
+        task_A.start()
+        task_B.start()
+
+        # ── Step 4: Wait — monitor for logout or normal exit ──────────────
+        try:
+            while task_A.is_alive() or task_B.is_alive():
+                if logout_requested.is_set():
+                    log(details="Logout requested — stopping processes", log_type="info")
+                    break
+                task_A.join(timeout=0.5)
+                task_B.join(timeout=0.5)
+
+        except KeyboardInterrupt:
+            log(details="KeyboardInterrupt — stopping", log_type="warning")
+            _stop_processes(task_A, task_B)
+            break
+
+        # ── Step 5: Stop processes cleanly ───────────────────────────────
+        _stop_processes(task_A, task_B)
+
+        # ── Step 6: Handle logout vs normal exit ─────────────────────────
+        if logout_requested.is_set():
+            log(details="Processing logout", log_type="info")
+            auth.logout(user_credentials)
+            # Loop — authenticate() will show the pairing menu again
+            continue
+        else:
+            # Processes exited normally (status_checker cleared, crash, etc.)
+            log(details="All processes stopped — exiting", log_type="info")
+            break
+
+    # ── Final cleanup ─────────────────────────────────────────────────────
+    try:
+        lcd.clear()
+    except Exception:
+        pass
+    try:
+        keypad.cleanup()
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    main()
