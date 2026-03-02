@@ -1,329 +1,245 @@
 # Chick-Up 🐣
 
-> A smart IoT monitoring and automation system for small-scale poultry farming,
-> built on Raspberry Pi with a companion mobile app.
+> A smart poultry care system that automates feeding and watering —
+> controlled from your phone, powered by a Raspberry Pi.
 
 ---
 
 ## What Is Chick-Up?
 
-Chick-Up is a Raspberry Pi–based IoT device that helps small poultry farmers
-automate and remotely monitor their chick feeding and watering systems.
-The device pairs with a mobile app via Firebase, allowing farmers to watch a
-live camera feed, trigger feed dispensing or water refilling remotely, set
-automatic schedules, and review usage analytics — all from their phone.
+Chick-Up is a small device that sits in your poultry enclosure and takes care
+of the routine work for you. It measures how much feed and water is left,
+automatically refills the water when it gets low, and dispenses feed on a
+schedule you set from your phone.
 
-The device also operates independently: physical keypad buttons let the farmer
-dispense feed or refill water directly, and the onboard LCD shows real-time
-feed and water levels at a glance — no phone required.
+You can watch a live camera view of your chickens, trigger feeding or watering
+with a tap, and review a full history of everything the system has done — all
+from the Chick-Up mobile app, from anywhere with an internet connection.
+
+Even without your phone, the device works on its own: a small keypad on the
+device lets you dispense feed or refill water manually, and a screen on the
+device shows the current feed and water levels at all times.
 
 ---
 
-## Repository Structure
+## What Can It Do?
+
+| Feature | What it means for you |
+|---------|-----------------------|
+| 📷 **Live camera** | Watch your chickens in real time from the app, wherever you are |
+| 📊 **Level monitoring** | See feed and water percentages updated live on your phone and on the device screen |
+| 🌾 **Dispense feed** | Tap a button in the app or press `*` on the device to feed your chickens on demand |
+| 💧 **Refill water** | Tap a button in the app or press `#` on the device to start the water pump |
+| 🔄 **Auto-refill** | Water refills automatically when it drops below a level you choose — no action needed |
+| 📅 **Feed schedule** | Set a weekly feeding timetable (e.g. every weekday at 7 AM) and the device handles it |
+| 🔔 **Low-level alerts** | The app warns you when feed or water is running low |
+| 📋 **Action history** | See a log of every feeding and watering event, including whether it came from the app, the keypad, or a schedule |
+| 🔐 **Secure pairing** | Link your phone account to the device using a one-time code shown on the device screen |
+| 🔁 **Re-pairing** | Hand the device to a new owner — they can log in with their own account without any technical setup |
+
+---
+
+## How the System Works (Plain English)
+
+The device (Raspberry Pi) and the mobile app never talk to each other directly.
+Instead, they both communicate through **Firebase** — a secure cloud database
+made by Google. The app writes a command to Firebase (for example, "dispense
+feed"), and the device reads it and activates the motor. The device writes
+sensor readings to Firebase, and the app reads them to show you the current
+levels.
+
+The live video stream is the exception — that goes directly from the device to
+your phone (using a technology called WebRTC) for low latency. If your home
+network blocks direct connections, the video is routed through a relay server
+automatically.
+
+---
+
+## The Device Hardware
+
+| Part | What it does |
+|------|-------------|
+| Raspberry Pi | The brain — runs all the software |
+| Camera (webcam or Pi camera) | Captures the live video stream |
+| 2 × Ultrasonic sensors | Measure the feed level and water level by bouncing sound off the surface |
+| 2 × Relay modules | Act as electronic switches to turn the feed motor and water pump on/off |
+| 4×4 Keypad | Physical buttons on the device: `*` = feed, `#` = water, hold `D` 3 sec = logout |
+| 16×2 LCD screen | Small text display showing current levels and status messages |
+
+---
+
+## The Mobile App
+
+The app works on both Android and iOS.
+
+**Screens:**
+
+- **Dashboard** — live feed/water levels, manual feed and water buttons, live stream, device pairing
+- **Schedule** — set up automatic feeding times by day of week
+- **Settings** — adjust alert thresholds, how long the motor runs, and auto-refill behaviour
+- **Analytics** — full history of every feeding and watering action
+- **Profile** — update your username, phone number, or password
+
+See **[README_APP.md](https://github.com/law4percent/Chick-Up/blob/main/app/Chick-Up/README.md)** for the full app documentation.
+
+---
+
+## Files in This Repository
 
 ```
-chick-up/                          ← Raspberry Pi code (this repo)
+chick-up/
 │
-├── main.py                        ← Entry point — auth loop + process management
-├── credentials/
-│   ├── .env                       ← Device configuration (not committed)
-│   ├── serviceAccountKey.json     ← Firebase service account (not committed)
-│   └── user_credentials.txt       ← Written after pairing (not committed)
+├── main.py                    ← Start here — runs the whole system
+│
+├── credentials/               ← Private config files (not shared publicly)
+│   ├── .env                   ← Your device settings (camera, Firebase URL, etc.)
+│   ├── serviceAccountKey.json ← Firebase access key
+│   └── user_credentials.txt   ← Created automatically after pairing
 │
 └── lib/
     ├── processes/
-    │   ├── process_a.py           ← Video streaming (WebRTC)
-    │   └── process_b.py           ← Hardware control (sensors, motors, LCD, Firebase)
+    │   ├── process_a.py       ← Handles the live video stream
+    │   └── process_b.py       ← Handles sensors, motors, keypad, and LCD
     │
     └── services/
-        ├── auth.py                ← Device pairing + credential management
-        ├── firebase_rtdb.py       ← Firebase RTDB wrapper (read, schedule, helpers)
-        ├── logger.py              ← Custom rotating file logger
-        ├── utils.py               ← Path + file utilities
-        ├── webrtc_peer.py         ← WebRTC peer connection + ICE/TURN
-        └── hardware/
-            ├── camera_controller.py
-            ├── motor_controller.py
-            ├── keypad_controller.py
-            ├── lcd_controller.py
-            └── ultrasonic_controller.py
-
-app/                               ← Mobile app (separate repo / folder)
-    See README_APP.md for full app documentation.
+        ├── auth.py            ← Manages device pairing and login
+        ├── firebase_rtdb.py   ← Reads and writes data to Firebase
+        ├── logger.py          ← Saves log files for troubleshooting
+        ├── utils.py           ← Shared helper functions
+        ├── webrtc_peer.py     ← Manages the live video connection
+        └── hardware/          ← Controls each physical component
 ```
 
 ---
 
-## Key Features
+## Cloud Database Layout (Firebase)
 
-**Remote monitoring**
-Live video stream from the enclosure, accessible from anywhere via the mobile
-app. Powered by WebRTC with TURN relay support for networks behind strict NAT
-or CGNAT.
+All data is organised in Firebase like a folder tree.
+Here is what each section stores and why:
 
-**Automated feeding and watering**
-Feed dispensing runs on a configurable countdown timer (5 s – 5 min).
-Water refilling runs automatically when the level drops below a configured
-threshold and stops when the tank reaches capacity (95% hard cap).
+| Path | What is stored here | Tied to |
+|------|---------------------|---------|
+| `users/{account}/` | Your username, email, phone, and linked device | You |
+| `settings/{account}/` | Your preferences — thresholds, motor duration, auto-refill | You |
+| `schedules/{account}/` | Your weekly feeding schedules | You |
+| `sensors/{account}/{device}/` | Live feed and water level readings | You + Device |
+| `buttons/{account}/{device}/` | When feed or water button was last pressed | You + Device |
+| `liveStream/{account}/{device}/` | Data used to set up the live video connection | You + Device |
+| `analytics/logs/{account}/` | Full history of every feed and water action | You |
+| `device_code/{code}/` | Temporary pairing codes shown on the device LCD | Device only |
 
-**Schedule-based feeding**
-The farmer sets weekly schedules from the app (day of week + time + volume).
-The Pi checks the schedule every ~100 ms and triggers dispensing automatically
-when a scheduled time is reached, firing exactly once per minute window even
-if the Pi reboots mid-minute.
-
-**Physical keypad control**
-A 4×4 matrix keypad provides direct hardware control without needing the app.
-`*` dispenses feed, `#` refills water, hold `D` for 3 seconds to log out.
-Keypad presses write a `SERVER_TIMESTAMP` to Firebase so the app sees them
-as regular button events in the analytics history.
-
-**Live LCD status**
-A 16×2 I2C LCD shows current feed and water fill percentages, active motor
-state (`DISPENSING...` / `REFILLING...`), and low-level warnings — updated
-every second.
-
-**Analytics logging**
-Every dispense and refill action is logged to Firebase with volume,
-timestamp, day of week, and source (`app` / `keypad` / `schedule`).
-Analytics are written by both the app (on button press) and the Pi (when the
-motor cycle completes), so Pi-side volume measurements reflect real sensor data.
-
-**Secure device pairing**
-On first boot, the Pi generates a 6-character code displayed on the LCD.
-The farmer enters it in the app to link their account to the device.
-Credentials are stored locally and re-validated against Firebase on every boot.
-
-**Clean logout and re-pairing**
-Hold `D` for 3 seconds to log out from the keypad at any time. The Pi
-terminates both processes, deletes local credentials, and removes
-`users/{uid}/linkedDevice` from Firebase — the app reacts immediately
-via its real-time subscription and shows "No Device" without a manual refresh.
+> **Why are settings and schedules not tied to the device?**
+> Your preferences and feeding schedules belong to *you*, not to a piece
+> of hardware. If your Raspberry Pi breaks and you replace it, you just
+> pair the new one and all your settings and schedules are already there —
+> nothing to re-enter. Only live data that physically comes from a specific
+> device (sensor readings, video, button presses) is tied to the device ID.
 
 ---
 
-## Hardware
+## Device Configuration
 
-| Component | Detail |
-|-----------|--------|
-| Raspberry Pi | Primary compute unit (any model with GPIO + camera) |
-| USB Webcam or Picamera2 | Live video capture |
-| Ultrasonic sensor × 2 | Feed level (trigger GPIO 23, echo GPIO 24), Water level (trigger GPIO 5, echo GPIO 6) |
-| Relay module × 2 | Feed motor (GPIO 17), water motor (GPIO 27) |
-| 4×4 Matrix Keypad | Physical input — rows GPIO 12/16/20/21, cols GPIO 26/19/13/6 |
-| 16×2 I2C LCD | Local status display, I2C address `0x27` |
+Before the device can run, you fill in a configuration file called `.env`
+inside the `credentials/` folder. You only need to do this once during setup.
+
+| Setting | What to put here |
+|---------|-----------------|
+| `PRODUCTION_MODE` | `true` when using the real device; `false` for testing on a PC |
+| `DEVICE_UID` | A unique name for this device, e.g. `DEV_001` |
+| `IS_WEB_CAM` | `true` for a USB webcam; `false` for a Pi camera module |
+| `CAMERA_INDEX` | Usually `0` — the first camera connected |
+| `FRAME_WIDTH` / `FRAME_HEIGHT` | Video resolution, e.g. `640` × `480` |
+| `FIREBASE_DATABASE_URL` | The URL of your Firebase database (from the Firebase console) |
+| `TURN_SERVER_URL` | Address of the video relay server, e.g. `123.456.7.8:3478` |
+| `TURN_USERNAME` | Username for the relay server |
+| `TURN_PASSWORD` | Password for the relay server |
+
+> **What is the relay server?**
+> The TURN relay is only used for the live video stream. It is needed when
+> your home network or mobile data connection blocks direct video.
+> The same username and password must be set in both the device `.env` and
+> the app's `.env`. They are **never** stored in Firebase.
 
 ---
 
-## System Architecture
-
-`main.py` manages the full lifecycle in a single loop:
+## What Happens When You Turn It On
 
 ```
-main.py  (outer loop — handles logout + re-pairing)
-│
-├── AuthService.authenticate()
-│       LCD + keypad pairing menu
-│       6-char code → Firebase → user pairs from app
-│       Re-validates saved credentials on every boot
-│
-├── Process A  (video streaming)
-│       Camera → SharedFrameBuffer
-│       WebRTC peer connection (aiortc)
-│       ICE/TURN via TURN relay server
-│       Firebase signaling (offer / answer / ICE candidates)
-│
-└── Process B  (hardware control)
-        Ultrasonic sensors → feed % + water %
-        Keypad scan → physical button events
-        Firebase RTDB → app buttons, schedules, settings
-        Motor relays → feed dispense, water refill
-        LCD → real-time status display
-        Firebase → sensor writes, analytics, button timestamps
+1. Power on the Raspberry Pi
+         ↓
+2. Screen shows "Chick-Up / Initializing..."
+         ↓
+3. Has it been paired before?
+   ├── Yes → "Validating..." → checks Firebase → starts normally
+   └── No  → Screen shows the pairing menu:
+                 > Login
+                   Shutdown
+         ↓  Press A to select Login
+4. Screen shows a 6-character code, e.g.:
+         Code: AB3X7K
+         Expires in 60s
+         ↓
+5. Open the Chick-Up app → tap "Link Device" → type the code → tap Pair
+         ↓
+6. Screen confirms: "Paired! / Hi, [your name]!"
+         ↓
+7. System starts — levels appear on screen, motors are ready
 ```
 
-Process A and Process B share three `multiprocessing.Event` objects:
-
-| Event | Purpose |
-|-------|---------|
-| `live_status` | Set when WebRTC is connected; Process B reads this to know the stream is active |
-| `status_checker` | Global health flag; any process clears it on a fatal error to signal shutdown |
-| `logout_requested` | Set by Process B when user holds D key; main.py terminates both processes and calls logout |
+If the 60-second window expires before you enter the code, press `A` on the
+keypad to generate a new one.
 
 ---
 
-## Firebase Structure
+## Switching Accounts / Logging Out
 
-```
-/
-├── liveStream/{userUid}/{deviceUid}/
-│       offer                   ← app writes WebRTC SDP offer
-│       answer                  ← Pi writes WebRTC SDP answer
-│       iceCandidates/raspi/    ← Pi ICE candidates
-│       iceCandidates/mobile/   ← app ICE candidates
-│       connectionState         ← Pi writes current WebRTC state
-│       liveStreamButton        ← app toggles to request stream
-│
-├── buttons/{userUid}/{deviceUid}/
-│       feedButton/lastUpdateAt   ← SERVER_TIMESTAMP (app or Pi keypad)
-│       waterButton/lastUpdateAt
-│
-├── schedules/{userUid}/{scheduleId}/
-│       time            "HH:MM"
-│       days            [1, 3, 5]    JS weekday indices (0=Sun)
-│       enabled         bool
-│       volumePercent   number
-│
-├── settings/{userUid}/
-│       feed/
-│           thresholdPercent
-│           dispenseVolumePercent
-│           dispenseCountdownMs
-│       water/
-│           thresholdPercent
-│           autoRefillEnabled
-│           autoRefillThreshold
-│       updatedAt
-│
-├── sensors/{userUid}/{deviceUid}/
-│       feedLevel   float %
-│       waterLevel  float %
-│       updatedAt   "MM/DD/YYYY HH:MM:SS"
-│
-├── analytics/logs/{userUid}/{pushId}/
-│       action          "dispense" | "refill"
-│       type            "feed" | "water"
-│       volumePercent   float
-│       timestamp       Unix ms
-│       date            "MM/DD/YYYY"
-│       time            "HH:MM:SS"
-│       dayOfWeek       0–6 (JS convention — 0=Sun)
-│       userId          string
-│       source          "app" | "keypad" | "schedule"
-│
-├── device_code/{code}/
-│       deviceUid   string
-│       createdAt   Unix ms
-│       status      "pending" | "paired" | "expired"
-│       userUid     string   (written by app)
-│       username    string   (written by app)
-│
-└── users/{userUid}/
-        username
-        email
-        phoneNumber
-        createdAt
-        updatedAt
-        linkedDevice/
-            deviceUid   ← written by app on pairing, deleted by Pi on logout
-            linkedAt
-```
+Hold the **`D` key** on the device keypad for **3 seconds**.
 
-### Path scoping rationale
-
-| Path | Scoped to | Why |
-|------|-----------|-----|
-| `sensors/{uid}/{deviceUid}` | User + Device | Live hardware state — specific to the physical Pi |
-| `buttons/{uid}/{deviceUid}` | User + Device | Commands sent to a specific physical device |
-| `liveStream/{uid}/{deviceUid}` | User + Device | WebRTC session with a specific Pi |
-| `settings/{uid}` | User only | Personal preferences (thresholds, timing) — carries over when the Pi is replaced |
-| `schedules/{uid}` | User only | Weekly feeding habits belong to the farmer, not the hardware |
-| `analytics/{uid}` | User only | Full history survives a Pi swap or re-pairing |
+The device stops, deletes its saved login, and returns to the pairing menu.
+The app automatically shows "No Device" — no manual refresh needed.
+The next person can then pair their own account by following the steps above.
 
 ---
 
-## Environment Variables (`credentials/.env`)
+## Auto-Start on Boot
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PRODUCTION_MODE` | Yes | `true` = real LCD/keypad pairing; `false` = use `TEST_*` credentials |
-| `DEVICE_UID` | Yes | Unique identifier for this Pi (e.g. `DEV_001`) |
-| `IS_WEB_CAM` | Yes | `true` = USB webcam; `false` = Picamera2 |
-| `CAMERA_INDEX` | Yes | Camera device index (webcam: `0`; Picamera2: `0`) |
-| `FRAME_WIDTH` | Yes | Capture width in pixels (e.g. `640`) |
-| `FRAME_HEIGHT` | Yes | Capture height in pixels (e.g. `480`) |
-| `FIREBASE_DATABASE_URL` | Yes | Full RTDB URL from Firebase console |
-| `TURN_SERVER_URL` | Yes | TURN relay address `host:port` (e.g. `143.198.45.67:3478`) |
-| `TURN_USERNAME` | Yes | TURN credentials username |
-| `TURN_PASSWORD` | Yes | TURN credentials password |
-| `TEST_USER_UID` | Dev only | Firebase UID used in `PRODUCTION_MODE=false` |
-| `TEST_USERNAME` | Dev only | Username used in `PRODUCTION_MODE=false` |
+By default, you need to manually run the software after powering on the Pi.
+To make it start automatically every time the Pi is powered on — with no
+keyboard, monitor, or SSH needed — follow the guide in:
 
-TURN credentials must match the values in the app's `.env`
-(`EXPO_PUBLIC_TURN_*`). They are never written to Firebase.
+**[AUTORUN.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/AUTORUN.md)**
 
 ---
 
-## Logging
+## Log Files
 
-Chick-Up uses a custom rotating logger (`lib/services/logger.py`).
-All logs are written to `logs/` in the project root.
+The device saves log files in a `logs/` folder inside the project for
+troubleshooting. If something is not working, these are the first place to look.
 
-| File | Contents |
-|------|----------|
-| `error.log` | Errors only |
-| `warning.log` | Warnings and above |
-| `info.log` | Info and above |
-| `debug.log` | Debug and above |
+| File | What it records |
+|------|----------------|
+| `error.log` | Serious errors that stopped something from working |
+| `warning.log` | Non-critical issues worth knowing about |
+| `info.log` | Normal operation events (started, paired, dispensed, etc.) |
 | `all.log` | Everything combined |
 
-Each file rotates at 10 MB and keeps the last 5 backups.
-
-**Contract:** Service modules (`auth`, `firebase_rtdb`, `webrtc_peer`, hardware
-controllers) raise exceptions only — no internal logging. All logging is done
-by the calling process with full context.
-
----
-
-## Boot Flow
-
-```
-Power on
-    ↓
-main.py — init LCD + keypad (once, never re-initialized)
-    ↓
-credentials/user_credentials.txt exists?
-    ├── Yes → "Validating..." → Firebase re-validate → if invalid, delete + re-pair
-    └── No  → LCD menu: Login / Shutdown
-                  ↓ Login
-              Pi generates 6-char code → Firebase device_code/{code}/
-              LCD: "Code: AB3X7K / Expires in 60s"
-              Poll Firebase every 2s for status: "paired"
-                  ↓ App pairs
-              Save credentials.txt
-    ↓
-Start Process A (streaming) + Process B (hardware)
-    ↓
-Monitor processes:
-    ├── logout_requested set (D held 3s) → stop both, auth.logout(), loop to menu
-    └── processes exit normally → clean shutdown
-```
-
----
-
-## Auto-Run on Boot
-
-See **[AUTORUN.md](AUTORUN.md)** for the complete guide to configuring
-a systemd service so `main.py` starts automatically on every boot.
-
----
-
-## App Documentation
-
-See **[README_APP.md](README_APP.md)** for the companion mobile app —
-React Native (Expo), Firebase, WebRTC — including setup, project structure,
-Firebase path details, and key design decisions.
+Each file is capped at 10 MB and rolls over automatically.
 
 ---
 
 ## Related Documents
 
-| File | Contents |
-|------|----------|
-| `AUTORUN.md` | systemd service setup for auto-run on boot |
-| `README_APP.md` | Mobile app documentation |
-| `USER_MANUAL.md` | End-user manual (hardware + app) |
-| `MAIN_FLOW.md` | Detailed main.py flow diagram |
-| `PROCESS_A_FLOW.md` | Detailed Process A (streaming) flow |
-| `PROCESS_B_FLOW.md` | Detailed Process B (hardware control) flow |
-| `REFILL_LOGIC.md` | Water refill latch logic explanation |
+| Document | What it covers |
+|----------|---------------|
+| [AUTORUN.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/AUTORUN.md) | How to make the device start automatically on power-on |
+| [README_APP.md](https://github.com/law4percent/Chick-Up/blob/main/app/Chick-Up/README.md) | Full mobile app documentation |
+| [USER_MANUAL.md](https://github.com/law4percent/Chick-Up/blob/main/docs/USER_MANUAL.md) | Step-by-step guide for everyday use (no technical background needed) |
+| [MAIN_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/MAIN_FLOW.md) | Detailed diagram of how main.py works |
+| [PROCESS_A_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/PROCESS_A_FLOW.md) | How the video streaming process works |
+| [PROCESS_B_FLOW.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/PROCESS_B_FLOW.md) | How the hardware control process works |
+| [REFILL_LOGIC.md](https://github.com/law4percent/Chick-Up/blob/main/docs/raspi/REFILL_LOGIC.md) | How the auto water-refill logic works |
+
+
+## License
+
+This project is licensed under the [MIT License](https://github.com/law4percent/Chick-Up?tab=MIT-1-ov-file).
