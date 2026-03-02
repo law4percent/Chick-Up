@@ -103,17 +103,35 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   useEffect(() => { return () => { webrtcService.stopConnection(); }; }, []);
 
-  // ── Load linked device ─────────────────────────────────────────────────────
+  // ── Subscribe to linked device ────────────────────────────────────────────
+  // Uses a real-time subscription instead of a one-time read so the app
+  // reacts immediately when the Pi calls auth.logout() and deletes
+  // users/{uid}/linkedDevice from Firebase — no manual refresh needed.
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const userId = auth.currentUser?.uid;
-      if (userId) {
-        const uid = await deviceService.getLinkedDevice(userId);
+    const userId = auth.currentUser?.uid;
+    if (!userId) { setLoading(false); return; }
+
+    setLoading(true);
+    const unsubscribe = deviceService.subscribeLinkedDevice(
+      userId,
+      (uid) => {
         setLinkedDeviceUid(uid);
-      }
-    };
-    load();
+        setLoading(false);
+        // If the Pi just logged out (uid === null), stop any active stream
+        if (uid === null) {
+          webrtcService.stopConnection();
+          setIsStreaming(false);
+          setRemoteStream(null);
+          setConnectionState('disconnected');
+          setShowStreamModal(false);
+        }
+      },
+      (error) => {
+        console.error('linkedDevice subscription error:', error);
+        setLoading(false);
+      },
+    );
+    return () => unsubscribe();
   }, []);
 
   // ── Pairing: step 1 — look up the code ────────────────────────────────────

@@ -1,6 +1,6 @@
 // src/services/deviceService.ts
 import { database } from '../config/firebase.config';
-import { ref, get, set, update } from 'firebase/database';
+import { ref, get, set, update, onValue, off } from 'firebase/database';
 import { auth } from '../config/firebase.config';
 import { DeviceCodeEntry, PairingAppWrite, LinkedDevice } from '../types/types';
 
@@ -115,6 +115,41 @@ class DeviceService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Subscribe to real-time linkedDevice changes for a user.
+   *
+   * Called by DashboardScreen so the app reacts immediately when the Pi
+   * calls auth.logout() and deletes users/{uid}/linkedDevice from Firebase.
+   * Without this subscription the app keeps showing the old deviceUid until
+   * the user manually refreshes.
+   *
+   * Returns an unsubscribe function — call it in the useEffect cleanup.
+   */
+  subscribeLinkedDevice(
+    userId  : string,
+    callback: (deviceUid: string | null) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    const linkedRef = ref(database, `users/${userId}/linkedDevice`);
+    onValue(
+      linkedRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val() as { deviceUid: string; linkedAt: number };
+          callback(data.deviceUid ?? null);
+        } else {
+          // Node was deleted — Pi called logout()
+          callback(null);
+        }
+      },
+      (error) => {
+        console.error('❌ linkedDevice subscription error:', error);
+        onError?.(error);
+      },
+    );
+    return () => off(linkedRef);
   }
 
   /**
