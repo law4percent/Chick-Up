@@ -70,30 +70,28 @@ def _measure_once(trig: int, echo: int) -> float:
     time.sleep(0.00001)
     GPIO.output(trig, False)
 
-    # Wait for ECHO to go HIGH (pulse start)
-    start    = None
-    deadline = time.time() + ECHO_TIMEOUT
-    while GPIO.input(echo) == 0:
-        if time.time() > deadline:
-            return 0.0
+    start = None
+    stop = None
+
+    # Wait for ECHO to go HIGH
+    timeout = time.time() + 0.04  # 40ms timeout (~6.8m max distance)
+    while GPIO.input(echo) == 0 and time.time() < timeout:
         start = time.time()
 
-    if start is None:
-        return 0.0
+    if start is None:  # No echo received
+        return None
 
-    # Wait for ECHO to go LOW (pulse end)
-    stop     = None
-    deadline = time.time() + ECHO_TIMEOUT
-    while GPIO.input(echo) == 1:
-        if time.time() > deadline:
-            return 0.0
+    # Wait for ECHO to go LOW
+    timeout = time.time() + 0.04
+    while GPIO.input(echo) == 1 and time.time() < timeout:
         stop = time.time()
 
-    if stop is None:
-        return 0.0
+    if stop is None:  # Echo never went LOW
+        return None
 
-    elapsed  = stop - start
-    distance = (elapsed * 34300) / 2   # speed of sound: 343 m/s = 34300 cm/s
+    # Calculate distance
+    elapsed = stop - start
+    distance = (elapsed * 33112) / 2  # speed of sound in cm/s
     return round(distance, 2)
 
 
