@@ -79,7 +79,7 @@ def _measure_once(trig: int, echo: int) -> float:
         start = time.time()
 
     if start is None:  # No echo received
-        return None
+        return 0.0
 
     # Wait for ECHO to go LOW
     timeout = time.time() + 0.04
@@ -87,7 +87,7 @@ def _measure_once(trig: int, echo: int) -> float:
         stop = time.time()
 
     if stop is None:  # Echo never went LOW
-        return None
+        return 0.0
 
     # Calculate distance
     elapsed = stop - start
