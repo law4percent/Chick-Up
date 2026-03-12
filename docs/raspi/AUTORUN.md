@@ -81,23 +81,23 @@ two paths marked with `← CHANGE THIS` if your project is not in
 Description=Chick-Up Poultry Automation System
 # Wait for the network stack to be up before starting.
 # This is required because Firebase and TURN connections need internet.
-After=network-online.target
+After=network-online.target pigpiod.service
 Wants=network-online.target
 
 [Service]
 # ── Identity ──────────────────────────────────────────────────────────────────
 # Run as the pi user so GPIO, I2C, and the camera are accessible.
 # If your username is not "pi", change both lines below.
-User=pi
-Group=pi
+User=chick-up2025
+Group=chick-up2025
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # WorkingDirectory must be the project root — main.py uses relative paths
 # like credentials/.env and credentials/serviceAccountKey.json.
-WorkingDirectory=/home/pi/chick-up                      # ← CHANGE THIS
+WorkingDirectory=/home/chick-up2025/Desktop/Chick-Up/raspi_code
 
 # Full path to python3 and main.py.
-ExecStart=/usr/bin/python3 /home/pi/chick-up/main.py    # ← CHANGE THIS
+ExecStart=/home/chick-up2025/Desktop/Chick-Up/raspi_code/chick-up-env/bin/python /home/chick-up2025/Desktop/Chick-Up/raspi_code/main.py
 
 # ── Restart policy ────────────────────────────────────────────────────────────
 # Restart on any non-zero exit code (crash) but NOT on clean exit (code 0).
