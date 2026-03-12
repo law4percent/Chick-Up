@@ -136,7 +136,7 @@ def read_left_distance() -> float:
     Returns:
         float: Median distance in cm. 0.0 = sensor fault / no valid reading.
     """
-    return _median_distance(LEFT_TRIG, LEFT_ECHO)
+    return _measure_once(LEFT_TRIG, LEFT_ECHO) # _median_distance(LEFT_TRIG, LEFT_ECHO)
 
 
 def read_right_distance() -> float:
@@ -146,4 +146,4 @@ def read_right_distance() -> float:
     Returns:
         float: Median distance in cm. 0.0 = sensor fault / no valid reading.
     """
-    return _median_distance(RIGHT_TRIG, RIGHT_ECHO)
+    return _measure_once(RIGHT_TRIG, RIGHT_ECHO) # _median_distance(RIGHT_TRIG, RIGHT_ECHO)
