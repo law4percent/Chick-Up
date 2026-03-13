@@ -3,3 +3,13 @@ docs
 README.md
 .idea
 .DS_Store
+
+node_modules
+docs
+*.log
+.vscode
+.git
+android
+ios
+README.md
+.DS_Store
