@@ -9,6 +9,9 @@ import {
   Switch,
   Alert,
   ActivityIndicator,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,13 +28,31 @@ interface Props {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-/** Convert ms to a readable label: 30 000 → "30s", 90 000 → "1m 30s" */
-function formatCountdown(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return r > 0 ? `${m}m ${r}s` : `${m}m`;
+/** Total seconds → { minutes, seconds } */
+function splitToMinSec(totalSec: number): { minutes: number; seconds: number } {
+  return {
+    minutes: Math.floor(totalSec / 60),
+    seconds: totalSec % 60,
+  };
+}
+
+/**
+ * Validate the combined minutes + seconds input.
+ * Returns an error string, or null if valid.
+ */
+function validateDuration(minutes: string, seconds: string): string | null {
+  const m = parseInt(minutes || '0', 10);
+  const s = parseInt(seconds || '0', 10);
+
+  if (isNaN(m) || isNaN(s))         return 'Please enter valid numbers.';
+  if (s < 0 || s > 59)              return 'Seconds must be between 0 and 59.';
+  if (m < 0)                        return 'Minutes cannot be negative.';
+
+  const totalSec = m * 60 + s;
+  if (totalSec < 5)                 return 'Duration must be at least 5 seconds.';
+  if (totalSec > 300)               return 'Duration cannot exceed 5 minutes (300 s).';
+
+  return null;
 }
 
 const SettingsScreen: React.FC<Props> = ({ navigation }) => {
@@ -39,23 +60,17 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [saving,  setSaving]  = useState(false);
 
   // Feed settings
-  const [feedThreshold,        setFeedThreshold]        = useState(20);
-  const [feedVolume,            setFeedVolume]            = useState(10);
-  /**
-   * dispenseCountdownSec — slider operates in whole seconds.
-   * Stored in Firebase as ms (multiply by 1 000 before saving).
-   * Range: 5 s – 300 s (5 min).
-   */
-  const [dispenseCountdownSec, setDispenseCountdownSec] = useState(60);
+  const [feedThreshold,       setFeedThreshold]       = useState(20);
+  const [dispenseMinutes,     setDispenseMinutes]     = useState('1');
+  const [dispenseSeconds,     setDispenseSeconds]     = useState('0');
+  const [durationError,       setDurationError]       = useState<string | null>(null);
 
   // Water settings
-  const [waterThreshold,       setWaterThreshold]       = useState(20);
-  const [autoRefillEnabled,    setAutoRefillEnabled]    = useState(false);
-  const [autoRefillThreshold,  setAutoRefillThreshold]  = useState(80);
+  const [waterThreshold,      setWaterThreshold]      = useState(20);
+  const [autoRefillEnabled,   setAutoRefillEnabled]   = useState(false);
+  const [autoRefillThreshold, setAutoRefillThreshold] = useState(80);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
+  useEffect(() => { loadSettings(); }, []);
 
   const loadSettings = async () => {
     try {
@@ -65,11 +80,12 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       const settings = await settingsService.getSettings(userId);
       if (settings) {
         setFeedThreshold(settings.feed.thresholdPercent);
-        setFeedVolume(settings.feed.dispenseVolumePercent);
-        // Guard: fall back to 60 s if field is missing (old records without countdown)
-        setDispenseCountdownSec(
-          Math.round((settings.feed.dispenseCountdownMs ?? 60_000) / 1_000)
-        );
+
+        const totalSec = Math.round((settings.feed.dispenseCountdownMs ?? 60_000) / 1_000);
+        const { minutes, seconds } = splitToMinSec(totalSec);
+        setDispenseMinutes(String(minutes));
+        setDispenseSeconds(String(seconds));
+
         setWaterThreshold(settings.water.thresholdPercent);
         setAutoRefillEnabled(settings.water.autoRefillEnabled || false);
         setAutoRefillThreshold(settings.water.autoRefillThreshold || 80);
@@ -86,17 +102,26 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleSaveSettings = async () => {
+    // Validate duration before attempting save
+    const error = validateDuration(dispenseMinutes, dispenseSeconds);
+    if (error) {
+      setDurationError(error);
+      return;
+    }
+    setDurationError(null);
+
     try {
       setSaving(true);
       const userId = auth.currentUser?.uid;
       if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
 
+      const totalSec = parseInt(dispenseMinutes || '0', 10) * 60
+                     + parseInt(dispenseSeconds  || '0', 10);
+
       const updatedSettings: UserSettings = {
         feed: {
-          thresholdPercent:      feedThreshold,
-          dispenseVolumePercent: feedVolume,
-          // Convert seconds back to milliseconds before saving
-          dispenseCountdownMs:   dispenseCountdownSec * 1_000,
+          thresholdPercent:    feedThreshold,
+          dispenseCountdownMs: totalSec * 1_000,
         },
         water: {
           thresholdPercent:    waterThreshold,
@@ -114,6 +139,17 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  /** Re-validate live as the user types so the error clears immediately. */
+  const handleMinutesChange = (val: string) => {
+    setDispenseMinutes(val);
+    setDurationError(validateDuration(val, dispenseSeconds));
+  };
+
+  const handleSecondsChange = (val: string) => {
+    setDispenseSeconds(val);
+    setDurationError(validateDuration(dispenseMinutes, val));
   };
 
   if (loading) {
@@ -138,176 +174,180 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── Feed Settings ─────────────────────────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={[styles.iconCircle, { backgroundColor: '#FF9500' }]}>
-              <Text style={styles.iconEmoji}>🌾</Text>
+          {/* ── Feed Settings ──────────────────────────────────────────── */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.iconCircle, { backgroundColor: '#FF9500' }]}>
+                <Text style={styles.iconEmoji}>🌾</Text>
+              </View>
+              <View style={styles.cardHeaderText}>
+                <Text style={styles.cardTitle}>Feed Settings</Text>
+                <Text style={styles.cardSubtitle}>Configure feed threshold and dispense duration</Text>
+              </View>
             </View>
-            <View style={styles.cardHeaderText}>
-              <Text style={styles.cardTitle}>Feed Settings</Text>
-              <Text style={styles.cardSubtitle}>Configure feed threshold and dispense</Text>
-            </View>
-          </View>
 
-          {/* Feed Alert Threshold */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={styles.sliderLabel}>Alert Threshold</Text>
-              <Text style={styles.sliderValue}>{feedThreshold}%</Text>
-            </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={100}
-              step={1}
-              value={feedThreshold}
-              onValueChange={setFeedThreshold}
-              minimumTrackTintColor="#FF9500"
-              maximumTrackTintColor="#E0E0E0"
-              thumbTintColor="#FF9500"
-            />
-            <Text style={styles.sliderDescription}>
-              Alert when feed level drops below this percentage
-            </Text>
-          </View>
-
-          {/* Feed Dispense Volume */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={styles.sliderLabel}>Dispense Volume</Text>
-              <Text style={styles.sliderValue}>{feedVolume}%</Text>
-            </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={100}
-              step={1}
-              value={feedVolume}
-              onValueChange={setFeedVolume}
-              minimumTrackTintColor="#FF9500"
-              maximumTrackTintColor="#E0E0E0"
-              thumbTintColor="#FF9500"
-            />
-            <Text style={styles.sliderDescription}>
-              Amount of feed dispensed per trigger
-            </Text>
-          </View>
-
-          {/* Dispense Duration — NEW */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={styles.sliderLabel}>Dispense Duration</Text>
-              <Text style={styles.sliderValue}>{formatCountdown(dispenseCountdownSec * 1_000)}</Text>
-            </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={5}
-              maximumValue={300}
-              step={5}
-              value={dispenseCountdownSec}
-              onValueChange={setDispenseCountdownSec}
-              minimumTrackTintColor="#FF9500"
-              maximumTrackTintColor="#E0E0E0"
-              thumbTintColor="#FF9500"
-            />
-            <Text style={styles.sliderDescription}>
-              How long the feed motor runs per dispense (5 s – 5 min).
-              Raspi picks up changes live — no reboot needed.
-            </Text>
-          </View>
-        </View>
-
-        {/* ── Water Settings ────────────────────────────────────────────── */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={[styles.iconCircle, { backgroundColor: '#4A90E2' }]}>
-              <Text style={styles.iconEmoji}>💧</Text>
-            </View>
-            <View style={styles.cardHeaderText}>
-              <Text style={styles.cardTitle}>Water Settings</Text>
-              <Text style={styles.cardSubtitle}>Configure water threshold and auto-refill</Text>
-            </View>
-          </View>
-
-          {/* Water Alert Threshold */}
-          <View style={styles.sliderContainer}>
-            <View style={styles.sliderHeader}>
-              <Text style={styles.sliderLabel}>Alert Threshold</Text>
-              <Text style={styles.sliderValue}>{waterThreshold}%</Text>
-            </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={80}
-              step={1}
-              value={waterThreshold}
-              onValueChange={setWaterThreshold}
-              minimumTrackTintColor="#2196F3"
-              maximumTrackTintColor="#E0E0E0"
-              thumbTintColor="#2196F3"
-            />
-            <Text style={styles.sliderDescription}>
-              Alert when water level drops below this percentage (max 80% — above 80% risks pump short-cycling)
-            </Text>
-          </View>
-
-          {/* Auto Refill Toggle */}
-          <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Enable Auto Refill</Text>
-            <Switch
-              value={autoRefillEnabled}
-              onValueChange={setAutoRefillEnabled}
-              trackColor={{ false: '#D1D1D1', true: '#2196F3' }}
-              thumbColor={autoRefillEnabled ? '#FFFFFF' : '#F4F3F4'}
-            />
-          </View>
-
-          {/* Auto Refill Target Level */}
-          {autoRefillEnabled && (
+            {/* Feed Alert Threshold */}
             <View style={styles.sliderContainer}>
               <View style={styles.sliderHeader}>
-                <Text style={styles.sliderLabel}>Auto Refill Target Level</Text>
-                <Text style={styles.sliderValue}>{autoRefillThreshold}%</Text>
+                <Text style={styles.sliderLabel}>Alert Threshold</Text>
+                <Text style={styles.sliderValue}>{feedThreshold}%</Text>
               </View>
               <Slider
                 style={styles.slider}
                 minimumValue={0}
                 maximumValue={100}
                 step={1}
-                value={autoRefillThreshold}
-                onValueChange={setAutoRefillThreshold}
+                value={feedThreshold}
+                onValueChange={setFeedThreshold}
+                minimumTrackTintColor="#FF9500"
+                maximumTrackTintColor="#E0E0E0"
+                thumbTintColor="#FF9500"
+              />
+              <Text style={styles.sliderDescription}>
+                Alert when feed level drops below this percentage
+              </Text>
+            </View>
+
+            {/* Dispense Duration — minutes + seconds input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.sliderLabel}>Dispense Duration</Text>
+              <Text style={styles.sliderDescription}>
+                How long the feed motor runs per dispense (5 s – 5 min).
+                Raspi picks up changes live — no reboot needed.
+              </Text>
+
+              <View style={styles.durationRow}>
+                {/* Minutes */}
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.durationInput, durationError ? styles.durationInputError : null]}
+                    value={dispenseMinutes}
+                    onChangeText={handleMinutesChange}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    selectTextOnFocus
+                  />
+                  <Text style={styles.durationUnit}>min</Text>
+                </View>
+
+                <Text style={styles.durationSeparator}>:</Text>
+
+                {/* Seconds */}
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.durationInput, durationError ? styles.durationInputError : null]}
+                    value={dispenseSeconds}
+                    onChangeText={handleSecondsChange}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    selectTextOnFocus
+                  />
+                  <Text style={styles.durationUnit}>sec</Text>
+                </View>
+              </View>
+
+              {/* Inline validation error */}
+              {durationError && (
+                <Text style={styles.errorText}>{durationError}</Text>
+              )}
+            </View>
+          </View>
+
+          {/* ── Water Settings ─────────────────────────────────────────── */}
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.iconCircle, { backgroundColor: '#4A90E2' }]}>
+                <Text style={styles.iconEmoji}>💧</Text>
+              </View>
+              <View style={styles.cardHeaderText}>
+                <Text style={styles.cardTitle}>Water Settings</Text>
+                <Text style={styles.cardSubtitle}>Configure water threshold and auto-refill</Text>
+              </View>
+            </View>
+
+            {/* Water Alert Threshold */}
+            <View style={styles.sliderContainer}>
+              <View style={styles.sliderHeader}>
+                <Text style={styles.sliderLabel}>Alert Threshold</Text>
+                <Text style={styles.sliderValue}>{waterThreshold}%</Text>
+              </View>
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={80}
+                step={1}
+                value={waterThreshold}
+                onValueChange={setWaterThreshold}
                 minimumTrackTintColor="#2196F3"
                 maximumTrackTintColor="#E0E0E0"
                 thumbTintColor="#2196F3"
               />
               <Text style={styles.sliderDescription}>
-                System refills water up to this level. Pump always stops at 95%.
+                Alert when water level drops below this percentage (max 80% — above 80% risks pump short-cycling)
               </Text>
             </View>
-          )}
-        </View>
 
-        {/* Save Button */}
-        <TouchableOpacity
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-          onPress={handleSaveSettings}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <>
-              <Text style={styles.saveButtonIcon}>💾</Text>
-              <Text style={styles.saveButtonText}>Save Settings</Text>
-            </>
-          )}
-        </TouchableOpacity>
+            {/* Auto Refill Toggle */}
+            <View style={styles.settingRow}>
+              <Text style={styles.settingLabel}>Enable Auto Refill</Text>
+              <Switch
+                value={autoRefillEnabled}
+                onValueChange={setAutoRefillEnabled}
+                trackColor={{ false: '#D1D1D1', true: '#2196F3' }}
+                thumbColor={autoRefillEnabled ? '#FFFFFF' : '#F4F3F4'}
+              />
+            </View>
 
-        <View style={{ height: 30 }} />
-      </ScrollView>
+            {/* Auto Refill Target Level */}
+            {autoRefillEnabled && (
+              <View style={styles.sliderContainer}>
+                <View style={styles.sliderHeader}>
+                  <Text style={styles.sliderLabel}>Auto Refill Target Level</Text>
+                  <Text style={styles.sliderValue}>{autoRefillThreshold}%</Text>
+                </View>
+                <Slider
+                  style={styles.slider}
+                  minimumValue={0}
+                  maximumValue={100}
+                  step={1}
+                  value={autoRefillThreshold}
+                  onValueChange={setAutoRefillThreshold}
+                  minimumTrackTintColor="#2196F3"
+                  maximumTrackTintColor="#E0E0E0"
+                  thumbTintColor="#2196F3"
+                />
+                <Text style={styles.sliderDescription}>
+                  System refills water up to this level. Pump always stops at 95%.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Save Button */}
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={handleSaveSettings}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.saveButtonIcon}>💾</Text>
+                <Text style={styles.saveButtonText}>Save Settings</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </LinearGradient>
   );
 };
@@ -356,6 +396,56 @@ const styles = StyleSheet.create({
   sliderValue:       { fontSize: 18, fontWeight: 'bold', color: '#4CAF50' },
   slider:            { width: '100%', height: 40 },
   sliderDescription: { fontSize: 12, color: '#999', marginTop: 4 },
+
+  // ── Duration input ──────────────────────────────────────────────────────────
+  inputContainer: {
+    marginBottom: 8,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 8,
+  },
+  durationField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  durationInput: {
+    width: 64,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: '#E0E0E0',
+    borderRadius: 10,
+    backgroundColor: '#FAFAFA',
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+  },
+  durationInputError: {
+    borderColor: '#F44336',
+    backgroundColor: '#FFF5F5',
+  },
+  durationUnit: {
+    fontSize: 14,
+    color: '#999',
+    fontWeight: '500',
+  },
+  durationSeparator: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#CCC',
+    marginHorizontal: 2,
+  },
+  errorText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#F44336',
+  },
+
+  // ── Save button ─────────────────────────────────────────────────────────────
   saveButton: {
     backgroundColor: '#4CAF50', borderRadius: 16, paddingVertical: 16,
     flexDirection: 'row', justifyContent: 'center', alignItems: 'center',

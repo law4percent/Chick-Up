@@ -71,9 +71,8 @@ class SettingsService {
     try {
       const defaults = {
         feed: {
-          thresholdPercent:      20,
-          dispenseVolumePercent: 10,
-          dispenseCountdownMs:   DEFAULT_DISPENSE_COUNTDOWN_MS,
+          thresholdPercent:    20,
+          dispenseCountdownMs: DEFAULT_DISPENSE_COUNTDOWN_MS,
         },
         water: {
           thresholdPercent:    20,
@@ -101,11 +100,7 @@ class SettingsService {
 
   /**
    * Update user settings.
-   *
-   * Writes feed, water, and updatedAt as individual granular writes —
-   * never as a full set() on settings/{userId}. A full set() would delete
-   * any sibling keys that exist at that path (future admin-written fields,
-   * or other app versions writing additional keys).
+   * Writes feed, water, and updatedAt as granular writes — never a full set().
    */
   async updateSettings(userId: string, settings: Partial<UserSettings>): Promise<void> {
     try {
@@ -134,8 +129,6 @@ class SettingsService {
     try {
       if (feedSettings.thresholdPercent < 0 || feedSettings.thresholdPercent > 100)
         throw new Error('Threshold must be between 0 and 100');
-      if (feedSettings.dispenseVolumePercent < 0 || feedSettings.dispenseVolumePercent > 100)
-        throw new Error('Dispense volume must be between 0 and 100');
       if (
         feedSettings.dispenseCountdownMs !== undefined &&
         (feedSettings.dispenseCountdownMs < 5_000 || feedSettings.dispenseCountdownMs > 300_000)
@@ -177,13 +170,6 @@ class SettingsService {
       if (!settings) return 20;
       return type === 'water' ? settings.water.thresholdPercent : settings.feed.thresholdPercent;
     } catch { return 20; }
-  }
-
-  async getDispenseVolume(userId: string): Promise<number> {
-    try {
-      const settings = await this.getSettings(userId);
-      return settings?.feed.dispenseVolumePercent ?? 10;
-    } catch { return 10; }
   }
 
   async getDispenseCountdownMs(userId: string): Promise<number> {

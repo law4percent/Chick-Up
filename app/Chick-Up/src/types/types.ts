@@ -60,7 +60,6 @@ export interface SensorData {
 
 export interface DispenseSettings {
   thresholdPercent: number;
-  dispenseVolumePercent: number;
   /**
    * How long the feed motor runs per dispense, in milliseconds.
    * Written to Firebase as-is — raspi reads it from
@@ -137,7 +136,6 @@ export interface FeedSchedule {
   enabled: boolean;
   time: string;       // HH:MM format
   days: number[];     // 0=Sunday … 6=Saturday
-  volumePercent: number;
   createdAt: number;
   updatedAt: number;
 }

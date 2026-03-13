@@ -4,6 +4,14 @@ Description:
     Hardware control process — sensors, motors, LCD display.
     Reads Firebase RTDB state and physical keypad, drives feed/water motors,
     updates LCD, and logs analytics back to Firebase.
+
+    Settings restart:
+        When the app saves new settings (settingsService.updateSettings writes
+        settings/{userId}/updatedAt), the inner tick loop detects the timestamp
+        change, waits for any active dispense/refill cycle to finish, then breaks
+        back to the outer restart loop which re-reads all settings cleanly.
+        Hardware (GPIO, motors, LCD) is NOT re-initialized on a settings restart —
+        only settings and per-loop state are refreshed.
 """
 
 import time
@@ -363,10 +371,15 @@ def process_B(**kwargs) -> None:
         USER_CREDENTIAL    : dict  {userUid, deviceUid}
         LCD_I2C_ADDR       : int   (default 0x27)
 
-    DISPENSE_COUNTDOWN_TIME is no longer passed from main.py.
-    Process B reads it from settings/{userUid}/feed/dispenseCountdownMs after
-    Firebase is initialized. Falls back to a local cache file, then to the
-    hardcoded DEFAULT_DISPENSE_COUNTDOWN_MS if both are unavailable.
+    Settings restart:
+        When the app updates settings (settingsService.updateSettings() writes
+        settings/{userId}/updatedAt), the inner tick loop detects the timestamp
+        change, waits for any active dispense/refill to finish, then breaks back
+        to the outer restart loop which re-fetches all settings cleanly.
+        Hardware (GPIO, motors, LCD) is NOT re-initialized on a settings restart.
+
+    DISPENSE_COUNTDOWN_TIME is read from settings/{userUid}/feed/dispenseCountdownMs.
+    Falls back to a local cache file, then to DEFAULT_DISPENSE_COUNTDOWN_MS.
     """
     args              = kwargs["process_B_args"]
     TASK_NAME         = args["TASK_NAME"]
@@ -394,10 +407,10 @@ def process_B(**kwargs) -> None:
     device_uid   = USER_CREDENTIAL["deviceUid"]
     database_ref = firebase_rtdb.setup_RTDB(user_uid=user_uid, device_uid=device_uid)
 
-    # ── Fetch dispense countdown from Firebase (with local cache fallback) ─
-    DISPENSE_COUNTDOWN_TIME = _fetch_dispense_countdown(user_uid, TASK_NAME)
-
-    # ── Init hardware ─────────────────────────────────────────────────────
+    # ── Init hardware — once, shared across all settings restarts ─────────
+    # Hardware setup is expensive (GPIO config, I2C negotiation, ultrasonic
+    # filter warm-up). It runs exactly once per process lifetime. A settings
+    # restart only re-reads Firebase values; it never tears down hardware.
     try:
         keypad_instance = Keypad4x4()
     except KeypadError as e:
@@ -424,346 +437,403 @@ def process_B(**kwargs) -> None:
         log(details=f"{TASK_NAME} - LCD init failed, continuing without LCD: {e}", log_type="warning")
         lcd_obj = None
 
-    # ── State ─────────────────────────────────────────────────────────────
-    current_feed_level  = 0.0
-    current_water_level = 0.0
-    current_feed_physical_button_state  = False
-    current_water_physical_button_state = False
+    # ── Outer restart loop ────────────────────────────────────────────────
+    # Entered once on boot (settings_restart=True) and again whenever the
+    # app saves new settings. Each iteration re-reads Firebase settings and
+    # resets all per-loop state. Hardware is not touched.
+    settings_restart = True
+    while settings_restart:
+        settings_restart = False
 
-    current_feed_app_button_state   = False
-    current_water_app_button_state  = False
-    current_feed_schedule_state     = False
-    current_live_button_state       = False
-    raw_feed_timestamp              = None
-    raw_water_timestamp             = None
+        # ── Fetch settings (fresh on every restart) ───────────────────────
+        DISPENSE_COUNTDOWN_TIME = _fetch_dispense_countdown(user_uid, TASK_NAME)
 
-    current_feed_threshold_warning          = 20
-    current_dispense_volume_percent         = 0
-    current_water_threshold_warning         = 20
-    current_auto_refill_water_enabled_state = False
+        # Snapshot updatedAt so we can detect app-side settings changes.
+        # Falls back to 0 if the field is missing (first-run or offline).
+        try:
+            _settings_updated_at_at_start = (
+                db.reference(f"settings/{user_uid}/updatedAt").get() or 0
+            )
+        except Exception:
+            _settings_updated_at_at_start = 0
 
-    refill_active            = False
-    dispense_active          = False
-    dispense_countdown_start = 0
-    MAX_REFILL_LEVEL         = 95
+        log(
+            details=f"{TASK_NAME} - Settings loaded. updatedAt={_settings_updated_at_at_start}, "
+                    f"dispenseCountdown={DISPENSE_COUNTDOWN_TIME}ms",
+            log_type="info",
+        )
 
-    # Boot stabilization — skip motor logic for the first N ticks.
-    # Without this, sensors read 0.0% on the very first loop iteration
-    # (before the ultrasonic median filter has a stable reading), which
-    # causes auto-refill to fire immediately if water_threshold_warning > 0.
-    # 20 ticks × 100 ms = 2 seconds of settling time.
-    BOOT_STABILIZATION_TICKS = 20
-    boot_ticks_elapsed        = 0
+        # ── Per-restart state ─────────────────────────────────────────────
+        current_feed_level  = 0.0
+        current_water_level = 0.0
+        current_feed_physical_button_state  = False
+        current_water_physical_button_state = False
 
-    # Last button timestamps the device has already acted on.
-    # Prevents re-triggering while is_fresh() still returns True
-    # (the app timestamp stays "fresh" for 60s after a single press).
-    last_acted_feed_timestamp  = None
-    last_acted_water_timestamp = None
+        current_feed_app_button_state   = False
+        current_water_app_button_state  = False
+        current_feed_schedule_state     = False
+        current_live_button_state       = False
+        raw_feed_timestamp              = None
+        raw_water_timestamp             = None
 
-    # Schedule dedup guard — mirrors the app button timestamp pattern.
-    # Stores "scheduleId:HH:MM" of the last schedule we acted on so a
-    # schedule that stays True for an entire minute only fires ONCE,
-    # even if dispense_active becomes False before the minute ends.
-    last_acted_schedule_key = None
+        current_feed_threshold_warning          = 20
+        current_water_threshold_warning         = 20
+        current_auto_refill_water_enabled_state = False
 
-    water_level_before_refill   = 0.0
-    feed_level_before_dispense  = 0.0
-    prev_refill_active          = False
-    prev_dispense_active        = False
-    pending_feed_source         = "keypad"  # source of the current/last dispense trigger
+        refill_active            = False
+        dispense_active          = False
+        dispense_countdown_start = 0
+        MAX_REFILL_LEVEL         = 95
 
-    last_lcd_update      = 0.0
-    LCD_UPDATE_INTERVAL  = 1.0    # seconds
+        # Boot stabilization — skip motor logic for the first N ticks.
+        # Without this, sensors read 0.0% on the very first loop iteration
+        # (before the ultrasonic median filter has a stable reading), which
+        # causes auto-refill to fire immediately if water_threshold_warning > 0.
+        # 20 ticks × 100 ms = 2 seconds of settling time.
+        # Also applied after a settings restart so sensors re-stabilize.
+        BOOT_STABILIZATION_TICKS = 20
+        boot_ticks_elapsed        = 0
 
-    last_db_error_log    = 0.0
-    DB_ERROR_LOG_INTERVAL = 10.0  # suppress repeated DB error logs
+        # Last button timestamps the device has already acted on.
+        # Prevents re-triggering while is_fresh() still returns True.
+        last_acted_feed_timestamp  = None
+        last_acted_water_timestamp = None
 
-    # ── Logout via D-key hold ─────────────────────────────────────────
-    # Holding D for LOGOUT_HOLD_SECONDS triggers a logout request.
-    # main.py monitors logout_requested Event and handles the actual logout.
-    LOGOUT_HOLD_SECONDS  = 3.0
-    d_key_hold_start     = 0.0   # monotonic time when D was first seen held
-    d_key_held           = False
+        # Schedule dedup guard — mirrors the app button timestamp pattern.
+        last_acted_schedule_key = None
 
-    # ── Main loop ─────────────────────────────────────────────────────────
-    try:
-        while True:
-            if not status_checker.is_set():
-                log(details=f"{TASK_NAME} - status_checker cleared, shutting down", log_type="warning")
-                break
+        water_level_before_refill   = 0.0
+        feed_level_before_dispense  = 0.0
+        prev_refill_active          = False
+        prev_dispense_active        = False
+        pending_feed_source         = "keypad"
 
-            current_time = time.time()
-            time.sleep(0.1)
+        last_lcd_update      = 0.0
+        LCD_UPDATE_INTERVAL  = 1.0    # seconds
 
-            # ── Read pins ─────────────────────────────────────────────
-            try:
-                pins_data = _read_pins_data(keypad_instance)
-                current_feed_level                  = pins_data["current_feed_level"]
-                current_water_level                 = pins_data["current_water_level"]
-                current_feed_physical_button_state  = pins_data["current_feed_physical_button_state"]
-                current_water_physical_button_state = pins_data["current_water_physical_button_state"]
-                raw_key                             = pins_data["raw_key"]
-            except Exception as e:
-                log(details=f"{TASK_NAME} - Sensor read failed: {e}", log_type="error")
-                status_checker.clear()
-                break
+        last_db_error_log    = 0.0
+        DB_ERROR_LOG_INTERVAL = 10.0  # suppress repeated DB error logs
 
-            # ── D-key hold → logout request ───────────────────────────
-            # Hold D for LOGOUT_HOLD_SECONDS to request a logout.
-            # main.py monitors the logout_requested Event and handles
-            # stopping processes + calling auth.logout() + re-pairing.
-            if raw_key == "D":
-                if not d_key_held:
-                    d_key_held       = True
-                    d_key_hold_start = time.monotonic()
-                elif time.monotonic() - d_key_hold_start >= LOGOUT_HOLD_SECONDS:
-                    log(details=f"{TASK_NAME} - Logout requested via D-key hold", log_type="info")
+        # Logout via D-key hold
+        LOGOUT_HOLD_SECONDS  = 3.0
+        d_key_hold_start     = 0.0
+        d_key_held           = False
+
+        # Settings-change restart gate.
+        # Set to True when updatedAt changes; motors must go idle before we break.
+        _settings_change_pending = False
+
+        # ── Inner main loop ───────────────────────────────────────────────
+        try:
+            while True:
+                if not status_checker.is_set():
+                    log(details=f"{TASK_NAME} - status_checker cleared, shutting down", log_type="warning")
+                    break
+
+                current_time = time.time()
+                time.sleep(0.1)
+
+                # ── Read pins ─────────────────────────────────────────────
+                try:
+                    pins_data = _read_pins_data(keypad_instance)
+                    current_feed_level                  = pins_data["current_feed_level"]
+                    current_water_level                 = pins_data["current_water_level"]
+                    current_feed_physical_button_state  = pins_data["current_feed_physical_button_state"]
+                    current_water_physical_button_state = pins_data["current_water_physical_button_state"]
+                    raw_key                             = pins_data["raw_key"]
+                except Exception as e:
+                    log(details=f"{TASK_NAME} - Sensor read failed: {e}", log_type="error")
+                    status_checker.clear()
+                    break
+
+                # ── D-key hold → logout request ───────────────────────────
+                if raw_key == "D":
+                    if not d_key_held:
+                        d_key_held       = True
+                        d_key_hold_start = time.monotonic()
+                    elif time.monotonic() - d_key_hold_start >= LOGOUT_HOLD_SECONDS:
+                        log(details=f"{TASK_NAME} - Logout requested via D-key hold", log_type="info")
+                        if lcd_obj:
+                            try:
+                                lcd_obj.show(["Hold D: Logout", "Please wait..."])
+                            except Exception:
+                                pass
+                        logout_requested.set()
+                        break
+                else:
+                    d_key_held       = False
+                    d_key_hold_start = 0.0
+
+                # ── Read Firebase ─────────────────────────────────────────
+                try:
+                    database_data = firebase_rtdb.read_RTDB(database_ref=database_ref)
+                    current_feed_app_button_state   = database_data["current_feed_app_button_state"]
+                    current_water_app_button_state  = database_data["current_water_app_button_state"]
+                    raw_feed_timestamp              = database_data["raw_feed_timestamp"]
+                    raw_water_timestamp             = database_data["raw_water_timestamp"]
+                    current_feed_schedule_state     = database_data["current_feed_schedule_state"]
+                    current_live_button_state       = database_data["current_live_button_state"]
+
+                    user_settings                           = database_data["current_user_settings"]
+                    current_feed_threshold_warning          = user_settings["feed_threshold_warning"]
+                    current_water_threshold_warning         = user_settings["water_threshold_warning"]
+                    current_auto_refill_water_enabled_state = user_settings["auto_refill_water_enabled"]
+
+                    # Live update for dispense countdown — picks up app changes mid-session.
+                    # Only update if the value changed to avoid redundant cache writes.
+                    new_countdown = user_settings.get("dispense_countdown_ms")
+                    if isinstance(new_countdown, int) and new_countdown > 0 and new_countdown != DISPENSE_COUNTDOWN_TIME:
+                        log(
+                            details=f"{TASK_NAME} - dispenseCountdownMs updated: "
+                                    f"{DISPENSE_COUNTDOWN_TIME}ms → {new_countdown}ms",
+                            log_type="info",
+                        )
+                        DISPENSE_COUNTDOWN_TIME = new_countdown
+                        _save_cached_countdown(new_countdown)
+
+                    # ── Detect app settings change → schedule graceful restart ──
+                    # updatedAt is written by every settingsService.updateSettings() call.
+                    # When it changes, we flag a pending restart and wait for motors
+                    # to go idle before breaking out of the inner loop.
+                    _current_updated_at = user_settings.get("updated_at", 0)
+                    if (
+                        not _settings_change_pending
+                        and _current_updated_at
+                        and _current_updated_at != _settings_updated_at_at_start
+                    ):
+                        log(
+                            details=f"{TASK_NAME} - Settings change detected "
+                                    f"(updatedAt {_settings_updated_at_at_start} → {_current_updated_at}). "
+                                    f"Waiting for motors to idle before restarting.",
+                            log_type="info",
+                        )
+                        _settings_change_pending = True
+                        if lcd_obj:
+                            try:
+                                lcd_obj.show(["Settings updated", "Finishing cycle..."])
+                            except Exception:
+                                pass
+
+                except FirebaseReadError as e:
+                    if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
+                        log(details=f"{TASK_NAME} - RTDB read failed: {e}", log_type="warning")
+                        last_db_error_log = current_time
+                except Exception as e:
+                    if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
+                        log(details=f"{TASK_NAME} - Unexpected RTDB error: {e}", log_type="warning")
+                        last_db_error_log = current_time
+
+                # ── Sync live stream status ───────────────────────────────
+                if current_live_button_state:
+                    live_status.set()
+                else:
+                    live_status.clear()
+
+                # ── Level warnings ────────────────────────────────────────
+                feed_warning  = current_feed_level  <= current_feed_threshold_warning
+                water_warning = current_water_level <= current_water_threshold_warning
+
+                # ── Physical keypad → Firebase timestamp ──────────────────
+                if current_feed_physical_button_state:
+                    try:
+                        _update_button_timestamp(database_ref, "feed")
+                    except firebase_rtdb.FirebaseWriteError as e:
+                        log(details=f"{TASK_NAME} - {e}", log_type="warning")
+
+                if current_water_physical_button_state:
+                    try:
+                        _update_button_timestamp(database_ref, "water")
+                    except firebase_rtdb.FirebaseWriteError as e:
+                        log(details=f"{TASK_NAME} - {e}", log_type="warning")
+
+                # ── Button aggregation ────────────────────────────────────
+                feed_app_new_press  = (
+                    current_feed_app_button_state and
+                    raw_feed_timestamp  is not None and
+                    raw_feed_timestamp  != last_acted_feed_timestamp
+                )
+                water_app_new_press = (
+                    current_water_app_button_state and
+                    raw_water_timestamp is not None and
+                    raw_water_timestamp != last_acted_water_timestamp
+                )
+
+                schedule_key = None
+                if current_feed_schedule_state:
+                    from datetime import datetime as _dt
+                    schedule_key = f"sched:{_dt.now().strftime('%H:%M')}"
+
+                feed_schedule_new_trigger = (
+                    current_feed_schedule_state and
+                    schedule_key != last_acted_schedule_key
+                )
+
+                # Block new triggers while a settings restart is pending —
+                # avoids starting a new cycle we'd then have to wait out.
+                feed_button_pressed = (
+                    not _settings_change_pending and
+                    (
+                        current_feed_physical_button_state or
+                        feed_app_new_press                 or
+                        feed_schedule_new_trigger
+                    ) and not dispense_active
+                )
+
+                water_button_pressed = (
+                    not _settings_change_pending and
+                    (
+                        current_water_physical_button_state or
+                        water_app_new_press
+                    )
+                )
+
+                # Determine analytics source for this dispense trigger
+                if feed_schedule_new_trigger and not current_feed_physical_button_state and not feed_app_new_press:
+                    pending_feed_source = "schedule"
+                elif feed_app_new_press:
+                    pending_feed_source = "app"
+                else:
+                    pending_feed_source = "keypad"
+
+                # Acknowledge timestamps / schedule keys once we act on them
+                if feed_app_new_press:
+                    last_acted_feed_timestamp  = raw_feed_timestamp
+                if water_app_new_press:
+                    last_acted_water_timestamp = raw_water_timestamp
+                if feed_schedule_new_trigger:
+                    last_acted_schedule_key    = schedule_key
+
+                # ── Boot stabilization ────────────────────────────────────
+                if boot_ticks_elapsed < BOOT_STABILIZATION_TICKS:
+                    boot_ticks_elapsed += 1
+                    continue
+
+                # ── Graceful settings restart — wait for motors to go idle ─
+                # Once both motors are inactive, break to the outer loop which
+                # will re-read all settings from Firebase cleanly.
+                if _settings_change_pending and not dispense_active and not refill_active:
+                    log(
+                        details=f"{TASK_NAME} - Motors idle. Restarting inner loop to apply new settings.",
+                        log_type="info",
+                    )
                     if lcd_obj:
                         try:
-                            lcd_obj.show(["Hold D: Logout", "Please wait..."])
+                            lcd_obj.show(["Applying settings", "Please wait..."])
+                            time.sleep(1)
                         except Exception:
                             pass
-                    logout_requested.set()
-                    break
-            else:
-                d_key_held       = False
-                d_key_hold_start = 0.0
+                    settings_restart = True
+                    break  # → outer while settings_restart
 
-            # ── Read Firebase ─────────────────────────────────────────
-            try:
-                database_data = firebase_rtdb.read_RTDB(database_ref=database_ref)
-                current_feed_app_button_state   = database_data["current_feed_app_button_state"]
-                current_water_app_button_state  = database_data["current_water_app_button_state"]
-                raw_feed_timestamp              = database_data["raw_feed_timestamp"]
-                raw_water_timestamp             = database_data["raw_water_timestamp"]
-                current_feed_schedule_state     = database_data["current_feed_schedule_state"]
-                current_live_button_state       = database_data["current_live_button_state"]
+                # ── Snapshot levels before new action starts ──────────────
+                if feed_button_pressed and not dispense_active:
+                    feed_level_before_dispense = current_feed_level
 
-                user_settings                           = database_data["current_user_settings"]
-                current_feed_threshold_warning          = user_settings["feed_threshold_warning"]
-                current_dispense_volume_percent         = user_settings["dispense_volume_percent"]
-                current_water_threshold_warning         = user_settings["water_threshold_warning"]
-                current_auto_refill_water_enabled_state = user_settings["auto_refill_water_enabled"]
+                if water_button_pressed and not refill_active:
+                    water_level_before_refill = current_water_level
 
-                # Live update — picks up app changes to dispense countdown mid-session.
-                # Only update if the value changed to avoid redundant cache writes.
-                new_countdown = user_settings.get("dispense_countdown_ms")
-                if isinstance(new_countdown, int) and new_countdown > 0 and new_countdown != DISPENSE_COUNTDOWN_TIME:
-                    log(details=f"{TASK_NAME} - dispenseCountdownMs updated: {DISPENSE_COUNTDOWN_TIME}ms → {new_countdown}ms", log_type="info")
-                    DISPENSE_COUNTDOWN_TIME = new_countdown
-                    _save_cached_countdown(new_countdown)
-            except FirebaseReadError as e:
-                if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
-                    log(details=f"{TASK_NAME} - RTDB read failed: {e}", log_type="warning")
-                    last_db_error_log = current_time
-            except Exception as e:
-                if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
-                    log(details=f"{TASK_NAME} - Unexpected RTDB error: {e}", log_type="warning")
-                    last_db_error_log = current_time
+                # Auto-refill snapshot
+                if (
+                    not refill_active
+                    and not water_button_pressed
+                    and current_auto_refill_water_enabled_state
+                    and current_water_level <= current_water_threshold_warning
+                ):
+                    water_level_before_refill = current_water_level
 
-            # ── Sync live stream status ───────────────────────────────
-            if current_live_button_state:
-                live_status.set()
-            else:
-                live_status.clear()
-
-            # ── Level warnings ────────────────────────────────────────
-            feed_warning  = current_feed_level  <= current_feed_threshold_warning
-            water_warning = current_water_level <= current_water_threshold_warning
-
-            # ── Physical keypad → Firebase timestamp ──────────────────
-            if current_feed_physical_button_state:
-                try:
-                    _update_button_timestamp(database_ref, "feed")
-                except firebase_rtdb.FirebaseWriteError as e:
-                    log(details=f"{TASK_NAME} - {e}", log_type="warning")
-
-            if current_water_physical_button_state:
-                try:
-                    _update_button_timestamp(database_ref, "water")
-                except firebase_rtdb.FirebaseWriteError as e:
-                    log(details=f"{TASK_NAME} - {e}", log_type="warning")
-
-            # ── Button aggregation ────────────────────────────────────
-            # App button: only treat as a new press if the timestamp has
-            # changed since we last acted on it. This prevents re-triggering
-            # for the full 60s that is_fresh() stays True after a single press.
-            feed_app_new_press  = (
-                current_feed_app_button_state and
-                raw_feed_timestamp  is not None and
-                raw_feed_timestamp  != last_acted_feed_timestamp
-            )
-            water_app_new_press = (
-                current_water_app_button_state and
-                raw_water_timestamp is not None and
-                raw_water_timestamp != last_acted_water_timestamp
-            )
-
-            # Schedule new-trigger detection — rising-edge guard identical to
-            # feed_app_new_press. current_feed_schedule_state is True for the
-            # entire 60-second window when now_time == schedule time. Without
-            # this guard, if dispense_active clears before the minute ends the
-            # schedule would fire a SECOND time in the same minute.
-            #
-            # Key format: "{scheduleId}:{HH:MM}" — resets automatically when
-            # the next minute starts and is_schedule_triggered() returns False.
-            schedule_key = None
-            if current_feed_schedule_state:
-                # is_schedule_triggered() already identified which schedule fired;
-                # use current time as the dedup key (minute-level granularity).
-                from datetime import datetime as _dt
-                schedule_key = f"sched:{_dt.now().strftime('%H:%M')}"
-
-            feed_schedule_new_trigger = (
-                current_feed_schedule_state and
-                schedule_key != last_acted_schedule_key
-            )
-
-            feed_button_pressed = (
-                current_feed_physical_button_state or
-                feed_app_new_press                 or
-                feed_schedule_new_trigger
-            ) and not dispense_active
-
-            water_button_pressed = (
-                current_water_physical_button_state or
-                water_app_new_press
-            )
-
-            # Determine analytics source for this dispense trigger
-            # (evaluated before acknowledgment so the flag is still set)
-            if feed_schedule_new_trigger and not current_feed_physical_button_state and not feed_app_new_press:
-                pending_feed_source = "schedule"
-            elif feed_app_new_press:
-                pending_feed_source = "app"
-            else:
-                pending_feed_source = "keypad"
-
-            # Acknowledge timestamps / schedule keys once we act on them
-            if feed_app_new_press:
-                last_acted_feed_timestamp  = raw_feed_timestamp
-            if water_app_new_press:
-                last_acted_water_timestamp = raw_water_timestamp
-            if feed_schedule_new_trigger:
-                last_acted_schedule_key    = schedule_key
-
-            # ── Boot stabilization ────────────────────────────────────
-            # Skip motor / refill / dispense logic for the first
-            # BOOT_STABILIZATION_TICKS iterations so ultrasonic sensors
-            # have time to produce stable readings. Without this, 0%
-            # sensor readings at boot can trigger auto-refill immediately
-            # if auto-refill is enabled and the threshold is > 0.
-            if boot_ticks_elapsed < BOOT_STABILIZATION_TICKS:
-                boot_ticks_elapsed += 1
-                continue
-
-            # ── Snapshot levels before new action starts ──────────────
-            if feed_button_pressed and not dispense_active:
-                feed_level_before_dispense = current_feed_level
-
-            # Manual button snapshot — taken before _refill_it runs
-            if water_button_pressed and not refill_active:
-                water_level_before_refill = current_water_level
-
-            # Auto-refill snapshot — button is never pressed for this path,
-            # so we must snapshot here before _refill_it starts the pump.
-            # Without this, water_level_before_refill stays 0.0 and the
-            # analytics entry logs a meaningless volume.
-            if (
-                not refill_active
-                and not water_button_pressed
-                and current_auto_refill_water_enabled_state
-                and current_water_level <= current_water_threshold_warning
-            ):
-                water_level_before_refill = current_water_level
-
-            # ── Motor logic ───────────────────────────────────────────
-            dispense_active, dispense_countdown_start = _dispense_it(
-                feed_button_state        = feed_button_pressed,
-                dispense_active          = dispense_active,
-                dispense_countdown_start = dispense_countdown_start,
-                DISPENSE_COUNTDOWN_TIME  = DISPENSE_COUNTDOWN_TIME,
-            )
-
-            refill_active = _refill_it(
-                current_auto_refill_water_enabled_state = current_auto_refill_water_enabled_state,
-                current_water_level                     = current_water_level,
-                current_water_threshold_warning         = current_water_threshold_warning,
-                water_button_state                      = water_button_pressed,
-                MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
-                refill_active                           = refill_active,
-            )
-
-            # ── Analytics on action completion ────────────────────────
-            if prev_dispense_active and not dispense_active:
-                try:
-                    _log_analytics(
-                        user_uid,
-                        "feed",
-                        max(feed_level_before_dispense - current_feed_level, 0),
-                        source=pending_feed_source,
-                    )
-                except firebase_rtdb.FirebaseWriteError as e:
-                    log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
-                feed_level_before_dispense = 0.0
-                pending_feed_source        = "keypad"  # reset for next trigger
-
-            if prev_refill_active and not refill_active:
-                try:
-                    _log_analytics(user_uid, "water", max(current_water_level - water_level_before_refill, 0))
-                except firebase_rtdb.FirebaseWriteError as e:
-                    log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
-                water_level_before_refill = 0.0
-
-            prev_dispense_active = dispense_active
-            prev_refill_active   = refill_active
-
-            # ── LCD update ────────────────────────────────────────────
-            if lcd_obj and (current_time - last_lcd_update >= LCD_UPDATE_INTERVAL):
-                _update_lcd_display(
-                    lcd_obj             = lcd_obj,
-                    current_feed_level  = current_feed_level,
-                    current_water_level = current_water_level,
-                    feed_warning        = feed_warning,
-                    water_warning       = water_warning,
-                    dispense_active     = dispense_active,
-                    refill_active       = refill_active,
+                # ── Motor logic ───────────────────────────────────────────
+                dispense_active, dispense_countdown_start = _dispense_it(
+                    feed_button_state        = feed_button_pressed,
+                    dispense_active          = dispense_active,
+                    dispense_countdown_start = dispense_countdown_start,
+                    DISPENSE_COUNTDOWN_TIME  = DISPENSE_COUNTDOWN_TIME,
                 )
-                last_lcd_update = current_time
 
-            # ── Push sensor data to Firebase ──────────────────────────
-            try:
-                database_ref["sensors_ref"].update({
-                    "feedLevel" : current_feed_level,
-                    "waterLevel": current_water_level,
-                    "updatedAt" : datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
-                })
-            except Exception as e:
-                if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
-                    log(details=f"{TASK_NAME} - Sensor DB update failed: {e}", log_type="warning")
-                    last_db_error_log = current_time
+                refill_active = _refill_it(
+                    current_auto_refill_water_enabled_state = current_auto_refill_water_enabled_state,
+                    current_water_level                     = current_water_level,
+                    current_water_threshold_warning         = current_water_threshold_warning,
+                    water_button_state                      = water_button_pressed,
+                    MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
+                    refill_active                           = refill_active,
+                )
 
-    except KeyboardInterrupt:
-        log(details=f"{TASK_NAME} - KeyboardInterrupt received", log_type="warning")
-        status_checker.clear()
+                # ── Analytics on action completion ────────────────────────
+                if prev_dispense_active and not dispense_active:
+                    try:
+                        _log_analytics(
+                            user_uid,
+                            "feed",
+                            max(feed_level_before_dispense - current_feed_level, 0),
+                            source=pending_feed_source,
+                        )
+                    except firebase_rtdb.FirebaseWriteError as e:
+                        log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
+                    feed_level_before_dispense = 0.0
+                    pending_feed_source        = "keypad"
 
-    except Exception as e:
-        log(details=f"{TASK_NAME} - Unexpected error: {e}", log_type="error")
-        status_checker.clear()
-        raise
+                if prev_refill_active and not refill_active:
+                    try:
+                        _log_analytics(user_uid, "water", max(current_water_level - water_level_before_refill, 0))
+                    except firebase_rtdb.FirebaseWriteError as e:
+                        log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
+                    water_level_before_refill = 0.0
 
-    finally:
+                prev_dispense_active = dispense_active
+                prev_refill_active   = refill_active
+
+                # ── LCD update ────────────────────────────────────────────
+                if lcd_obj and (current_time - last_lcd_update >= LCD_UPDATE_INTERVAL):
+                    _update_lcd_display(
+                        lcd_obj             = lcd_obj,
+                        current_feed_level  = current_feed_level,
+                        current_water_level = current_water_level,
+                        feed_warning        = feed_warning,
+                        water_warning       = water_warning,
+                        dispense_active     = dispense_active,
+                        refill_active       = refill_active,
+                    )
+                    last_lcd_update = current_time
+
+                # ── Push sensor data to Firebase ──────────────────────────
+                try:
+                    database_ref["sensors_ref"].update({
+                        "feedLevel" : current_feed_level,
+                        "waterLevel": current_water_level,
+                        "updatedAt" : datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
+                    })
+                except Exception as e:
+                    if current_time - last_db_error_log >= DB_ERROR_LOG_INTERVAL:
+                        log(details=f"{TASK_NAME} - Sensor DB update failed: {e}", log_type="warning")
+                        last_db_error_log = current_time
+
+        except KeyboardInterrupt:
+            log(details=f"{TASK_NAME} - KeyboardInterrupt received", log_type="warning")
+            status_checker.clear()
+            # Clear settings_restart so the outer loop exits cleanly
+            settings_restart = False
+
+        except Exception as e:
+            log(details=f"{TASK_NAME} - Unexpected error: {e}", log_type="error")
+            status_checker.clear()
+            settings_restart = False
+            raise
+
+        # End of inner loop. If settings_restart=True the outer while will
+        # loop back and re-read settings. Otherwise we fall through to finally.
+
+    # ── Cleanup — runs once when process truly exits ───────────────────────
+    # (KeyboardInterrupt, status_checker cleared, or unhandled exception)
+    try:
+        motor.stop_all_motors()
+    except MotorError as e:
+        log(details=f"{TASK_NAME} - Failed to stop motors during cleanup: {e}", log_type="error")
+    if lcd_obj:
         try:
-            motor.stop_all_motors()
-        except MotorError as e:
-            log(details=f"{TASK_NAME} - Failed to stop motors during cleanup: {e}", log_type="error")
-        if lcd_obj:
-            try:
-                lcd_obj.show(["Chick-Up", "Shutting down..."])
-                time.sleep(1)
-                lcd.cleanup_lcd()
-            except Exception:
-                pass
-        GPIO.cleanup()
-        log(details=f"{TASK_NAME} - Process stopped", log_type="info")
+            lcd_obj.show(["Chick-Up", "Shutting down..."])
+            time.sleep(1)
+            lcd.cleanup_lcd()
+        except Exception:
+            pass
+    GPIO.cleanup()
+    log(details=f"{TASK_NAME} - Process stopped", log_type="info")
