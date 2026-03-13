@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import {
   DrawerContentScrollView,
@@ -80,7 +81,8 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
   return (
     <View style={styles.container}>
       <DrawerContentScrollView {...props} contentContainerStyle={styles.scrollView}>
-        {/* Header */}
+
+        {/* ── Header ── */}
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
             <TouchableOpacity
@@ -91,31 +93,41 @@ const CustomDrawer: React.FC<DrawerContentComponentProps> = (props) => {
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
+
+          {/* App icon centered above the title */}
+          <View style={styles.iconWrapper}>
+            <Image
+              source={require('../../assets/adaptive-icon.png')}
+              style={styles.appIcon}
+              resizeMode="cover"
+            />
+          </View>
+
           <Text style={styles.appName}>Chick-Up</Text>
-          <Text style={styles.tagline}>Smart Poultry Management</Text>
+          <Text style={styles.tagline}>IOT-CONTROLLED POULTRY MANAGEMENT</Text>
         </View>
 
-        {/* Divider */}
+        {/* ── Divider ── */}
         <View style={styles.divider} />
 
-        {/* Menu */}
+        {/* ── Menu ── */}
         <View style={styles.menuItems}>
           <MenuItem icon="📊" label="Dashboard" route="Dashboard" />
-          <MenuItem icon="📅" label="Schedule" route="Schedule" />
+          <MenuItem icon="📅" label="Schedule"  route="Schedule"  />
           <MenuItem icon="📈" label="Analytics" route="Analytics" />
-          <MenuItem icon="⚙️" label="Settings" route="Settings" />
-          <MenuItem icon="👤" label="Profile" route="Profile" />
+          <MenuItem icon="⚙️" label="Settings"  route="Settings"  />
+          <MenuItem icon="👤" label="Profile"   route="Profile"   />
         </View>
+
       </DrawerContentScrollView>
 
-      {/* Footer */}
+      {/* ── Footer ── */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
           activeOpacity={0.7}
         >
-          <Text style={styles.logoutIcon}>🚪</Text>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
@@ -138,12 +150,14 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 48,
     paddingBottom: 20,
     backgroundColor: '#FFFFFF',
+    // removed: alignItems: 'center'
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
     marginBottom: 16,
+    width: '100%',              // keep close button pinned to the right
   },
   closeButton: {
     width: 36,
@@ -157,11 +171,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#888',
   },
+
+  // Icon
+  iconWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    marginBottom: 12,
+    // Subtle shadow so the round icon lifts off the white header
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  appIcon: {
+    width: 72,
+    height: 72,
+  },
+
   appName: {
     fontSize: 20,
     fontWeight: '700',
     color: '#1A1A1A',
     letterSpacing: 0.3,
+    marginBottom: 2,
   },
   tagline: {
     fontSize: 12,

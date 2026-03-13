@@ -46,7 +46,7 @@ Chick-Up automates feed dispensing and water refilling for a poultry enclosure. 
 **What you do manually:**
 - Trigger feed dispensing or water refill on demand (app or physical keypad)
 - Watch a live camera stream
-- Adjust thresholds, volumes, and timing from the app
+- Adjust thresholds and timing from the app
 
 ---
 
@@ -259,8 +259,7 @@ Open Settings from the navigation menu (☰). All changes take effect on the Ras
 | Setting | Description | Range | Default |
 |---------|-------------|-------|---------|
 | Alert Threshold | App shows a warning when feed drops below this | 0–100% | 20% |
-| Dispense Volume | Used for analytics logging — reflects how full the container was before a dispense | 0–100% | 10% |
-| Dispense Duration | How long the feed motor runs per dispense cycle | 5 s – 5 min | 60 s |
+| Dispense Duration | How long the feed motor runs per dispense cycle. Enter minutes and seconds in the two input fields (e.g. `1` min `30` sec). The Pi picks up changes live — no reboot needed. | 5 s – 5 min | 1 min 0 sec |
 
 #### Water Settings
 
@@ -270,7 +269,7 @@ Open Settings from the navigation menu (☰). All changes take effect on the Ras
 | Enable Auto Refill | Pi automatically starts the pump when water drops to threshold | On / Off | Off |
 | Auto Refill Target Level | How full to fill the tank during auto-refill (pump always stops at 95%) | 0–100% | 80% |
 
-After adjusting the sliders, tap **Save Settings**. The app confirms with a success message.
+After adjusting the settings, tap **Save Settings**. The app confirms with a success message. If the Dispense Duration value is out of range, an error appears below the input fields — correct it before saving.
 
 ---
 
@@ -280,19 +279,18 @@ Open **Schedule** from the navigation menu (☰). Schedules tell the Raspberry P
 
 #### Creating a Schedule
 
-Tap the **+** button (bottom right). A form slides up with three settings:
+Tap the **+** button (bottom right). A form slides up with two settings:
 
 | Field | Description |
 |-------|-------------|
 | **Time (HH:MM)** | The time to dispense, in 24-hour format. Example: `06:30` for 6:30 AM, `18:00` for 6:00 PM. |
 | **Select Days** | Tap any combination of Sun–Sat. Selected days are highlighted in green. At least one day is required. |
-| **Feed Volume** | A 0–100% slider. This value is recorded in the analytics history for this schedule entry — it does not change the motor run time (that is set in Settings → Dispense Duration). |
 
 Tap **Save** to create the schedule. It becomes active immediately — no reboot required.
 
 #### Managing Schedules
 
-Each schedule card shows the time, the day pattern, and the configured volume. Three controls are available:
+Each schedule card shows the time and the day pattern. Three controls are available:
 
 - **Toggle switch** — enables or disables the schedule without deleting it. A disabled schedule is ignored by the Pi.
 - **✏️ Edit** — opens the same form pre-filled with the current values. Tap Save to apply changes.
@@ -405,13 +403,14 @@ Either more than 60 seconds passed, or the code was already used. Press `A` on t
 - Check `warning.log` on the Pi for any motor error messages.
 
 **Auto-refill triggers immediately after the system starts.**
-This is caused by the sensors reading 0% before they stabilize. The system now waits 2 seconds (20 boot ticks) before enabling auto-refill after startup. If it still happens, check that the ultrasonic sensors are properly mounted and not obstructed.
+This is caused by the sensors reading 0% before they stabilize. The system waits 2 seconds (20 boot ticks) before enabling auto-refill after startup. If it still happens, check that the ultrasonic sensors are properly mounted and not obstructed.
 
 **The water pump runs but never stops.**
 The pump stops when the water level reaches 95% as read by the right ultrasonic sensor. If the sensor is mispositioned or gives incorrect readings, the pump may run too long. Check the sensor mounting. The pump will also stop if you restart the Pi.
 
 **Settings I changed in the app are not taking effect.**
 - Ensure you tapped **Save Settings** after making changes.
+- If the Dispense Duration fields show a red border, correct the value first — settings are not saved while there is a validation error.
 - The Pi picks up new settings within one loop tick (about 100 ms). If it has been more than 1 second and nothing changed, check the Pi's network connection.
 
 **The app shows old sensor data after restarting the Pi.**

@@ -28,7 +28,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   const [waterThreshold, setWaterThreshold] = useState(20);
   const [feedThreshold,  setFeedThreshold]  = useState(20);
-  const [feedVolume,     setFeedVolume]     = useState(10);
 
   const [waterButtonDisabled, setWaterButtonDisabled] = useState(false);
   const [feedButtonDisabled,  setFeedButtonDisabled]  = useState(false);
@@ -231,7 +230,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         if (settings) {
           setWaterThreshold(settings.water.thresholdPercent || 20);
           setFeedThreshold(settings.feed.thresholdPercent);
-          setFeedVolume(settings.feed.dispenseVolumePercent);
         }
       },
       (e) => console.error(e)
@@ -289,8 +287,8 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       // Only log analytics if the write succeeds so offline button presses
       // don't pollute analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'feed');
-      await analyticsService.logAction(userId, 'feed', 'dispense', feedVolume);
-      Alert.alert('Success', `Feed dispense command sent! (${feedVolume}%)`);
+      await analyticsService.logAction(userId, 'feed', 'dispense', 0);
+      Alert.alert('Success', 'Feed dispense command sent!');
     } catch (error: any) {
       console.error(error);
       Alert.alert('Error', error.message || 'Failed to send command. Check your connection.');
@@ -308,7 +306,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Chick-Up</Text>
-            <Text style={styles.headerSubtitle}>Smart Poultry Automation</Text>
+            <Text style={styles.headerSubtitle}>IOT-CONTROLLED POULTRY MANAGEMENT</Text>
           </View>
         </View>
 
@@ -407,7 +405,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
         <View style={styles.headerTextContainer}>
           <Text style={styles.headerTitle}>Chick-Up</Text>
-          <Text style={styles.headerSubtitle}>Smart Poultry Automation</Text>
+          <Text style={styles.headerSubtitle}>IOT-CONTROLLED POULTRY MANAGEMENT</Text>
         </View>
       </View>
 

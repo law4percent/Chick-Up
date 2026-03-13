@@ -160,7 +160,7 @@ const AuthScreen: React.FC<Props> = ({ navigation }) => {
               resizeMode="contain"
             />
             <Text style={styles.appName}>CHICK-UP</Text>
-            <Text style={styles.tagline}>SMART POULTRY AUTOMATION</Text>
+            <Text style={styles.tagline}>IOT-CONTROLLED POULTRY MANAGEMENT</Text>
           </View>
 
           {/* Card Container */}
