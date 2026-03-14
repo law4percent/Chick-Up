@@ -393,6 +393,7 @@ def process_B(**kwargs) -> None:
         last_physical_water_press  = 0.0
         last_physical_feed_press   = 0.0
         PHYSICAL_BUTTON_COOLDOWN   = 1.0   # seconds
+        APP_AFTER_PHYSICAL_BLACKOUT = 1.0
 
         last_lcd_update       = 0.0
         LCD_UPDATE_INTERVAL   = 1.0
@@ -546,6 +547,7 @@ def process_B(**kwargs) -> None:
                     current_water_app_button_state and
                     raw_water_timestamp is not None and
                     raw_water_timestamp != last_acted_water_timestamp
+                    (current_time - last_physical_water_press) >= APP_AFTER_PHYSICAL_BLACKOUT
                 )
 
                 schedule_key = None
