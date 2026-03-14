@@ -5,6 +5,15 @@ Description:
     Reads Firebase RTDB state and physical keypad, drives feed/water motors,
     updates LCD, and logs analytics back to Firebase.
 
+    Water refill behaviour (v2):
+        Refill is now fully manual and toggle-based.
+        - Keypad '#' toggles the pump ON on first press, OFF on second press.
+        - App water button also toggles (Pi side ready; app wired separately).
+        - The ultrasonic sensor is used ONLY for monitoring (LCD, Firebase,
+          low-level warnings). It is NOT used to start or stop the pump.
+        - Auto-refill feature has been removed entirely.
+        - On stop, durationSeconds is written to the analytics log entry.
+
     Settings restart:
         When the app saves new settings (settingsService.updateSettings writes
         settings/{userId}/updatedAt), the inner tick loop detects the timestamp
@@ -181,6 +190,7 @@ def _convert_to_percentage(distance_cm, min_dist: int = 10, max_dist: int = 300)
     """
     Convert ultrasonic distance reading to fill percentage.
     100% = full (min_dist), 0% = empty (max_dist).
+    Sensor is used for monitoring only — NOT for pump control decisions.
     """
     if distance_cm <= min_dist:
         return 100.0
@@ -217,10 +227,11 @@ def _update_button_timestamp(database_ref: dict, button_type: str) -> None:
 
 
 def _log_analytics(
-    user_uid      : str,
-    action_type   : str,
-    volume_percent: float,
-    source        : str = "keypad",
+    user_uid        : str,
+    action_type     : str,
+    volume_percent  : float,
+    source          : str = "keypad",
+    duration_seconds: int = 0,
 ) -> None:
     """
     Write an analytics entry to analytics/logs/{userId}.
@@ -228,27 +239,29 @@ def _log_analytics(
     read app, keypad, and schedule logs together.
 
     Args:
-        user_uid:       Firebase user UID
-        action_type:    "feed" or "water"
-        volume_percent: Level change recorded after the action completes
-        source:         "keypad" | "schedule" | "app"
-                        Defaults to "keypad". Pass "schedule" for automated
-                        schedule triggers so analytics can distinguish them.
+        user_uid:         Firebase user UID
+        action_type:      "feed" or "water"
+        volume_percent:   Level change recorded after the action completes.
+                          For water this is always 0 — sensor is monitoring only.
+        source:           "keypad" | "schedule" | "app"
+        duration_seconds: How long the refill ran in seconds (water only).
+                          0 for feed dispense entries.
 
     Raises:
         FirebaseWriteError: If the Firebase push fails.
     """
     now = datetime.now()
     log_entry = {
-        "action"        : "refill" if action_type == "water" else "dispense",
-        "type"          : action_type,
-        "volumePercent" : round(volume_percent, 2),
-        "timestamp"     : int(now.timestamp() * 1000),
-        "date"          : now.strftime("%m/%d/%Y"),
-        "time"          : now.strftime("%H:%M:%S"),
-        "dayOfWeek"     : _PY_TO_JS_DAY[now.weekday()],
-        "userId"        : user_uid,
-        "source"        : source,
+        "action"          : "refill" if action_type == "water" else "dispense",
+        "type"            : action_type,
+        "volumePercent"   : round(volume_percent, 2),
+        "durationSeconds" : duration_seconds,
+        "timestamp"       : int(now.timestamp() * 1000),
+        "date"            : now.strftime("%m/%d/%Y"),
+        "time"            : now.strftime("%H:%M:%S"),
+        "dayOfWeek"       : _PY_TO_JS_DAY[now.weekday()],
+        "userId"          : user_uid,
+        "source"          : source,
     }
     try:
         db.reference(f"analytics/logs/{user_uid}").push(log_entry)
@@ -287,38 +300,33 @@ def _dispense_it(
 
 
 def _refill_it(
-    current_auto_refill_water_enabled_state : bool,
-    current_water_level                     : float,
-    current_water_threshold_warning         : int,
-    water_button_state                      : bool,
-    MAX_REFILL_LEVEL                        : int,
-    refill_active                           : bool,
+    water_button_state: bool,
+    refill_active     : bool,
 ) -> bool:
     """
-    Handle water refilling — auto-refill and manual button control.
+    Handle water refilling — fully manual, toggle-based.
 
-    Latch behaviour:
-        - Refill starts when button pressed OR auto-refill threshold crossed.
-        - Once active, only the level check (>= MAX_REFILL_LEVEL) stops it.
-        - Button state is IGNORED while refill is already active to prevent
-          the relay from flickering if water_button_pressed stays True across
-          multiple ticks (e.g. is_fresh() returns True for 60s after one press).
+    The sensor is NOT involved in this function at all. It is used
+    elsewhere only for monitoring (LCD, Firebase waterLevel push,
+    low-level warnings).
+
+    Toggle behaviour:
+        - First press of '#' (or app button) while pump is OFF  → pump ON.
+        - Second press of '#' (or app button) while pump is ON  → pump OFF.
+        - Button state is only acted on once per new press — debouncing
+          is handled upstream via the timestamp / is_fresh() mechanism,
+          so a held '#' key does not flicker the relay.
+
+    Args:
+        water_button_state: True for exactly one tick on each new press.
+        refill_active:      Current pump state.
 
     Returns:
-        bool: Whether refilling should be active.
+        bool: New pump state after applying the toggle.
     """
-    if not refill_active:
-        # Only START refill from these conditions
-        if water_button_state and current_water_level < MAX_REFILL_LEVEL:
-            # Guard: don't start if tank is already at/above capacity.
-            # Prevents a 1-tick relay pulse and a useless analytics entry.
-            refill_active = True
-        elif current_auto_refill_water_enabled_state:
-            if current_water_level <= current_water_threshold_warning:
-                refill_active = True
-
-    if refill_active and current_water_level >= MAX_REFILL_LEVEL:
-        refill_active = False
+    if water_button_state:
+        # Toggle: ON → OFF, OFF → ON
+        refill_active = not refill_active
 
     _handle_water_refill(refill_active)
     return refill_active
@@ -343,18 +351,18 @@ def _update_lcd_display(
         return
     try:
         line1 = (
-            "DISPENSING..."             if dispense_active else
+            "DISPENSING..."                    if dispense_active else
             f"FEED LOW {current_feed_level}%"  if feed_warning    else
             f"Feed: {current_feed_level}%"
         )
         line2 = (
-            "REFILLING..."              if refill_active   else
+            "REFILLING..."                      if refill_active  else
             f"WATER LOW {current_water_level}%" if water_warning  else
             f"Water: {current_water_level}%"
         )
         lcd_obj.show([line1, line2])
     except Exception:
-        pass  # LCD failure is non-critical; caller already has a reference to log if desired
+        pass  # LCD failure is non-critical
 
 
 # ─────────────────────────── PROCESS B ───────────────────────────────────────
@@ -370,6 +378,13 @@ def process_B(**kwargs) -> None:
         logout_requested   : multiprocessing.Event  — set when user holds D for 3 s
         USER_CREDENTIAL    : dict  {userUid, deviceUid}
         LCD_I2C_ADDR       : int   (default 0x27)
+
+    Water refill (v2 — manual toggle only):
+        '#' keypad press toggles the pump ON/OFF.
+        App water button also toggles (same Firebase timestamp mechanism).
+        Sensor is monitoring-only — never used to start or stop the pump.
+        Auto-refill has been removed entirely.
+        durationSeconds is written to the analytics entry on pump stop.
 
     Settings restart:
         When the app updates settings (settingsService.updateSettings() writes
@@ -408,9 +423,6 @@ def process_B(**kwargs) -> None:
     database_ref = firebase_rtdb.setup_RTDB(user_uid=user_uid, device_uid=device_uid)
 
     # ── Init hardware — once, shared across all settings restarts ─────────
-    # Hardware setup is expensive (GPIO config, I2C negotiation, ultrasonic
-    # filter warm-up). It runs exactly once per process lifetime. A settings
-    # restart only re-reads Firebase values; it never tears down hardware.
     try:
         keypad_instance = Keypad4x4()
     except KeypadError as e:
@@ -438,9 +450,6 @@ def process_B(**kwargs) -> None:
         lcd_obj = None
 
     # ── Outer restart loop ────────────────────────────────────────────────
-    # Entered once on boot (settings_restart=True) and again whenever the
-    # app saves new settings. Each iteration re-reads Firebase settings and
-    # resets all per-loop state. Hardware is not touched.
     settings_restart = True
     while settings_restart:
         settings_restart = False
@@ -448,8 +457,6 @@ def process_B(**kwargs) -> None:
         # ── Fetch settings (fresh on every restart) ───────────────────────
         DISPENSE_COUNTDOWN_TIME = _fetch_dispense_countdown(user_uid, TASK_NAME)
 
-        # Snapshot updatedAt so we can detect app-side settings changes.
-        # Falls back to 0 if the field is missing (first-run or offline).
         try:
             _settings_updated_at_at_start = (
                 db.reference(f"settings/{user_uid}/updatedAt").get() or 0
@@ -476,51 +483,38 @@ def process_B(**kwargs) -> None:
         raw_feed_timestamp              = None
         raw_water_timestamp             = None
 
-        current_feed_threshold_warning          = 20
-        current_water_threshold_warning         = 20
-        current_auto_refill_water_enabled_state = False
+        current_feed_threshold_warning  = 20
+        current_water_threshold_warning = 20
+        # NOTE: auto_refill_water_enabled removed — manual toggle only
 
         refill_active            = False
+        refill_start_monotonic   = 0.0   # monotonic time when pump turned ON
         dispense_active          = False
         dispense_countdown_start = 0
-        MAX_REFILL_LEVEL         = 95
 
-        # Boot stabilization — skip motor logic for the first N ticks.
-        # Without this, sensors read 0.0% on the very first loop iteration
-        # (before the ultrasonic median filter has a stable reading), which
-        # causes auto-refill to fire immediately if water_threshold_warning > 0.
-        # 20 ticks × 100 ms = 2 seconds of settling time.
-        # Also applied after a settings restart so sensors re-stabilize.
+        # Boot stabilization — 20 ticks × 100 ms = 2 s
         BOOT_STABILIZATION_TICKS = 20
         boot_ticks_elapsed        = 0
 
-        # Last button timestamps the device has already acted on.
-        # Prevents re-triggering while is_fresh() still returns True.
         last_acted_feed_timestamp  = None
         last_acted_water_timestamp = None
+        last_acted_schedule_key    = None
 
-        # Schedule dedup guard — mirrors the app button timestamp pattern.
-        last_acted_schedule_key = None
+        feed_level_before_dispense = 0.0
+        prev_refill_active         = False
+        prev_dispense_active       = False
+        pending_feed_source        = "keypad"
 
-        water_level_before_refill   = 0.0
-        feed_level_before_dispense  = 0.0
-        prev_refill_active          = False
-        prev_dispense_active        = False
-        pending_feed_source         = "keypad"
+        last_lcd_update       = 0.0
+        LCD_UPDATE_INTERVAL   = 1.0    # seconds
 
-        last_lcd_update      = 0.0
-        LCD_UPDATE_INTERVAL  = 1.0    # seconds
+        last_db_error_log     = 0.0
+        DB_ERROR_LOG_INTERVAL = 10.0
 
-        last_db_error_log    = 0.0
-        DB_ERROR_LOG_INTERVAL = 10.0  # suppress repeated DB error logs
+        LOGOUT_HOLD_SECONDS = 3.0
+        d_key_hold_start    = 0.0
+        d_key_held          = False
 
-        # Logout via D-key hold
-        LOGOUT_HOLD_SECONDS  = 3.0
-        d_key_hold_start     = 0.0
-        d_key_held           = False
-
-        # Settings-change restart gate.
-        # Set to True when updatedAt changes; motors must go idle before we break.
         _settings_change_pending = False
 
         # ── Inner main loop ───────────────────────────────────────────────
@@ -567,20 +561,19 @@ def process_B(**kwargs) -> None:
                 # ── Read Firebase ─────────────────────────────────────────
                 try:
                     database_data = firebase_rtdb.read_RTDB(database_ref=database_ref)
-                    current_feed_app_button_state   = database_data["current_feed_app_button_state"]
-                    current_water_app_button_state  = database_data["current_water_app_button_state"]
-                    raw_feed_timestamp              = database_data["raw_feed_timestamp"]
-                    raw_water_timestamp             = database_data["raw_water_timestamp"]
-                    current_feed_schedule_state     = database_data["current_feed_schedule_state"]
-                    current_live_button_state       = database_data["current_live_button_state"]
+                    current_feed_app_button_state  = database_data["current_feed_app_button_state"]
+                    current_water_app_button_state = database_data["current_water_app_button_state"]
+                    raw_feed_timestamp             = database_data["raw_feed_timestamp"]
+                    raw_water_timestamp            = database_data["raw_water_timestamp"]
+                    current_feed_schedule_state    = database_data["current_feed_schedule_state"]
+                    current_live_button_state      = database_data["current_live_button_state"]
 
-                    user_settings                           = database_data["current_user_settings"]
-                    current_feed_threshold_warning          = user_settings["feed_threshold_warning"]
-                    current_water_threshold_warning         = user_settings["water_threshold_warning"]
-                    current_auto_refill_water_enabled_state = user_settings["auto_refill_water_enabled"]
+                    user_settings                   = database_data["current_user_settings"]
+                    current_feed_threshold_warning  = user_settings["feed_threshold_warning"]
+                    current_water_threshold_warning = user_settings["water_threshold_warning"]
+                    # auto_refill_water_enabled intentionally not read — removed
 
-                    # Live update for dispense countdown — picks up app changes mid-session.
-                    # Only update if the value changed to avoid redundant cache writes.
+                    # Live update for dispense countdown
                     new_countdown = user_settings.get("dispense_countdown_ms")
                     if isinstance(new_countdown, int) and new_countdown > 0 and new_countdown != DISPENSE_COUNTDOWN_TIME:
                         log(
@@ -591,10 +584,7 @@ def process_B(**kwargs) -> None:
                         DISPENSE_COUNTDOWN_TIME = new_countdown
                         _save_cached_countdown(new_countdown)
 
-                    # ── Detect app settings change → schedule graceful restart ──
-                    # updatedAt is written by every settingsService.updateSettings() call.
-                    # When it changes, we flag a pending restart and wait for motors
-                    # to go idle before breaking out of the inner loop.
+                    # ── Detect settings change → graceful restart ─────────
                     _current_updated_at = user_settings.get("updated_at", 0)
                     if (
                         not _settings_change_pending
@@ -629,7 +619,7 @@ def process_B(**kwargs) -> None:
                 else:
                     live_status.clear()
 
-                # ── Level warnings ────────────────────────────────────────
+                # ── Level warnings (monitoring only) ──────────────────────
                 feed_warning  = current_feed_level  <= current_feed_threshold_warning
                 water_warning = current_water_level <= current_water_threshold_warning
 
@@ -647,7 +637,7 @@ def process_B(**kwargs) -> None:
                         log(details=f"{TASK_NAME} - {e}", log_type="warning")
 
                 # ── Button aggregation ────────────────────────────────────
-                feed_app_new_press  = (
+                feed_app_new_press = (
                     current_feed_app_button_state and
                     raw_feed_timestamp  is not None and
                     raw_feed_timestamp  != last_acted_feed_timestamp
@@ -668,8 +658,7 @@ def process_B(**kwargs) -> None:
                     schedule_key != last_acted_schedule_key
                 )
 
-                # Block new triggers while a settings restart is pending —
-                # avoids starting a new cycle we'd then have to wait out.
+                # Block new triggers while a settings restart is pending
                 feed_button_pressed = (
                     not _settings_change_pending and
                     (
@@ -679,6 +668,8 @@ def process_B(**kwargs) -> None:
                     ) and not dispense_active
                 )
 
+                # Water toggle — each new unique press is one toggle signal.
+                # Blocked during settings restart to avoid orphaned pump state.
                 water_button_pressed = (
                     not _settings_change_pending and
                     (
@@ -709,8 +700,6 @@ def process_B(**kwargs) -> None:
                     continue
 
                 # ── Graceful settings restart — wait for motors to go idle ─
-                # Once both motors are inactive, break to the outer loop which
-                # will re-read all settings from Firebase cleanly.
                 if _settings_change_pending and not dispense_active and not refill_active:
                     log(
                         details=f"{TASK_NAME} - Motors idle. Restarting inner loop to apply new settings.",
@@ -723,23 +712,21 @@ def process_B(**kwargs) -> None:
                         except Exception:
                             pass
                     settings_restart = True
-                    break  # → outer while settings_restart
+                    break
 
-                # ── Snapshot levels before new action starts ──────────────
+                # ── Snapshot feed level before new dispense starts ────────
                 if feed_button_pressed and not dispense_active:
                     feed_level_before_dispense = current_feed_level
 
+                # ── Track refill start time for duration logging ──────────
+                # Captured here (before _refill_it) so we know the exact
+                # monotonic time the pump was commanded ON this tick.
                 if water_button_pressed and not refill_active:
-                    water_level_before_refill = current_water_level
-
-                # Auto-refill snapshot
-                if (
-                    not refill_active
-                    and not water_button_pressed
-                    and current_auto_refill_water_enabled_state
-                    and current_water_level <= current_water_threshold_warning
-                ):
-                    water_level_before_refill = current_water_level
+                    # About to toggle ON → record start time
+                    refill_start_monotonic = time.monotonic()
+                elif water_button_pressed and refill_active:
+                    # About to toggle OFF → start time already set, no action needed
+                    pass
 
                 # ── Motor logic ───────────────────────────────────────────
                 dispense_active, dispense_countdown_start = _dispense_it(
@@ -750,12 +737,8 @@ def process_B(**kwargs) -> None:
                 )
 
                 refill_active = _refill_it(
-                    current_auto_refill_water_enabled_state = current_auto_refill_water_enabled_state,
-                    current_water_level                     = current_water_level,
-                    current_water_threshold_warning         = current_water_threshold_warning,
-                    water_button_state                      = water_button_pressed,
-                    MAX_REFILL_LEVEL                        = MAX_REFILL_LEVEL,
-                    refill_active                           = refill_active,
+                    water_button_state = water_button_pressed,
+                    refill_active      = refill_active,
                 )
 
                 # ── Analytics on action completion ────────────────────────
@@ -773,11 +756,19 @@ def process_B(**kwargs) -> None:
                     pending_feed_source        = "keypad"
 
                 if prev_refill_active and not refill_active:
+                    # Compute how long the pump ran
+                    duration_seconds = int(time.monotonic() - refill_start_monotonic)
                     try:
-                        _log_analytics(user_uid, "water", max(current_water_level - water_level_before_refill, 0))
+                        _log_analytics(
+                            user_uid,
+                            "water",
+                            0,                          # sensor not used for volume
+                            source="keypad",
+                            duration_seconds=duration_seconds,
+                        )
                     except firebase_rtdb.FirebaseWriteError as e:
                         log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
-                    water_level_before_refill = 0.0
+                    refill_start_monotonic = 0.0
 
                 prev_dispense_active = dispense_active
                 prev_refill_active   = refill_active
@@ -810,7 +801,6 @@ def process_B(**kwargs) -> None:
         except KeyboardInterrupt:
             log(details=f"{TASK_NAME} - KeyboardInterrupt received", log_type="warning")
             status_checker.clear()
-            # Clear settings_restart so the outer loop exits cleanly
             settings_restart = False
 
         except Exception as e:
@@ -819,11 +809,7 @@ def process_B(**kwargs) -> None:
             settings_restart = False
             raise
 
-        # End of inner loop. If settings_restart=True the outer while will
-        # loop back and re-read settings. Otherwise we fall through to finally.
-
-    # ── Cleanup — runs once when process truly exits ───────────────────────
-    # (KeyboardInterrupt, status_checker cleared, or unhandled exception)
+    # ── Cleanup ───────────────────────────────────────────────────────────
     try:
         motor.stop_all_motors()
     except MotorError as e:
