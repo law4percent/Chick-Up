@@ -47,8 +47,8 @@ class Keypad4x4:
     """
 
     # Default GPIO pin configuration (BCM numbering)
-    DEFAULT_ROW_PINS = [19, 21, 20, 16]
-    DEFAULT_COL_PINS = [12, 23, 6, 22]   # 23 and 22 replace dead GPIO 13 and GPIO 5
+    DEFAULT_ROW_PINS = [17, 21, 20, 16]
+    DEFAULT_COL_PINS = [12, 27, 26, 23]
 
     # Default key matrix layout
     DEFAULT_MATRIX = [

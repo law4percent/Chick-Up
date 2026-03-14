@@ -21,8 +21,8 @@ from typing import List, Optional
 
 # ── Pin config (mirrors Keypad4x4 defaults) ──────────────────────────────────
 
-ROW_PINS = [19, 21, 20, 16]   # OUTPUT — driven LOW one row at a time
-COL_PINS = [12, 13,  6,  5]   # INPUT  — read LOW when key is pressed
+ROW_PINS = [17, 21, 20, 16]
+COL_PINS = [12, 27, 26, 23]
 
 MATRIX = [
     ['1', '2', '3', 'A'],
