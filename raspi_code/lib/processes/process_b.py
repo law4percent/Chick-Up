@@ -518,11 +518,11 @@ def process_B(**kwargs) -> None:
                     except firebase_rtdb.FirebaseWriteError as e:
                         log(details=f"{TASK_NAME} - {e}", log_type="warning")
 
-                if current_water_physical_button_state:
-                    try:
-                        _update_button_timestamp(database_ref, "water")
-                    except firebase_rtdb.FirebaseWriteError as e:
-                        log(details=f"{TASK_NAME} - {e}", log_type="warning")
+                # if current_water_physical_button_state:
+                #     try:
+                #         _update_button_timestamp(database_ref, "water")
+                #     except firebase_rtdb.FirebaseWriteError as e:
+                #         log(details=f"{TASK_NAME} - {e}", log_type="warning")
 
                 # ── Button aggregation ────────────────────────────────────
 
