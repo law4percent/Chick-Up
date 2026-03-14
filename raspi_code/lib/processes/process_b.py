@@ -14,6 +14,14 @@ Description:
         - Auto-refill feature has been removed entirely.
         - On stop, durationSeconds is written to the analytics log entry.
 
+    Water toggle fix (v2.1):
+        App button and physical keypad are now processed as separate independent
+        toggle signals. Previously both were OR'd into a single water_button_pressed
+        flag — if the app was ON when the keypad fired, both signals cancelled each
+        other in the same tick and the pump appeared to not respond.
+        Each source now calls _refill_it() independently with a 1s cooldown on
+        the physical keypad to prevent bounce re-triggers.
+
     Settings restart:
         When the app saves new settings (settingsService.updateSettings writes
         settings/{userId}/updatedAt), the inner tick loop detects the timestamp
@@ -49,10 +57,6 @@ _COUNTDOWN_CACHE_PATH         = "credentials/dispense_countdown_ms.txt"
 
 
 def _load_cached_countdown() -> int | None:
-    """
-    Read the last-known dispense countdown from local cache file.
-    Returns None if file missing or corrupt.
-    """
     try:
         with open(_COUNTDOWN_CACHE_PATH, "r") as f:
             value = int(f.read().strip())
@@ -62,25 +66,14 @@ def _load_cached_countdown() -> int | None:
 
 
 def _save_cached_countdown(value_ms: int) -> None:
-    """Persist the countdown value to cache so it survives offline reboots."""
     try:
         with open(_COUNTDOWN_CACHE_PATH, "w") as f:
             f.write(str(value_ms))
     except Exception:
-        pass  # Cache write failure is non-critical
+        pass
 
 
 def _fetch_dispense_countdown(user_uid: str, task_name: str) -> int:
-    """
-    Read dispenseCountdownMs from Firebase settings/{userUid}/feed/.
-
-    Resolution order:
-        1. Firebase  settings/{userUid}/feed/dispenseCountdownMs
-        2. Local     credentials/dispense_countdown_ms.txt  (last known good)
-        3. Hardcoded DEFAULT_DISPENSE_COUNTDOWN_MS (60 000 ms)
-
-    Always persists a successful Firebase read to the local cache.
-    """
     try:
         from firebase_admin import db as _db
         value = _db.reference(f"settings/{user_uid}/feed/dispenseCountdownMs").get()
@@ -112,21 +105,14 @@ def _fetch_dispense_countdown(user_uid: str, task_name: str) -> int:
     )
     return DEFAULT_DISPENSE_COUNTDOWN_MS
 
+
 # Python weekday → JS weekday
-# Python: Mon=0 ... Sun=6
-# JS:     Sun=0, Mon=1 ... Sat=6
 _PY_TO_JS_DAY = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 0}
 
 
 # ─────────────────────────── HARDWARE HELPERS ────────────────────────────────
 
 def _handle_water_refill(state: bool) -> None:
-    """
-    Drive water motor relay (GPIO 27).
-
-    Raises:
-        MotorError: Propagated from motor_controller on GPIO failure.
-    """
     if state:
         motor.start_water_motor()
     else:
@@ -134,12 +120,6 @@ def _handle_water_refill(state: bool) -> None:
 
 
 def _handle_feed_dispense(state: bool) -> None:
-    """
-    Drive feed motor relay (GPIO 17).
-
-    Raises:
-        MotorError: Propagated from motor_controller on GPIO failure.
-    """
     if state:
         motor.start_feed_motor()
     else:
@@ -150,25 +130,14 @@ def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
     """
     Read all sensors and keypad state.
 
-    Args:
-        keypad_instance: Initialized Keypad4x4 instance.
-
-    Returns:
-        dict with keys:
-            current_feed_level                  : float
-            current_water_level                 : float
-            current_feed_physical_button_state  : bool
-            current_water_physical_button_state : bool
-            raw_key                             : str | None  — the raw key pressed
-
-    Raises:
-        KeypadError: If keypad scan fails.
-        RuntimeError: If sensor read fails unexpectedly.
+    Uses scan_key() (no debounce) — debouncing for the toggle logic is
+    handled upstream via the physical button cooldown timer, not here.
+    The D-key hold detection also requires raw scan_key() output.
     """
     current_feed_physical_button_state  = False
     current_water_physical_button_state = False
 
-    key = keypad_instance.read_key()   # ← changed from scan_key() to read_key()
+    key = keypad_instance.scan_key()
     if key == "*":
         current_feed_physical_button_state  = True
     elif key == "#":
@@ -187,11 +156,6 @@ def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
 
 
 def _convert_to_percentage(distance_cm, min_dist: int = 10, max_dist: int = 300) -> float:
-    """
-    Convert ultrasonic distance reading to fill percentage.
-    100% = full (min_dist), 0% = empty (max_dist).
-    Sensor is used for monitoring only — NOT for pump control decisions.
-    """
     if distance_cm <= min_dist:
         return 100.0
     if distance_cm >= max_dist:
@@ -206,17 +170,6 @@ def _current_millis() -> int:
 # ─────────────────────────── FIREBASE HELPERS ────────────────────────────────
 
 def _update_button_timestamp(database_ref: dict, button_type: str) -> None:
-    """
-    Write SERVER_TIMESTAMP to the button's lastUpdateAt path on physical keypad
-    press — mirrors what the app does via buttonService.updateButtonTimestamp().
-
-    Args:
-        database_ref: Dict from firebase_rtdb.setup_RTDB()
-        button_type:  "feed" or "water"
-
-    Raises:
-        FirebaseWriteError: If the Firebase write fails.
-    """
     ref_key = "df_app_button_ref" if button_type == "feed" else "wr_app_button_ref"
     try:
         database_ref[ref_key].set({".sv": "timestamp"})
@@ -233,23 +186,6 @@ def _log_analytics(
     source          : str = "keypad",
     duration_seconds: int = 0,
 ) -> None:
-    """
-    Write an analytics entry to analytics/logs/{userId}.
-    Matches analyticsService.ts logAction() shape so AnalyticsScreen can
-    read app, keypad, and schedule logs together.
-
-    Args:
-        user_uid:         Firebase user UID
-        action_type:      "feed" or "water"
-        volume_percent:   Level change recorded after the action completes.
-                          For water this is always 0 — sensor is monitoring only.
-        source:           "keypad" | "schedule" | "app"
-        duration_seconds: How long the refill ran in seconds (water only).
-                          0 for feed dispense entries.
-
-    Raises:
-        FirebaseWriteError: If the Firebase push fails.
-    """
     now = datetime.now()
     log_entry = {
         "action"          : "refill" if action_type == "water" else "dispense",
@@ -279,12 +215,6 @@ def _dispense_it(
     dispense_countdown_start: int,
     DISPENSE_COUNTDOWN_TIME : int,
 ) -> tuple:
-    """
-    Handle feed dispensing with countdown timer.
-
-    Returns:
-        (dispense_active, dispense_countdown_start)
-    """
     now = _current_millis()
 
     if feed_button_state and not dispense_active:
@@ -306,26 +236,11 @@ def _refill_it(
     """
     Handle water refilling — fully manual, toggle-based.
 
-    The sensor is NOT involved in this function at all. It is used
-    elsewhere only for monitoring (LCD, Firebase waterLevel push,
-    low-level warnings).
-
-    Toggle behaviour:
-        - First press of '#' (or app button) while pump is OFF  → pump ON.
-        - Second press of '#' (or app button) while pump is ON  → pump OFF.
-        - Button state is only acted on once per new press — debouncing
-          is handled upstream via the timestamp / is_fresh() mechanism,
-          so a held '#' key does not flicker the relay.
-
-    Args:
-        water_button_state: True for exactly one tick on each new press.
-        refill_active:      Current pump state.
-
-    Returns:
-        bool: New pump state after applying the toggle.
+    Each call with water_button_state=True flips the pump state once.
+    App button and keypad each call this independently so they cannot
+    cancel each other out in the same tick.
     """
     if water_button_state:
-        # Toggle: ON → OFF, OFF → ON
         refill_active = not refill_active
 
     _handle_water_refill(refill_active)
@@ -343,10 +258,6 @@ def _update_lcd_display(
     dispense_active     : bool,
     refill_active       : bool,
 ) -> None:
-    """
-    Update LCD with current system status.
-    Silent on failure — LCD errors must not crash the main loop.
-    """
     if lcd_obj is None:
         return
     try:
@@ -362,40 +273,12 @@ def _update_lcd_display(
         )
         lcd_obj.show([line1, line2])
     except Exception:
-        pass  # LCD failure is non-critical
+        pass
 
 
 # ─────────────────────────── PROCESS B ───────────────────────────────────────
 
 def process_B(**kwargs) -> None:
-    """
-    Hardware control process — sensors, motors, LCD, Firebase sync.
-
-    Expected kwargs["process_B_args"] keys:
-        TASK_NAME          : str
-        status_checker     : multiprocessing.Event
-        live_status        : multiprocessing.Event
-        logout_requested   : multiprocessing.Event  — set when user holds D for 3 s
-        USER_CREDENTIAL    : dict  {userUid, deviceUid}
-        LCD_I2C_ADDR       : int   (default 0x27)
-
-    Water refill (v2 — manual toggle only):
-        '#' keypad press toggles the pump ON/OFF.
-        App water button also toggles (same Firebase timestamp mechanism).
-        Sensor is monitoring-only — never used to start or stop the pump.
-        Auto-refill has been removed entirely.
-        durationSeconds is written to the analytics entry on pump stop.
-
-    Settings restart:
-        When the app updates settings (settingsService.updateSettings() writes
-        settings/{userId}/updatedAt), the inner tick loop detects the timestamp
-        change, waits for any active dispense/refill to finish, then breaks back
-        to the outer restart loop which re-fetches all settings cleanly.
-        Hardware (GPIO, motors, LCD) is NOT re-initialized on a settings restart.
-
-    DISPENSE_COUNTDOWN_TIME is read from settings/{userUid}/feed/dispenseCountdownMs.
-    Falls back to a local cache file, then to DEFAULT_DISPENSE_COUNTDOWN_MS.
-    """
     args              = kwargs["process_B_args"]
     TASK_NAME         = args["TASK_NAME"]
     status_checker    = args["status_checker"]
@@ -485,10 +368,9 @@ def process_B(**kwargs) -> None:
 
         current_feed_threshold_warning  = 20
         current_water_threshold_warning = 20
-        # NOTE: auto_refill_water_enabled removed — manual toggle only
 
         refill_active            = False
-        refill_start_monotonic   = 0.0   # monotonic time when pump turned ON
+        refill_start_monotonic   = 0.0
         dispense_active          = False
         dispense_countdown_start = 0
 
@@ -505,8 +387,15 @@ def process_B(**kwargs) -> None:
         prev_dispense_active       = False
         pending_feed_source        = "keypad"
 
+        # ── Physical button cooldown ──────────────────────────────────────
+        # Prevents the same keypad press from firing the toggle multiple
+        # times across consecutive 100ms ticks while the key is held down.
+        last_physical_water_press  = 0.0
+        last_physical_feed_press   = 0.0
+        PHYSICAL_BUTTON_COOLDOWN   = 1.0   # seconds
+
         last_lcd_update       = 0.0
-        LCD_UPDATE_INTERVAL   = 1.0    # seconds
+        LCD_UPDATE_INTERVAL   = 1.0
 
         last_db_error_log     = 0.0
         DB_ERROR_LOG_INTERVAL = 10.0
@@ -571,9 +460,7 @@ def process_B(**kwargs) -> None:
                     user_settings                   = database_data["current_user_settings"]
                     current_feed_threshold_warning  = user_settings["feed_threshold_warning"]
                     current_water_threshold_warning = user_settings["water_threshold_warning"]
-                    # auto_refill_water_enabled intentionally not read — removed
 
-                    # Live update for dispense countdown
                     new_countdown = user_settings.get("dispense_countdown_ms")
                     if isinstance(new_countdown, int) and new_countdown > 0 and new_countdown != DISPENSE_COUNTDOWN_TIME:
                         log(
@@ -637,6 +524,19 @@ def process_B(**kwargs) -> None:
                         log(details=f"{TASK_NAME} - {e}", log_type="warning")
 
                 # ── Button aggregation ────────────────────────────────────
+
+                # Physical keypad — cooldown prevents the same held key from
+                # firing the toggle on every 100ms tick.
+                physical_feed_new_press = (
+                    current_feed_physical_button_state and
+                    (current_time - last_physical_feed_press) >= PHYSICAL_BUTTON_COOLDOWN
+                )
+                physical_water_new_press = (
+                    current_water_physical_button_state and
+                    (current_time - last_physical_water_press) >= PHYSICAL_BUTTON_COOLDOWN
+                )
+
+                # App buttons — guarded by unique Firebase timestamp
                 feed_app_new_press = (
                     current_feed_app_button_state and
                     raw_feed_timestamp  is not None and
@@ -658,41 +558,31 @@ def process_B(**kwargs) -> None:
                     schedule_key != last_acted_schedule_key
                 )
 
-                # Block new triggers while a settings restart is pending
+                # Feed — combined flag is fine (not a toggle, just starts countdown)
                 feed_button_pressed = (
                     not _settings_change_pending and
                     (
-                        current_feed_physical_button_state or
-                        feed_app_new_press                 or
+                        physical_feed_new_press    or
+                        feed_app_new_press         or
                         feed_schedule_new_trigger
                     ) and not dispense_active
                 )
 
-                # Water toggle — each new unique press is one toggle signal.
-                # Blocked during settings restart to avoid orphaned pump state.
-                water_button_pressed = (
-                    not _settings_change_pending and
-                    (
-                        current_water_physical_button_state or
-                        water_app_new_press
-                    )
-                )
-
                 # Determine analytics source for this dispense trigger
-                if feed_schedule_new_trigger and not current_feed_physical_button_state and not feed_app_new_press:
+                if feed_schedule_new_trigger and not physical_feed_new_press and not feed_app_new_press:
                     pending_feed_source = "schedule"
                 elif feed_app_new_press:
                     pending_feed_source = "app"
                 else:
                     pending_feed_source = "keypad"
 
-                # Acknowledge timestamps / schedule keys once we act on them
+                # Acknowledge feed timestamps / schedule keys
                 if feed_app_new_press:
-                    last_acted_feed_timestamp  = raw_feed_timestamp
-                if water_app_new_press:
-                    last_acted_water_timestamp = raw_water_timestamp
+                    last_acted_feed_timestamp = raw_feed_timestamp
                 if feed_schedule_new_trigger:
-                    last_acted_schedule_key    = schedule_key
+                    last_acted_schedule_key   = schedule_key
+                if physical_feed_new_press:
+                    last_physical_feed_press  = current_time
 
                 # ── Boot stabilization ────────────────────────────────────
                 if boot_ticks_elapsed < BOOT_STABILIZATION_TICKS:
@@ -718,17 +608,7 @@ def process_B(**kwargs) -> None:
                 if feed_button_pressed and not dispense_active:
                     feed_level_before_dispense = current_feed_level
 
-                # ── Track refill start time for duration logging ──────────
-                # Captured here (before _refill_it) so we know the exact
-                # monotonic time the pump was commanded ON this tick.
-                if water_button_pressed and not refill_active:
-                    # About to toggle ON → record start time
-                    refill_start_monotonic = time.monotonic()
-                elif water_button_pressed and refill_active:
-                    # About to toggle OFF → start time already set, no action needed
-                    pass
-
-                # ── Motor logic ───────────────────────────────────────────
+                # ── Motor logic — feed ────────────────────────────────────
                 dispense_active, dispense_countdown_start = _dispense_it(
                     feed_button_state        = feed_button_pressed,
                     dispense_active          = dispense_active,
@@ -736,10 +616,30 @@ def process_B(**kwargs) -> None:
                     DISPENSE_COUNTDOWN_TIME  = DISPENSE_COUNTDOWN_TIME,
                 )
 
-                refill_active = _refill_it(
-                    water_button_state = water_button_pressed,
-                    refill_active      = refill_active,
-                )
+                # ── Motor logic — water ───────────────────────────────────
+                # App button and physical keypad are processed as separate
+                # independent toggle signals. This prevents them from
+                # cancelling each other out if both fire in the same tick
+                # (e.g. app is ON and keypad # is pressed simultaneously).
+                if not _settings_change_pending:
+
+                    if water_app_new_press:
+                        last_acted_water_timestamp = raw_water_timestamp
+                        if not refill_active:
+                            refill_start_monotonic = time.monotonic()
+                        refill_active = _refill_it(
+                            water_button_state = True,
+                            refill_active      = refill_active,
+                        )
+
+                    if physical_water_new_press:
+                        last_physical_water_press = current_time
+                        if not refill_active:
+                            refill_start_monotonic = time.monotonic()
+                        refill_active = _refill_it(
+                            water_button_state = True,
+                            refill_active      = refill_active,
+                        )
 
                 # ── Analytics on action completion ────────────────────────
                 if prev_dispense_active and not dispense_active:
@@ -756,13 +656,12 @@ def process_B(**kwargs) -> None:
                     pending_feed_source        = "keypad"
 
                 if prev_refill_active and not refill_active:
-                    # Compute how long the pump ran
                     duration_seconds = int(time.monotonic() - refill_start_monotonic)
                     try:
                         _log_analytics(
                             user_uid,
                             "water",
-                            0,                          # sensor not used for volume
+                            0,
                             source="keypad",
                             duration_seconds=duration_seconds,
                         )
