@@ -628,7 +628,23 @@ def process_B(**kwargs) -> None:
                 # from cancelling each other out in one tick.
                 if physical_water_new_press:
                     last_physical_water_press = current_time
-
+                
+                if current_water_physical_button_state or water_app_new_press or physical_water_new_press:
+                    log(
+                        details=(
+                            f"WATER DEBUG — "
+                            f"physical_raw={current_water_physical_button_state} "
+                            f"physical_new={physical_water_new_press} "
+                            f"app_new={water_app_new_press} "
+                            f"app_state={current_water_app_button_state} "
+                            f"raw_ts={raw_water_timestamp} "
+                            f"last_acted_ts={last_acted_water_timestamp} "
+                            f"blackout_remaining={round(APP_AFTER_PHYSICAL_BLACKOUT - (current_time - last_physical_water_press), 2)} "
+                            f"refill_active={refill_active}"
+                        ),
+                        log_type="info"
+                    )
+                    
                 if not _settings_change_pending:
 
                     if water_app_new_press:
