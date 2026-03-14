@@ -546,7 +546,7 @@ def process_B(**kwargs) -> None:
                 water_app_new_press = (
                     current_water_app_button_state and
                     raw_water_timestamp is not None and
-                    raw_water_timestamp != last_acted_water_timestamp
+                    raw_water_timestamp != last_acted_water_timestamp and
                     (current_time - last_physical_water_press) >= APP_AFTER_PHYSICAL_BLACKOUT
                 )
 
