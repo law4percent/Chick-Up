@@ -20,9 +20,8 @@ from typing import List, Optional
 
 
 # ── Pin config (mirrors Keypad4x4 defaults) ──────────────────────────────────
-
-ROW_PINS = [17, 21, 20, 16]
-COL_PINS = [12, 27, 26, 23]
+ROW_PINS = [4, 21, 20, 16]    # GPIO 19 → GPIO 4
+COL_PINS = [12, 18, 26, 23]   # GPIO 22 → GPIO 18, GPIO 6 → GPIO 26
 
 MATRIX = [
     ['1', '2', '3', 'A'],
