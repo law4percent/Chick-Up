@@ -76,8 +76,6 @@ class SettingsService {
         },
         water: {
           thresholdPercent:    20,
-          autoRefillEnabled:   false,
-          autoRefillThreshold: 80,
         },
         updatedAt: Date.now(),
       };
@@ -150,8 +148,6 @@ class SettingsService {
     try {
       if (waterSettings.thresholdPercent < 0 || waterSettings.thresholdPercent > 100)
         throw new Error('Threshold must be between 0 and 100');
-      if (waterSettings.autoRefillThreshold < 0 || waterSettings.autoRefillThreshold > 100)
-        throw new Error('Auto refill threshold must be between 0 and 100');
 
       await set(ref(database, `settings/${userId}/water`), waterSettings);
       await set(ref(database, `settings/${userId}/updatedAt`), Date.now());

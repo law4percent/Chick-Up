@@ -1,17 +1,8 @@
 // src/screens/SettingsScreen.tsx
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Switch,
-  Alert,
-  ActivityIndicator,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  Alert, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,37 +12,21 @@ import settingsService from '../services/settingsService';
 import { auth } from '../config/firebase.config';
 
 type SettingsScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, 'Settings'>;
+interface Props { navigation: SettingsScreenNavigationProp; }
 
-interface Props {
-  navigation: SettingsScreenNavigationProp;
-}
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-/** Total seconds → { minutes, seconds } */
 function splitToMinSec(totalSec: number): { minutes: number; seconds: number } {
-  return {
-    minutes: Math.floor(totalSec / 60),
-    seconds: totalSec % 60,
-  };
+  return { minutes: Math.floor(totalSec / 60), seconds: totalSec % 60 };
 }
 
-/**
- * Validate the combined minutes + seconds input.
- * Returns an error string, or null if valid.
- */
 function validateDuration(minutes: string, seconds: string): string | null {
   const m = parseInt(minutes || '0', 10);
-  const s = parseInt(seconds || '0', 10);
-
-  if (isNaN(m) || isNaN(s))         return 'Please enter valid numbers.';
-  if (s < 0 || s > 59)              return 'Seconds must be between 0 and 59.';
-  if (m < 0)                        return 'Minutes cannot be negative.';
-
+  const s = parseInt(seconds  || '0', 10);
+  if (isNaN(m) || isNaN(s))  return 'Please enter valid numbers.';
+  if (s < 0 || s > 59)       return 'Seconds must be between 0 and 59.';
+  if (m < 0)                 return 'Minutes cannot be negative.';
   const totalSec = m * 60 + s;
-  if (totalSec < 5)                 return 'Duration must be at least 5 seconds.';
-  if (totalSec > 300)               return 'Duration cannot exceed 5 minutes (300 s).';
-
+  if (totalSec < 5)          return 'Duration must be at least 5 seconds.';
+  if (totalSec > 300)        return 'Duration cannot exceed 5 minutes (300 s).';
   return null;
 }
 
@@ -65,10 +40,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [dispenseSeconds,     setDispenseSeconds]     = useState('0');
   const [durationError,       setDurationError]       = useState<string | null>(null);
 
-  // Water settings
-  const [waterThreshold,      setWaterThreshold]      = useState(20);
-  const [autoRefillEnabled,   setAutoRefillEnabled]   = useState(false);
-  const [autoRefillThreshold, setAutoRefillThreshold] = useState(80);
+  // Water settings — alert threshold only; auto-refill removed
+  const [waterThreshold, setWaterThreshold] = useState(20);
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -80,15 +53,11 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
       const settings = await settingsService.getSettings(userId);
       if (settings) {
         setFeedThreshold(settings.feed.thresholdPercent);
-
         const totalSec = Math.round((settings.feed.dispenseCountdownMs ?? 60_000) / 1_000);
         const { minutes, seconds } = splitToMinSec(totalSec);
         setDispenseMinutes(String(minutes));
         setDispenseSeconds(String(seconds));
-
         setWaterThreshold(settings.water.thresholdPercent);
-        setAutoRefillEnabled(settings.water.autoRefillEnabled || false);
-        setAutoRefillThreshold(settings.water.autoRefillThreshold || 80);
       } else {
         await settingsService.initializeSettings(userId);
         await loadSettings();
@@ -102,12 +71,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleSaveSettings = async () => {
-    // Validate duration before attempting save
     const error = validateDuration(dispenseMinutes, dispenseSeconds);
-    if (error) {
-      setDurationError(error);
-      return;
-    }
+    if (error) { setDurationError(error); return; }
     setDurationError(null);
 
     try {
@@ -124,9 +89,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
           dispenseCountdownMs: totalSec * 1_000,
         },
         water: {
-          thresholdPercent:    waterThreshold,
-          autoRefillEnabled,
-          autoRefillThreshold,
+          thresholdPercent: waterThreshold,
         },
         updatedAt: Date.now(),
       };
@@ -141,7 +104,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  /** Re-validate live as the user types so the error clears immediately. */
   const handleMinutesChange = (val: string) => {
     setDispenseMinutes(val);
     setDurationError(validateDuration(val, dispenseSeconds));
@@ -163,7 +125,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <LinearGradient colors={['#FFFEF0', '#FFFEF0']} style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.menuButton} onPress={() => navigation.openDrawer()}>
           <Text style={styles.menuIcon}>☰</Text>
@@ -174,13 +135,10 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
-          {/* ── Feed Settings ──────────────────────────────────────────── */}
+          {/* ── Feed Settings ── */}
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={[styles.iconCircle, { backgroundColor: '#FF9500' }]}>
@@ -192,7 +150,6 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             </View>
 
-            {/* Feed Alert Threshold */}
             <View style={styles.sliderContainer}>
               <View style={styles.sliderHeader}>
                 <Text style={styles.sliderLabel}>Alert Threshold</Text>
@@ -200,66 +157,42 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
               <Slider
                 style={styles.slider}
-                minimumValue={0}
-                maximumValue={100}
-                step={1}
-                value={feedThreshold}
-                onValueChange={setFeedThreshold}
-                minimumTrackTintColor="#FF9500"
-                maximumTrackTintColor="#E0E0E0"
-                thumbTintColor="#FF9500"
+                minimumValue={0} maximumValue={100} step={1}
+                value={feedThreshold} onValueChange={setFeedThreshold}
+                minimumTrackTintColor="#FF9500" maximumTrackTintColor="#E0E0E0" thumbTintColor="#FF9500"
               />
-              <Text style={styles.sliderDescription}>
-                Alert when feed level drops below this percentage
-              </Text>
+              <Text style={styles.sliderDescription}>Alert when feed level drops below this percentage</Text>
             </View>
 
-            {/* Dispense Duration — minutes + seconds input */}
             <View style={styles.inputContainer}>
               <Text style={styles.sliderLabel}>Dispense Duration</Text>
               <Text style={styles.sliderDescription}>
-                How long the feed motor runs per dispense (5 s – 5 min).
-                Raspi picks up changes live — no reboot needed.
+                How long the feed motor runs per dispense (5 s – 5 min). Raspi picks up changes live — no reboot needed.
               </Text>
-
               <View style={styles.durationRow}>
-                {/* Minutes */}
                 <View style={styles.durationField}>
                   <TextInput
                     style={[styles.durationInput, durationError ? styles.durationInputError : null]}
-                    value={dispenseMinutes}
-                    onChangeText={handleMinutesChange}
-                    keyboardType="number-pad"
-                    maxLength={1}
-                    selectTextOnFocus
+                    value={dispenseMinutes} onChangeText={handleMinutesChange}
+                    keyboardType="number-pad" maxLength={1} selectTextOnFocus
                   />
                   <Text style={styles.durationUnit}>min</Text>
                 </View>
-
                 <Text style={styles.durationSeparator}>:</Text>
-
-                {/* Seconds */}
                 <View style={styles.durationField}>
                   <TextInput
                     style={[styles.durationInput, durationError ? styles.durationInputError : null]}
-                    value={dispenseSeconds}
-                    onChangeText={handleSecondsChange}
-                    keyboardType="number-pad"
-                    maxLength={2}
-                    selectTextOnFocus
+                    value={dispenseSeconds} onChangeText={handleSecondsChange}
+                    keyboardType="number-pad" maxLength={2} selectTextOnFocus
                   />
                   <Text style={styles.durationUnit}>sec</Text>
                 </View>
               </View>
-
-              {/* Inline validation error */}
-              {durationError && (
-                <Text style={styles.errorText}>{durationError}</Text>
-              )}
+              {durationError && <Text style={styles.errorText}>{durationError}</Text>}
             </View>
           </View>
 
-          {/* ── Water Settings ─────────────────────────────────────────── */}
+          {/* ── Water Settings ── */}
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={[styles.iconCircle, { backgroundColor: '#4A90E2' }]}>
@@ -267,11 +200,10 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
               <View style={styles.cardHeaderText}>
                 <Text style={styles.cardTitle}>Water Settings</Text>
-                <Text style={styles.cardSubtitle}>Configure water threshold and auto-refill</Text>
+                <Text style={styles.cardSubtitle}>Configure water alert threshold</Text>
               </View>
             </View>
 
-            {/* Water Alert Threshold */}
             <View style={styles.sliderContainer}>
               <View style={styles.sliderHeader}>
                 <Text style={styles.sliderLabel}>Alert Threshold</Text>
@@ -279,70 +211,27 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
               <Slider
                 style={styles.slider}
-                minimumValue={0}
-                maximumValue={80}
-                step={1}
-                value={waterThreshold}
-                onValueChange={setWaterThreshold}
-                minimumTrackTintColor="#2196F3"
-                maximumTrackTintColor="#E0E0E0"
-                thumbTintColor="#2196F3"
+                minimumValue={0} maximumValue={100} step={1}
+                value={waterThreshold} onValueChange={setWaterThreshold}
+                minimumTrackTintColor="#2196F3" maximumTrackTintColor="#E0E0E0" thumbTintColor="#2196F3"
               />
               <Text style={styles.sliderDescription}>
-                Alert when water level drops below this percentage (max 80% — above 80% risks pump short-cycling)
+                Alert when water level drops below this percentage. Refill is manual — press Refill Water on the Dashboard or # on the keypad.
               </Text>
             </View>
-
-            {/* Auto Refill Toggle */}
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Enable Auto Refill</Text>
-              <Switch
-                value={autoRefillEnabled}
-                onValueChange={setAutoRefillEnabled}
-                trackColor={{ false: '#D1D1D1', true: '#2196F3' }}
-                thumbColor={autoRefillEnabled ? '#FFFFFF' : '#F4F3F4'}
-              />
-            </View>
-
-            {/* Auto Refill Target Level */}
-            {autoRefillEnabled && (
-              <View style={styles.sliderContainer}>
-                <View style={styles.sliderHeader}>
-                  <Text style={styles.sliderLabel}>Auto Refill Target Level</Text>
-                  <Text style={styles.sliderValue}>{autoRefillThreshold}%</Text>
-                </View>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={0}
-                  maximumValue={100}
-                  step={1}
-                  value={autoRefillThreshold}
-                  onValueChange={setAutoRefillThreshold}
-                  minimumTrackTintColor="#2196F3"
-                  maximumTrackTintColor="#E0E0E0"
-                  thumbTintColor="#2196F3"
-                />
-                <Text style={styles.sliderDescription}>
-                  System refills water up to this level. Pump always stops at 95%.
-                </Text>
-              </View>
-            )}
           </View>
 
           {/* Save Button */}
           <TouchableOpacity
             style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-            onPress={handleSaveSettings}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <>
-                <Text style={styles.saveButtonIcon}>💾</Text>
-                <Text style={styles.saveButtonText}>Save Settings</Text>
-              </>
-            )}
+            onPress={handleSaveSettings} disabled={saving}>
+            {saving
+              ? <ActivityIndicator color="#FFFFFF" />
+              : (<>
+                  <Text style={styles.saveButtonIcon}>💾</Text>
+                  <Text style={styles.saveButtonText}>Save Settings</Text>
+                </>)
+            }
           </TouchableOpacity>
 
           <View style={{ height: 30 }} />
@@ -356,105 +245,38 @@ const styles = StyleSheet.create({
   container:        { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFEF0' },
   loadingText:      { marginTop: 12, fontSize: 16, color: '#666' },
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingTop: 50, paddingHorizontal: 20, paddingBottom: 20,
-    backgroundColor: '#FFFEF0',
-  },
+  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 50, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#FFFEF0' },
   menuButton:          { padding: 8 },
   menuIcon:            { fontSize: 28, color: '#333' },
   headerTextContainer: { marginLeft: 12 },
   headerTitle:         { fontSize: 24, fontWeight: 'bold', color: '#2E7D32' },
   headerSubtitle:      { fontSize: 12, color: '#666', marginTop: 2 },
   content:             { flex: 1, paddingHorizontal: 20 },
-  card: {
-    backgroundColor: '#FFFFFF', borderRadius: 20,
-    padding: 20, marginBottom: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1, shadowRadius: 8, elevation: 3,
-  },
-  cardHeader:      { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  iconCircle: {
-    width: 60, height: 60, borderRadius: 30,
-    justifyContent: 'center', alignItems: 'center', marginRight: 12,
-  },
-  iconEmoji:       { fontSize: 28 },
-  cardHeaderText:  { flex: 1 },
-  cardTitle:       { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 4 },
-  cardSubtitle:    { fontSize: 12, color: '#999' },
-  settingRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 8,
-  },
-  settingLabel:    { fontSize: 16, color: '#333', fontWeight: '500' },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  cardHeader:     { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  iconCircle:     { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  iconEmoji:      { fontSize: 28 },
+  cardHeaderText: { flex: 1 },
+  cardTitle:      { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 4 },
+  cardSubtitle:   { fontSize: 12, color: '#999' },
   sliderContainer: { marginBottom: 24 },
-  sliderHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 8,
-  },
+  sliderHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   sliderLabel:       { fontSize: 16, color: '#333', fontWeight: '500' },
   sliderValue:       { fontSize: 18, fontWeight: 'bold', color: '#4CAF50' },
   slider:            { width: '100%', height: 40 },
   sliderDescription: { fontSize: 12, color: '#999', marginTop: 4 },
-
-  // ── Duration input ──────────────────────────────────────────────────────────
-  inputContainer: {
-    marginBottom: 8,
-  },
-  durationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    gap: 8,
-  },
-  durationField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  durationInput: {
-    width: 64,
-    height: 48,
-    borderWidth: 1.5,
-    borderColor: '#E0E0E0',
-    borderRadius: 10,
-    backgroundColor: '#FAFAFA',
-    textAlign: 'center',
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-  },
-  durationInputError: {
-    borderColor: '#F44336',
-    backgroundColor: '#FFF5F5',
-  },
-  durationUnit: {
-    fontSize: 14,
-    color: '#999',
-    fontWeight: '500',
-  },
-  durationSeparator: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#CCC',
-    marginHorizontal: 2,
-  },
-  errorText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#F44336',
-  },
-
-  // ── Save button ─────────────────────────────────────────────────────────────
-  saveButton: {
-    backgroundColor: '#4CAF50', borderRadius: 16, paddingVertical: 16,
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#4CAF50', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 8, elevation: 4, marginTop: 10,
-  },
-  saveButtonDisabled: { backgroundColor: '#A5D6A7' },
-  saveButtonIcon:     { fontSize: 24, marginRight: 8 },
-  saveButtonText:     { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  inputContainer:    { marginBottom: 8 },
+  durationRow:       { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 },
+  durationField:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  durationInput:     { width: 64, height: 48, borderWidth: 1.5, borderColor: '#E0E0E0', borderRadius: 10, backgroundColor: '#FAFAFA', textAlign: 'center', fontSize: 20, fontWeight: '600', color: '#333' },
+  durationInputError:{ borderColor: '#F44336', backgroundColor: '#FFF5F5' },
+  durationUnit:      { fontSize: 14, color: '#999', fontWeight: '500' },
+  durationSeparator: { fontSize: 22, fontWeight: 'bold', color: '#CCC', marginHorizontal: 2 },
+  errorText:         { marginTop: 8, fontSize: 12, color: '#F44336' },
+  saveButton:        { backgroundColor: '#4CAF50', borderRadius: 16, paddingVertical: 16, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', shadowColor: '#4CAF50', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4, marginTop: 10 },
+  saveButtonDisabled:{ backgroundColor: '#A5D6A7' },
+  saveButtonIcon:    { fontSize: 24, marginRight: 8 },
+  saveButtonText:    { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });
 
 export default SettingsScreen;

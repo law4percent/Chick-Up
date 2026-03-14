@@ -5,54 +5,50 @@ import { database } from '../config/firebase.config';
 export type AnalyticsSource = 'app' | 'keypad' | 'schedule';
 
 export interface AnalyticsEntry {
-  action       : 'dispense' | 'refill';
-  type         : 'feed' | 'water';
-  volumePercent: number;
-  timestamp    : number;
-  date         : string;
-  time         : string;
-  dayOfWeek    : number;
-  userId       : string;
-  source       : AnalyticsSource;
+  action          : 'dispense' | 'refill';
+  type            : 'feed' | 'water';
+  volumePercent   : number;
+  durationSeconds : number;   // water refill duration; 0 for feed entries
+  timestamp       : number;
+  date            : string;
+  time            : string;
+  dayOfWeek       : number;
+  userId          : string;
+  source          : AnalyticsSource;
 }
 
 // ── Types expected by AnalyticsScreen ────────────────────────────────────────
 
 export interface DailyAnalytics {
-  dayOfWeek         : number;   // 0 = Sun … 6 = Sat
-  feedDispensed     : number;   // sum of volumePercent for feed actions
-  waterRefilled     : number;   // sum of volumePercent for water actions
-  feedDispenseCount : number;
-  waterRefillCount  : number;
-  avgFeedingTime    : number;   // placeholder — no duration data yet, always 0
-  avgRefillTime     : number;   // placeholder — no duration data yet, always 0
+  dayOfWeek            : number;  // 0 = Sun … 6 = Sat
+  feedDispensed        : number;  // sum of volumePercent for feed actions
+  feedDispenseCount    : number;
+  waterRefillCount     : number;
+  totalRefillDuration  : number;  // sum of durationSeconds for water actions
+  avgDurationSeconds   : number;  // totalRefillDuration / waterRefillCount
+  avgFeedingTime       : number;  // always 0 — no feed duration data
 }
 
 export interface SummaryStats {
-  totalFeedDispensed : number;
-  totalWaterRefilled : number;
-  totalFeedActions   : number;
-  totalWaterActions  : number;
-  avgFeedPerDay      : number;
-  avgWaterPerDay     : number;
+  totalFeedDispensed        : number;
+  totalFeedActions          : number;
+  totalWaterActions         : number;
+  totalRefillDurationSeconds: number;  // sum of all water durationSeconds
+  avgRefillDurationPerDay   : number;  // totalRefillDurationSeconds / 7
+  avgFeedPerDay             : number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Aggregate a flat list of AnalyticsEntry records into 7 DailyAnalytics buckets
- * (one per day of the week, Sun–Sat). Entries from all time are included —
- * values accumulate across weeks. Days with no activity are returned as zeros.
- */
 function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] {
   const buckets: DailyAnalytics[] = Array.from({ length: 7 }, (_, i) => ({
-    dayOfWeek        : i,
-    feedDispensed    : 0,
-    waterRefilled    : 0,
-    feedDispenseCount: 0,
-    waterRefillCount : 0,
-    avgFeedingTime   : 0,
-    avgRefillTime    : 0,
+    dayOfWeek          : i,
+    feedDispensed      : 0,
+    feedDispenseCount  : 0,
+    waterRefillCount   : 0,
+    totalRefillDuration: 0,
+    avgDurationSeconds : 0,
+    avgFeedingTime     : 0,
   }));
 
   for (const entry of entries) {
@@ -60,12 +56,19 @@ function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] 
     if (day < 0 || day > 6) continue;
 
     if (entry.type === 'feed') {
-      buckets[day].feedDispensed     += entry.volumePercent ?? 0;
+      buckets[day].feedDispensed     += entry.volumePercent    ?? 0;
       buckets[day].feedDispenseCount += 1;
     } else if (entry.type === 'water') {
-      buckets[day].waterRefilled    += entry.volumePercent ?? 0;
-      buckets[day].waterRefillCount += 1;
+      buckets[day].waterRefillCount   += 1;
+      buckets[day].totalRefillDuration += entry.durationSeconds ?? 0;
     }
+  }
+
+  // Compute avg duration per day
+  for (const bucket of buckets) {
+    bucket.avgDurationSeconds = bucket.waterRefillCount > 0
+      ? Math.round(bucket.totalRefillDuration / bucket.waterRefillCount)
+      : 0;
   }
 
   return buckets;
@@ -77,11 +80,6 @@ class AnalyticsService {
 
   // ── Real-time subscription ──────────────────────────────────────────────────
 
-  /**
-   * Subscribe to real-time analytics updates for a user.
-   * Calls back with aggregated DailyAnalytics[] whenever the log changes.
-   * Returns an unsubscribe function.
-   */
   subscribeAnalytics(
     userId   : string,
     callback : (data: DailyAnalytics[]) => void,
@@ -98,16 +96,11 @@ class AnalyticsService {
       (snapshot) => {
         const entries: AnalyticsEntry[] = [];
         if (snapshot.exists()) {
-          snapshot.forEach(child => {
-            entries.push(child.val() as AnalyticsEntry);
-          });
+          snapshot.forEach(child => { entries.push(child.val() as AnalyticsEntry); });
         }
         callback(aggregateToDailyAnalytics(entries));
       },
-      (error) => {
-        console.error('❌ Analytics subscription error:', error);
-        onError?.(error);
-      },
+      (error) => { console.error('❌ Analytics subscription error:', error); onError?.(error); },
     );
 
     return () => off(logsRef);
@@ -115,9 +108,6 @@ class AnalyticsService {
 
   // ── Summary stats ───────────────────────────────────────────────────────────
 
-  /**
-   * Compute summary stats from the last 200 log entries.
-   */
   async getSummaryStats(userId: string): Promise<SummaryStats> {
     try {
       const logsRef = query(
@@ -128,12 +118,12 @@ class AnalyticsService {
       const snapshot = await get(logsRef);
 
       const stats: SummaryStats = {
-        totalFeedDispensed : 0,
-        totalWaterRefilled : 0,
-        totalFeedActions   : 0,
-        totalWaterActions  : 0,
-        avgFeedPerDay      : 0,
-        avgWaterPerDay     : 0,
+        totalFeedDispensed        : 0,
+        totalFeedActions          : 0,
+        totalWaterActions         : 0,
+        totalRefillDurationSeconds: 0,
+        avgRefillDurationPerDay   : 0,
+        avgFeedPerDay             : 0,
       };
 
       if (!snapshot.exists()) return stats;
@@ -141,17 +131,16 @@ class AnalyticsService {
       snapshot.forEach(child => {
         const entry = child.val() as AnalyticsEntry;
         if (entry.type === 'feed') {
-          stats.totalFeedDispensed += entry.volumePercent ?? 0;
+          stats.totalFeedDispensed += entry.volumePercent    ?? 0;
           stats.totalFeedActions   += 1;
         } else if (entry.type === 'water') {
-          stats.totalWaterRefilled += entry.volumePercent ?? 0;
-          stats.totalWaterActions  += 1;
+          stats.totalWaterActions          += 1;
+          stats.totalRefillDurationSeconds += entry.durationSeconds ?? 0;
         }
       });
 
-      // Average over the 7 days of the week
-      stats.avgFeedPerDay  = stats.totalFeedDispensed  / 7;
-      stats.avgWaterPerDay = stats.totalWaterRefilled / 7;
+      stats.avgFeedPerDay           = stats.totalFeedDispensed        / 7;
+      stats.avgRefillDurationPerDay = stats.totalRefillDurationSeconds / 7;
 
       return stats;
     } catch (error) {
@@ -177,7 +166,15 @@ class AnalyticsService {
     const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 
     const entry: AnalyticsEntry = {
-      action, type, volumePercent, timestamp, date, time, dayOfWeek, userId,
+      action,
+      type,
+      volumePercent,
+      durationSeconds: 0,   // app-side water commands don't know duration — Pi writes this
+      timestamp,
+      date,
+      time,
+      dayOfWeek,
+      userId,
       source: 'app',
     };
 
@@ -203,10 +200,7 @@ class AnalyticsService {
       if (!snapshot.exists()) return [];
 
       const entries: AnalyticsEntry[] = [];
-      snapshot.forEach(child => {
-        entries.push(child.val() as AnalyticsEntry);
-      });
-
+      snapshot.forEach(child => { entries.push(child.val() as AnalyticsEntry); });
       return entries.reverse();
     } catch (error) {
       console.error('❌ Failed to fetch analytics:', error);

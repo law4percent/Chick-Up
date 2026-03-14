@@ -18,9 +18,9 @@ type DashboardScreenNavigationProp = DrawerNavigationProp<MainDrawerParamList, '
 interface Props { navigation: DashboardScreenNavigationProp; }
 
 const DashboardScreen: React.FC<Props> = ({ navigation }) => {
-  const [loading, setLoading] = useState(true);
-  const [waterLevel, setWaterLevel] = useState(0);
-  const [feedLevel,  setFeedLevel]  = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [waterLevel, setWaterLevel]   = useState(0);
+  const [feedLevel,  setFeedLevel]    = useState(0);
   const [lastWaterDate, setLastWaterDate] = useState('--/--/----');
   const [lastWaterTime, setLastWaterTime] = useState('--:--:--');
   const [lastFeedDate,  setLastFeedDate]  = useState('--/--/----');
@@ -29,10 +29,13 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [waterThreshold, setWaterThreshold] = useState(20);
   const [feedThreshold,  setFeedThreshold]  = useState(20);
 
-  const [waterButtonDisabled, setWaterButtonDisabled] = useState(false);
-  const [feedButtonDisabled,  setFeedButtonDisabled]  = useState(false);
-  const [waterCountdown, setWaterCountdown] = useState(0);
-  const [feedCountdown,  setFeedCountdown]  = useState(0);
+  // Water pump — toggle ON/OFF manually. No countdown; always pressable.
+  // App does NOT log analytics for water — Pi logs durationSeconds on stop.
+  const [isRefilling, setIsRefilling] = useState(false);
+
+  // Feed dispense — one-shot with 3 s cooldown to prevent double-send.
+  const [feedButtonDisabled, setFeedButtonDisabled] = useState(false);
+  const [feedCountdown,      setFeedCountdown]      = useState(0);
 
   const isWaterLow = waterLevel < waterThreshold;
   const isFeedLow  = feedLevel  < feedThreshold;
@@ -41,21 +44,18 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   const [showLinkModal,   setShowLinkModal]   = useState(false);
 
   // ── Pairing state ──────────────────────────────────────────────────────────
-  // The user enters a 6-char code shown on the raspi LCD.
-  // We look up /device_code/{code}/ to get the deviceUid, then write back
-  // userUid + username + status:"paired" to complete the pairing.
-  const [pairingCode,    setPairingCode]    = useState('');
-  const [looking,        setLooking]        = useState(false);  // lookup in progress
-  const [pairingEntry,   setPairingEntry]   = useState<DeviceCodeEntry | null>(null); // found entry
-  const [pairingError,   setPairingError]   = useState<string | null>(null);
-  const [pairing,        setPairing]        = useState(false);  // completePairing in progress
+  const [pairingCode,  setPairingCode]  = useState('');
+  const [looking,      setLooking]      = useState(false);
+  const [pairingEntry, setPairingEntry] = useState<DeviceCodeEntry | null>(null);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [pairing,      setPairing]      = useState(false);
 
   // WebRTC
-  const [isStreaming,       setIsStreaming]       = useState(false);
-  const [showStreamModal,   setShowStreamModal]   = useState(false);
-  const [remoteStream,      setRemoteStream]      = useState<MediaStream | null>(null);
-  const [connectionState,   setConnectionState]   = useState<string>('disconnected');
-  const [streamError,       setStreamError]       = useState<string | null>(null);
+  const [isStreaming,     setIsStreaming]     = useState(false);
+  const [showStreamModal, setShowStreamModal] = useState(false);
+  const [remoteStream,    setRemoteStream]    = useState<MediaStream | null>(null);
+  const [connectionState, setConnectionState] = useState<string>('disconnected');
+  const [streamError,     setStreamError]     = useState<string | null>(null);
 
   // ── Stream toggle ──────────────────────────────────────────────────────────
   const handleToggleStream = async () => {
@@ -103,9 +103,6 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
   useEffect(() => { return () => { webrtcService.stopConnection(); }; }, []);
 
   // ── Subscribe to linked device ────────────────────────────────────────────
-  // Uses a real-time subscription instead of a one-time read so the app
-  // reacts immediately when the Pi calls auth.logout() and deletes
-  // users/{uid}/linkedDevice from Firebase — no manual refresh needed.
   useEffect(() => {
     const userId = auth.currentUser?.uid;
     if (!userId) { setLoading(false); return; }
@@ -116,29 +113,24 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       (uid) => {
         setLinkedDeviceUid(uid);
         setLoading(false);
-        // If the Pi just logged out (uid === null), stop any active stream
         if (uid === null) {
           webrtcService.stopConnection();
           setIsStreaming(false);
           setRemoteStream(null);
           setConnectionState('disconnected');
           setShowStreamModal(false);
+          setIsRefilling(false);  // reset pump state on device unlink
         }
       },
-      (error) => {
-        console.error('linkedDevice subscription error:', error);
-        setLoading(false);
-      },
+      (error) => { console.error('linkedDevice subscription error:', error); setLoading(false); },
     );
     return () => unsubscribe();
   }, []);
 
-  // ── Pairing: step 1 — look up the code ────────────────────────────────────
+  // ── Pairing: step 1 ────────────────────────────────────────────────────────
   const handleLookupCode = async () => {
     if (!pairingCode.trim()) return;
-    setLooking(true);
-    setPairingError(null);
-    setPairingEntry(null);
+    setLooking(true); setPairingError(null); setPairingEntry(null);
     try {
       const entry = await deviceService.lookupPairingCode(pairingCode);
       setPairingEntry(entry);
@@ -149,7 +141,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  // ── Pairing: step 2 — complete pairing ────────────────────────────────────
+  // ── Pairing: step 2 ────────────────────────────────────────────────────────
   const handlePairDevice = async () => {
     if (!pairingEntry) return;
     setPairing(true);
@@ -157,9 +149,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       await deviceService.completePairing(pairingCode, pairingEntry.deviceUid);
       setLinkedDeviceUid(pairingEntry.deviceUid);
       setShowLinkModal(false);
-      setPairingCode('');
-      setPairingEntry(null);
-      setPairingError(null);
+      setPairingCode(''); setPairingEntry(null); setPairingError(null);
       Alert.alert('Paired!', `Device ${pairingEntry.deviceUid} linked successfully.`);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to complete pairing. Please try again.');
@@ -170,9 +160,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleClosePairingModal = () => {
     setShowLinkModal(false);
-    setPairingCode('');
-    setPairingEntry(null);
-    setPairingError(null);
+    setPairingCode(''); setPairingEntry(null); setPairingError(null);
   };
 
   // ── Sensor / button / settings subscriptions ──────────────────────────────
@@ -238,16 +226,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     return () => { unsubSensor(); unsubButton(); unsubSettings(); };
   }, [linkedDeviceUid]);
 
-  // ── Countdown timers ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (waterCountdown > 0) {
-      const t = setTimeout(() => setWaterCountdown(c => c - 1), 1000);
-      return () => clearTimeout(t);
-    } else if (waterCountdown === 0 && waterButtonDisabled) {
-      setWaterButtonDisabled(false);
-    }
-  }, [waterCountdown, waterButtonDisabled]);
-
+  // ── Feed countdown timer ───────────────────────────────────────────────────
   useEffect(() => {
     if (feedCountdown > 0) {
       const t = setTimeout(() => setFeedCountdown(c => c - 1), 1000);
@@ -257,35 +236,29 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
     }
   }, [feedCountdown, feedButtonDisabled]);
 
-  // ── Action buttons ─────────────────────────────────────────────────────────
+  // ── Water toggle ───────────────────────────────────────────────────────────
+  // Writes a new Firebase timestamp each press — Pi reads it as a toggle signal.
+  // No analytics logged here — Pi writes durationSeconds to analytics on stop.
   const handleWaterRefill = async () => {
     if (!linkedDeviceUid) { Alert.alert('No Device', 'Please pair a device first'); return; }
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
-      setWaterButtonDisabled(true); setWaterCountdown(3);
-      // Write button timestamp FIRST — this is the actual command to the raspi.
-      // Only log analytics if the write succeeds so that pressing buttons while
-      // the raspi is offline does not pollute the analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'water');
-      await analyticsService.logAction(userId, 'water', 'refill', 0);
-      Alert.alert('Success', 'Water refill command sent!');
+      setIsRefilling(prev => !prev);
     } catch (error: any) {
       console.error(error);
       Alert.alert('Error', error.message || 'Failed to send command. Check your connection.');
-      setWaterButtonDisabled(false); setWaterCountdown(0);
     }
   };
 
+  // ── Feed dispense ──────────────────────────────────────────────────────────
   const handleFeedDispense = async () => {
     if (!linkedDeviceUid) { Alert.alert('No Device', 'Please pair a device first'); return; }
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
       setFeedButtonDisabled(true); setFeedCountdown(3);
-      // Write button timestamp FIRST — this is the actual command to the raspi.
-      // Only log analytics if the write succeeds so offline button presses
-      // don't pollute analytics history.
       await buttonService.updateButtonTimestamp(userId, linkedDeviceUid, 'feed');
       await analyticsService.logAction(userId, 'feed', 'dispense', 0);
       Alert.alert('Success', 'Feed dispense command sent!');
@@ -322,61 +295,34 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* ── Pairing Modal ── */}
-        <Modal visible={showLinkModal} transparent animationType="fade"
-          onRequestClose={handleClosePairingModal}>
+        <Modal visible={showLinkModal} transparent animationType="fade" onRequestClose={handleClosePairingModal}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Pair Device</Text>
-              <Text style={styles.modalSubtitle}>
-                Enter the 6-character code shown on your device's screen
-              </Text>
-
+              <Text style={styles.modalSubtitle}>Enter the 6-character code shown on your device's screen</Text>
               <TextInput
                 style={styles.deviceInput}
                 placeholder="e.g.  A3X7KQ"
                 value={pairingCode}
-                onChangeText={(t) => {
-                  setPairingCode(t.toUpperCase());
-                  setPairingEntry(null);
-                  setPairingError(null);
-                }}
+                onChangeText={(t) => { setPairingCode(t.toUpperCase()); setPairingEntry(null); setPairingError(null); }}
                 autoCapitalize="characters"
                 maxLength={6}
               />
-
               {looking && <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />}
               {pairingError && <Text style={styles.errorText}>❌ {pairingError}</Text>}
-              {pairingEntry && (
-                <Text style={styles.successText}>
-                  ✅ Device found: {pairingEntry.deviceUid}
-                </Text>
-              )}
-
+              {pairingEntry && <Text style={styles.successText}>✅ Device found: {pairingEntry.deviceUid}</Text>}
               <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.verifyButton,
-                    (pairingCode.length < 6 || looking) && styles.modalButtonDisabled]}
-                  onPress={handleLookupCode}
-                  disabled={pairingCode.length < 6 || looking}
-                >
-                  <Text style={styles.modalButtonText}>
-                    {looking ? 'Looking up...' : 'Look Up'}
-                  </Text>
+                  style={[styles.modalButton, styles.verifyButton, (pairingCode.length < 6 || looking) && styles.modalButtonDisabled]}
+                  onPress={handleLookupCode} disabled={pairingCode.length < 6 || looking}>
+                  <Text style={styles.modalButtonText}>{looking ? 'Looking up...' : 'Look Up'}</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.linkButton,
-                    (!pairingEntry || pairing) && styles.modalButtonDisabled]}
-                  onPress={handlePairDevice}
-                  disabled={!pairingEntry || pairing}
-                >
-                  <Text style={styles.modalButtonText}>
-                    {pairing ? 'Pairing...' : 'Pair'}
-                  </Text>
+                  style={[styles.modalButton, styles.linkButton, (!pairingEntry || pairing) && styles.modalButtonDisabled]}
+                  onPress={handlePairDevice} disabled={!pairingEntry || pairing}>
+                  <Text style={styles.modalButtonText}>{pairing ? 'Pairing...' : 'Pair'}</Text>
                 </TouchableOpacity>
               </View>
-
               <TouchableOpacity style={styles.cancelButton} onPress={handleClosePairingModal}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -421,7 +367,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           {/* Water Level */}
           <View style={styles.levelCard}>
             <View style={styles.cardHeader}>
-              <View style={[styles.iconCircle, { backgroundColor: "#4A90E2" }]}>
+              <View style={[styles.iconCircle, { backgroundColor: '#4A90E2' }]}>
                 <Text style={styles.iconEmoji}>💧</Text>
               </View>
               <View style={styles.cardHeaderText}>
@@ -452,7 +398,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           {/* Feed Level */}
           <View style={styles.levelCard}>
             <View style={styles.cardHeader}>
-              <View style={[styles.iconCircle, { backgroundColor: "#FF9500" }]}>
+              <View style={[styles.iconCircle, { backgroundColor: '#FF9500' }]}>
                 <Text style={styles.iconEmoji}>🌾</Text>
               </View>
               <View style={styles.cardHeaderText}>
@@ -495,19 +441,36 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         )}
 
         <View style={styles.actionButtonsContainer}>
+          {/* Water — toggle button, always pressable, red when active */}
           <TouchableOpacity
-            style={[styles.actionButton, styles.waterButton, waterButtonDisabled && styles.actionButtonDisabled]}
-            onPress={handleWaterRefill} disabled={waterButtonDisabled}>
+            style={[styles.actionButton, isRefilling ? styles.waterButtonActive : styles.waterButton]}
+            onPress={handleWaterRefill}>
             <Text style={styles.actionButtonIcon}>💧</Text>
-            <Text style={styles.actionButtonText}>{waterButtonDisabled ? `Wait ${waterCountdown}s` : 'Refill Water'}</Text>
+            <Text style={styles.actionButtonText}>
+              {isRefilling ? '⏹ Stop Refill' : 'Refill Water'}
+            </Text>
           </TouchableOpacity>
+
+          {/* Feed — one-shot with 3s cooldown */}
           <TouchableOpacity
             style={[styles.actionButton, styles.feedButton, feedButtonDisabled && styles.actionButtonDisabled]}
             onPress={handleFeedDispense} disabled={feedButtonDisabled}>
             <Text style={styles.actionButtonIcon}>🌾</Text>
-            <Text style={styles.actionButtonText}>{feedButtonDisabled ? `Wait ${feedCountdown}s` : 'Dispense Feed'}</Text>
+            <Text style={styles.actionButtonText}>
+              {feedButtonDisabled ? `Wait ${feedCountdown}s` : 'Dispense Feed'}
+            </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Refilling status hint */}
+        {isRefilling && (
+          <View style={styles.refillingBanner}>
+            <Text style={styles.refillingBannerIcon}>💧</Text>
+            <Text style={styles.refillingBannerText}>
+              Water pump is running — press Stop Refill when the tank is full.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.statsCard}>
           <Text style={styles.statsTitle}>Last Activity</Text>
@@ -533,12 +496,10 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.streamModalContent}>
             <View style={styles.streamHeader}>
               <Text style={styles.streamTitle}>📹 Live Stream</Text>
-              <TouchableOpacity onPress={() => { setShowStreamModal(false); if (isStreaming) handleToggleStream(); }}
-                style={styles.streamCloseButton}>
+              <TouchableOpacity onPress={() => { setShowStreamModal(false); if (isStreaming) handleToggleStream(); }} style={styles.streamCloseButton}>
                 <Text style={styles.streamCloseText}>✕</Text>
               </TouchableOpacity>
             </View>
-
             <View style={styles.streamFrameContainer}>
               {remoteStream ? (
                 <RTCView streamURL={remoteStream.toURL()} style={styles.rtcView} objectFit="cover" zOrder={1} />
@@ -550,9 +511,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                       : connectionState === 'connected' ? 'Waiting for video stream...'
                       : 'No stream available'}
                   </Text>
-                  {connectionState === 'connecting' && (
-                    <ActivityIndicator size="large" color="#4CAF50" style={{ marginTop: 20 }} />
-                  )}
+                  {connectionState === 'connecting' && <ActivityIndicator size="large" color="#4CAF50" style={{ marginTop: 20 }} />}
                 </View>
               )}
               <View style={styles.connectionIndicator}>
@@ -569,13 +528,11 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
                 </Text>
               </View>
             </View>
-
             {streamError && (
               <View style={styles.errorBanner}>
                 <Text style={styles.errorBannerText}>⚠️ {streamError}</Text>
               </View>
             )}
-
             <View style={styles.streamControls}>
               <TouchableOpacity
                 style={[styles.streamControlButton, isStreaming ? styles.stopButton : styles.startButton]}
@@ -592,49 +549,34 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       </Modal>
 
       {/* ── Pairing modal (change device) ── */}
-      <Modal visible={showLinkModal} transparent animationType="fade"
-        onRequestClose={handleClosePairingModal}>
+      <Modal visible={showLinkModal} transparent animationType="fade" onRequestClose={handleClosePairingModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Pair New Device</Text>
-            <Text style={styles.modalSubtitle}>
-              Press A on your device to show a code, then enter it here
-            </Text>
-
+            <Text style={styles.modalSubtitle}>Press A on your device to show a code, then enter it here</Text>
             <TextInput
               style={styles.deviceInput}
               placeholder="6-character code (e.g. A3X7KQ)"
               value={pairingCode}
-              onChangeText={(t) => {
-                setPairingCode(t.toUpperCase());
-                setPairingEntry(null);
-                setPairingError(null);
-              }}
+              onChangeText={(t) => { setPairingCode(t.toUpperCase()); setPairingEntry(null); setPairingError(null); }}
               autoCapitalize="characters"
               maxLength={6}
             />
-
             {looking && <ActivityIndicator size="small" color="#4CAF50" style={styles.verifyIndicator} />}
             {pairingError  && <Text style={styles.errorText}>❌ {pairingError}</Text>}
             {pairingEntry  && <Text style={styles.successText}>✅ Device found: {pairingEntry.deviceUid}</Text>}
-
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.verifyButton,
-                  (pairingCode.length < 6 || looking) && styles.modalButtonDisabled]}
-                onPress={handleLookupCode}
-                disabled={pairingCode.length < 6 || looking}>
+                style={[styles.modalButton, styles.verifyButton, (pairingCode.length < 6 || looking) && styles.modalButtonDisabled]}
+                onPress={handleLookupCode} disabled={pairingCode.length < 6 || looking}>
                 <Text style={styles.modalButtonText}>{looking ? 'Looking up...' : 'Look Up'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalButton, styles.linkButton,
-                  (!pairingEntry || pairing) && styles.modalButtonDisabled]}
-                onPress={handlePairDevice}
-                disabled={!pairingEntry || pairing}>
+                style={[styles.modalButton, styles.linkButton, (!pairingEntry || pairing) && styles.modalButtonDisabled]}
+                onPress={handlePairDevice} disabled={!pairingEntry || pairing}>
                 <Text style={styles.modalButtonText}>{pairing ? 'Pairing...' : 'Pair'}</Text>
               </TouchableOpacity>
             </View>
-
             <TouchableOpacity style={styles.cancelButton} onPress={handleClosePairingModal}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -666,14 +608,14 @@ const styles = StyleSheet.create({
   content:             { flex: 1, paddingHorizontal: 20 },
   levelCardsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 20 },
   levelCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '48%', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
-  cardHeader:       { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  iconCircle:       { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  iconEmoji:        { fontSize: 28 },
-  cardHeaderText:   { flex: 1 },
-  cardTitle:        { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 4 },
-  currentLevelRow:  { flexDirection: 'row', alignItems: 'center' },
-  currentLevelText: { fontSize: 12, color: '#999' },
-  warningIcon:      { fontSize: 12, marginLeft: 4 },
+  cardHeader:          { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  iconCircle:          { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  iconEmoji:           { fontSize: 28 },
+  cardHeaderText:      { flex: 1 },
+  cardTitle:           { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 4 },
+  currentLevelRow:     { flexDirection: 'row', alignItems: 'center' },
+  currentLevelText:    { fontSize: 12, color: '#999' },
+  warningIcon:         { fontSize: 12, marginLeft: 4 },
   levelInfoContainer:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   levelLabel:          { fontSize: 16, color: '#666' },
   levelPercentage:     { fontSize: 28, fontWeight: 'bold', color: '#4CAF50' },
@@ -688,13 +630,17 @@ const styles = StyleSheet.create({
   criticalAlert:       { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF9C4', padding: 16, borderRadius: 12, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#F9A825' },
   criticalAlertIcon:   { fontSize: 24, marginRight: 12 },
   criticalAlertText:   { flex: 1, fontSize: 14, color: '#333', fontWeight: '500' },
-  actionButtonsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  actionButton:   { width: '48%', paddingVertical: 20, borderRadius: 16, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
-  waterButton:    { backgroundColor: '#2196F3' },
-  feedButton:     { backgroundColor: '#FF9500' },
-  actionButtonDisabled: { backgroundColor: '#BDBDBD', opacity: 0.6 },
-  actionButtonIcon: { fontSize: 32, marginBottom: 8 },
-  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+  actionButtonsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  actionButton:        { width: '48%', paddingVertical: 20, borderRadius: 16, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
+  waterButton:         { backgroundColor: '#2196F3' },
+  waterButtonActive:   { backgroundColor: '#E53935' },   // red when pump is ON
+  feedButton:          { backgroundColor: '#FF9500' },
+  actionButtonDisabled:{ backgroundColor: '#BDBDBD', opacity: 0.6 },
+  actionButtonIcon:    { fontSize: 32, marginBottom: 8 },
+  actionButtonText:    { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+  refillingBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E3F2FD', padding: 14, borderRadius: 12, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: '#2196F3' },
+  refillingBannerIcon: { fontSize: 20, marginRight: 10 },
+  refillingBannerText: { flex: 1, fontSize: 13, color: '#0D47A1', lineHeight: 18 },
   statsCard:  { borderRadius: 20, padding: 24, marginBottom: 30, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, backgroundColor: '#FFF9C4' },
   statsTitle: { fontSize: 22, fontWeight: 'bold', color: '#000000ff', marginBottom: 20 },
   statsRow:   { flexDirection: 'row', justifyContent: 'space-around' },
@@ -711,22 +657,22 @@ const styles = StyleSheet.create({
   noDeviceMessage:   { fontSize: 16, color: '#666', textAlign: 'center', marginBottom: 30, lineHeight: 24 },
   linkDeviceButton:     { backgroundColor: '#4CAF50', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
   linkDeviceButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 24, width: '85%', maxWidth: 400 },
+  modalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent:  { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 24, width: '85%', maxWidth: 400 },
   modalTitle:    { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 8, textAlign: 'center' },
   modalSubtitle: { fontSize: 14, color: '#666', marginBottom: 20, textAlign: 'center' },
   deviceInput:   { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 12, padding: 12, fontSize: 18, marginBottom: 16, textAlign: 'center', letterSpacing: 4, fontWeight: 'bold' },
   verifyIndicator: { marginBottom: 12 },
   errorText:   { color: '#E53935', fontSize: 14, textAlign: 'center', marginBottom: 12 },
   successText: { color: '#4CAF50', fontSize: 14, textAlign: 'center', marginBottom: 12 },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  modalButtons:       { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   modalButton:        { flex: 1, paddingVertical: 12, borderRadius: 12, marginHorizontal: 4 },
   verifyButton:       { backgroundColor: '#2196F3' },
   linkButton:         { backgroundColor: '#4CAF50' },
   modalButtonDisabled:{ backgroundColor: '#BDBDBD', opacity: 0.5 },
   modalButtonText:    { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold', textAlign: 'center' },
-  cancelButton:    { paddingVertical: 12 },
-  cancelButtonText:{ color: '#666', fontSize: 16, textAlign: 'center' },
+  cancelButton:     { paddingVertical: 12 },
+  cancelButtonText: { color: '#666', fontSize: 16, textAlign: 'center' },
   streamButton:       { backgroundColor: '#9C27B0', paddingVertical: 18, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginHorizontal: 20, marginBottom: 20, flexDirection: 'row', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
   streamButtonActive: { backgroundColor: '#E53935' },
   streamButtonIcon:   { fontSize: 24, marginRight: 8 },
@@ -738,22 +684,22 @@ const styles = StyleSheet.create({
   streamCloseButton:  { padding: 8 },
   streamCloseText:    { fontSize: 24, color: '#FFFFFF' },
   streamFrameContainer: { width: '100%', height: 400, backgroundColor: '#000', borderRadius: 12, overflow: 'hidden', position: 'relative' },
-  rtcView:            { width: '100%', height: '100%', backgroundColor: '#000' },
-  streamPlaceholder:  { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2C2C2C' },
+  rtcView:               { width: '100%', height: '100%', backgroundColor: '#000' },
+  streamPlaceholder:     { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2C2C2C' },
   streamPlaceholderIcon: { fontSize: 48, marginBottom: 12 },
   streamPlaceholderText: { color: '#999', fontSize: 16 },
-  connectionIndicator: { position: 'absolute', top: 16, left: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  connectionIndicator:     { position: 'absolute', top: 16, left: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   connectionDot:           { width: 8, height: 8, borderRadius: 4, backgroundColor: '#666', marginRight: 8 },
   connectionDotConnected:  { backgroundColor: '#4CAF50' },
   connectionDotConnecting: { backgroundColor: '#FF9500' },
   connectionDotFailed:     { backgroundColor: '#F44336' },
-  connectionText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
+  connectionText:          { color: '#FFF', fontSize: 12, fontWeight: '600' },
   errorBanner:     { backgroundColor: '#FFEBEE', padding: 12, borderRadius: 8, marginTop: 12 },
   errorBannerText: { color: '#D32F2F', fontSize: 14, textAlign: 'center' },
-  streamControls:       { flexDirection: 'row', justifyContent: 'center' },
-  streamControlButton:  { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  startButton:          { backgroundColor: '#4CAF50' },
-  stopButton:           { backgroundColor: '#E53935' },
+  streamControls:          { flexDirection: 'row', justifyContent: 'center' },
+  streamControlButton:     { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  startButton:             { backgroundColor: '#4CAF50' },
+  stopButton:              { backgroundColor: '#E53935' },
   streamControlButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });
 

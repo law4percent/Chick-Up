@@ -73,8 +73,6 @@ export interface DispenseSettings {
 
 export interface WaterSettings {
   thresholdPercent: number;
-  autoRefillEnabled: boolean;
-  autoRefillThreshold: number;
 }
 
 export interface UserSettings {
