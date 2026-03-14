@@ -536,6 +536,8 @@ def process_B(**kwargs) -> None:
                     current_water_physical_button_state and
                     (current_time - last_physical_water_press) >= PHYSICAL_BUTTON_COOLDOWN
                 )
+                if physical_water_new_press:
+                    last_physical_water_press = current_time   # ← stamp immediately
 
                 # App buttons — guarded by unique Firebase timestamp
                 feed_app_new_press = (
@@ -619,10 +621,14 @@ def process_B(**kwargs) -> None:
                 )
 
                 # ── Motor logic — water ───────────────────────────────────
-                # App button and physical keypad are processed as separate
-                # independent toggle signals. This prevents them from
-                # cancelling each other out if both fire in the same tick
-                # (e.g. app is ON and keypad # is pressed simultaneously).
+                # Stamp the physical press time BEFORE water_app_new_press
+                # is acted on — this ensures the APP_AFTER_PHYSICAL_BLACKOUT
+                # check inside water_app_new_press blocks the app toggle on
+                # the same tick the keypad fires, preventing both signals
+                # from cancelling each other out in one tick.
+                if physical_water_new_press:
+                    last_physical_water_press = current_time
+
                 if not _settings_change_pending:
 
                     if water_app_new_press:
@@ -635,7 +641,6 @@ def process_B(**kwargs) -> None:
                         )
 
                     if physical_water_new_press:
-                        last_physical_water_press = current_time
                         if not refill_active:
                             refill_start_monotonic = time.monotonic()
                         refill_active = _refill_it(
