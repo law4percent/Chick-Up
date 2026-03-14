@@ -168,7 +168,7 @@ def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
     current_feed_physical_button_state  = False
     current_water_physical_button_state = False
 
-    key = keypad_instance.scan_key()
+    key = keypad_instance.read_key()   # ← changed from scan_key() to read_key()
     if key == "*":
         current_feed_physical_button_state  = True
     elif key == "#":
