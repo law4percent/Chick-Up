@@ -20,6 +20,8 @@ Logout flow (while running):
 """
 
 import os
+import signal
+import sys
 from multiprocessing import Process, Event
 
 from lib.processes import process_a, process_b
@@ -82,6 +84,29 @@ def main() -> None:
         log(details=f"Hardware init failed: {e}", log_type="error")
         return
 
+    # ── SIGTERM / SIGINT handler ──────────────────────────────────────────
+    # FIX: systemd sends SIGTERM when the service is stopped or restarted.
+    # Without this handler Python exits immediately without calling cleanup(),
+    # leaving all GPIO pins in their last state. On the next start, the pins
+    # are in an undefined state and the keypad reads ghost presses.
+    #
+    # This handler ensures lcd.clear() and keypad.cleanup() always run on
+    # both `systemctl stop` (SIGTERM) and Ctrl-C (SIGINT).
+    def _handle_exit(sig, frame):
+        log(details=f"Signal {sig} received — cleaning up and exiting", log_type="info")
+        try:
+            lcd.clear()
+        except Exception:
+            pass
+        try:
+            keypad.cleanup()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_exit)
+    signal.signal(signal.SIGINT,  _handle_exit)
+
     auth = AuthService(
         device_uid       = DEVICE_UID,
         lcd              = lcd,
@@ -106,10 +131,10 @@ def main() -> None:
         except PairingError as e:
             log(details=f"Pairing error during auth: {e}", log_type="error")
             lcd.show(["Pairing failed", "Try again"], duration=3)
-            continue  # Loop back to menu — let user retry
+            continue
         except ValidationError as e:
             log(details=f"Validation error during auth: {e}", log_type="warning")
-            continue  # Credentials were invalid, deleted — loop to menu
+            continue
         except SystemExit:
             log(details="Shutdown requested from LCD menu", log_type="info")
             break
@@ -162,7 +187,6 @@ def main() -> None:
                 "logout_requested" : logout_requested,
                 "USER_CREDENTIAL"  : user_credentials,
                 "LCD_I2C_ADDR"     : 0x27,
-                # DISPENSE_COUNTDOWN_TIME read from Firebase by Process B directly
             }}
         )
 
@@ -179,6 +203,8 @@ def main() -> None:
                 task_B.join(timeout=0.5)
 
         except KeyboardInterrupt:
+            # KeyboardInterrupt is now handled by the SIGINT signal handler
+            # above, but keep this as a fallback for edge cases.
             log(details="KeyboardInterrupt — stopping", log_type="warning")
             _stop_processes(task_A, task_B)
             break
@@ -190,14 +216,14 @@ def main() -> None:
         if logout_requested.is_set():
             log(details="Processing logout", log_type="info")
             auth.logout(user_credentials)
-            # Loop — authenticate() will show the pairing menu again
             continue
         else:
-            # Processes exited normally (status_checker cleared, crash, etc.)
             log(details="All processes stopped — exiting", log_type="info")
             break
 
     # ── Final cleanup ─────────────────────────────────────────────────────
+    # Reached on clean break from the while loop (not SIGTERM — that is
+    # handled by _handle_exit above).
     try:
         lcd.clear()
     except Exception:

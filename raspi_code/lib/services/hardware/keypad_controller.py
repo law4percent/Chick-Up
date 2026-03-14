@@ -48,7 +48,7 @@ class Keypad4x4:
 
     # Default GPIO pin configuration (BCM numbering)
     DEFAULT_ROW_PINS = [19, 21, 20, 16]
-    DEFAULT_COL_PINS = [12, 13, 6, 5]
+    DEFAULT_COL_PINS = [12, 23, 6, 22]   # 23 and 22 replace dead GPIO 13 and GPIO 5
 
     # Default key matrix layout
     DEFAULT_MATRIX = [
@@ -66,16 +66,6 @@ class Keypad4x4:
         debounce_time   : float = 0.05,
         stability_delay : float = 0.002
     ):
-        """
-        Initialize keypad interface.
-
-        Args:
-            row_pins:        GPIO pins for rows (BCM numbering), default: [19, 21, 20, 16]
-            col_pins:        GPIO pins for columns (BCM numbering), default: [12, 13, 6, 5]
-            matrix:          Key layout matrix (4 rows x 4 columns)
-            debounce_time:   Time to wait after key press (seconds)
-            stability_delay: Delay between row scans (seconds)
-        """
         self.row_pins        = row_pins or self.DEFAULT_ROW_PINS
         self.col_pins        = col_pins or self.DEFAULT_COL_PINS
         self.matrix          = matrix or self.DEFAULT_MATRIX
@@ -101,9 +91,24 @@ class Keypad4x4:
             raise KeypadError("Matrix must be 4x4 (4 rows, 4 columns)")
 
     def setup(self) -> None:
-        """Initialize GPIO pins for the keypad"""
+        """
+        Initialize GPIO pins for the keypad.
+
+        FIX: Always force a clean re-init regardless of _is_setup state.
+        When systemd stops the service, GPIO.cleanup() wipes all pin modes.
+        On the next start, _is_setup would still be True on the object but
+        the GPIO hardware state is gone — skipping setup causes floating pins.
+        """
         if self._is_setup:
-            return
+            # Force reset pins before re-initializing — clears any dirty state
+            # left over from a previous run that didn't call cleanup() cleanly.
+            try:
+                for pin in self.row_pins:
+                    GPIO.output(pin, GPIO.HIGH)
+            except Exception:
+                pass  # pins may already be unconfigured — that's fine, we re-setup below
+            self._is_setup = False
+
         try:
             GPIO.setmode(GPIO.BCM)
             GPIO.setwarnings(False)
@@ -289,8 +294,8 @@ class Keypad4x4:
 
     def confirm_action(
         self,
-        confirm_key : str            = '#',
-        cancel_key  : str            = '*',
+        confirm_key : str             = '#',
+        cancel_key  : str             = '*',
         timeout     : Optional[float] = None
     ) -> bool:
         """
@@ -330,9 +335,17 @@ class Keypad4x4:
     # ─────────────────────────── CLEANUP ─────────────────────────────────
 
     def cleanup(self) -> None:
-        """Cleanup GPIO pins"""
+        """
+        Cleanup keypad GPIO pins only.
+
+        FIX: Use GPIO.cleanup(pins) instead of GPIO.cleanup() to avoid
+        wiping pins owned by motor_controller and ultrasonic_controller.
+        GPIO.cleanup() with no args resets ALL pins — this was silently
+        breaking other modules on service restart.
+        """
         if self._is_setup:
-            GPIO.cleanup()
+            all_pins = self.row_pins + self.col_pins
+            GPIO.cleanup(all_pins)   # only release keypad pins
             self._is_setup = False
 
     def __enter__(self):
