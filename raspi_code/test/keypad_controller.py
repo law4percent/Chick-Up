@@ -1,8 +1,11 @@
 import RPi.GPIO as GPIO
 import time
 
-ROW_PINS = [19, 21, 20, 16] #[5, 6, 13, 12]  # Row pins: 5, 6, 13, 12 1 2 3 4
-COL_PINS = [12, 13, 6, 5] # [16, 20, 21, 19] # Column pins: 16, 20, 21, 19 1 2 3 4
+
+DEFAULT_ROW_PINS = [4, 21, 20, 16]    # GPIO 19 → GPIO 4
+DEFAULT_COL_PINS = [12, 18, 26, 23]   # GPIO 22 → GPIO 18, GPIO 6 → GPIO 26
+ROW_PINS = DEFAULT_ROW_PINS
+COL_PINS = DEFAULT_COL_PINS
 # LEFT motor
 LEFT_IN1 = 17
 LEFT_IN2 = 27
