@@ -29,6 +29,13 @@ Description:
         back to the outer restart loop which re-reads all settings cleanly.
         Hardware (GPIO, motors, LCD) is NOT re-initialized on a settings restart —
         only settings and per-loop state are refreshed.
+
+    Analytics (v3):
+        Feed analytics now logs kgPerDispense per completed dispense cycle
+        instead of a sensor-derived percentage delta.
+        - kgPerDispense is fetched from Firebase settings on every restart.
+        - It live-reloads from user_settings in the inner loop without restart.
+        - Water analytics logs durationSeconds (start→stop span) unchanged.
 """
 
 import time
@@ -104,6 +111,62 @@ def _fetch_dispense_countdown(user_uid: str, task_name: str) -> int:
         log_type="warning"
     )
     return DEFAULT_DISPENSE_COUNTDOWN_MS
+
+
+# ─────────────────────────── KG PER DISPENSE CONFIG ──────────────────────────
+
+DEFAULT_KG_PER_DISPENSE     = 0.5
+_KG_PER_DISPENSE_CACHE_PATH = "credentials/kg_per_dispense.txt"
+
+
+def _load_cached_kg_per_dispense() -> float | None:
+    try:
+        with open(_KG_PER_DISPENSE_CACHE_PATH, "r") as f:
+            value = float(f.read().strip())
+            return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _save_cached_kg_per_dispense(value: float) -> None:
+    try:
+        with open(_KG_PER_DISPENSE_CACHE_PATH, "w") as f:
+            f.write(str(value))
+    except Exception:
+        pass
+
+
+def _fetch_kg_per_dispense(user_uid: str, task_name: str) -> float:
+    try:
+        from firebase_admin import db as _db
+        value = _db.reference(f"settings/{user_uid}/feed/kgPerDispense").get()
+        if isinstance(value, (int, float)) and value > 0:
+            kg = float(value)
+            _save_cached_kg_per_dispense(kg)
+            log(
+                details=f"{task_name} - kgPerDispense={kg}kg loaded from Firebase",
+                log_type="info"
+            )
+            return kg
+    except Exception as e:
+        log(
+            details=f"{task_name} - Could not read kgPerDispense from Firebase: {e}",
+            log_type="warning"
+        )
+
+    cached = _load_cached_kg_per_dispense()
+    if cached is not None:
+        log(
+            details=f"{task_name} - kgPerDispense={cached}kg loaded from local cache",
+            log_type="warning"
+        )
+        return cached
+
+    log(
+        details=f"{task_name} - kgPerDispense using hardcoded default {DEFAULT_KG_PER_DISPENSE}kg",
+        log_type="warning"
+    )
+    return DEFAULT_KG_PER_DISPENSE
 
 
 # Python weekday → JS weekday
@@ -339,6 +402,7 @@ def process_B(**kwargs) -> None:
 
         # ── Fetch settings (fresh on every restart) ───────────────────────
         DISPENSE_COUNTDOWN_TIME = _fetch_dispense_countdown(user_uid, TASK_NAME)
+        KG_PER_DISPENSE         = _fetch_kg_per_dispense(user_uid, TASK_NAME)
 
         try:
             _settings_updated_at_at_start = (
@@ -349,7 +413,8 @@ def process_B(**kwargs) -> None:
 
         log(
             details=f"{TASK_NAME} - Settings loaded. updatedAt={_settings_updated_at_at_start}, "
-                    f"dispenseCountdown={DISPENSE_COUNTDOWN_TIME}ms",
+                    f"dispenseCountdown={DISPENSE_COUNTDOWN_TIME}ms, "
+                    f"kgPerDispense={KG_PER_DISPENSE}kg",
             log_type="info",
         )
 
@@ -382,17 +447,16 @@ def process_B(**kwargs) -> None:
         last_acted_water_timestamp = None
         last_acted_schedule_key    = None
 
-        feed_level_before_dispense = 0.0
-        prev_refill_active         = False
-        prev_dispense_active       = False
-        pending_feed_source        = "keypad"
+        prev_refill_active   = False
+        prev_dispense_active = False
+        pending_feed_source  = "keypad"
 
         # ── Physical button cooldown ──────────────────────────────────────
         # Prevents the same keypad press from firing the toggle multiple
         # times across consecutive 100ms ticks while the key is held down.
-        last_physical_water_press  = 0.0
-        last_physical_feed_press   = 0.0
-        PHYSICAL_BUTTON_COOLDOWN   = 1.0   # seconds
+        last_physical_water_press   = 0.0
+        last_physical_feed_press    = 0.0
+        PHYSICAL_BUTTON_COOLDOWN    = 1.0   # seconds
         APP_AFTER_PHYSICAL_BLACKOUT = 1.0
 
         last_lcd_update       = 0.0
@@ -462,6 +526,7 @@ def process_B(**kwargs) -> None:
                     current_feed_threshold_warning  = user_settings["feed_threshold_warning"]
                     current_water_threshold_warning = user_settings["water_threshold_warning"]
 
+                    # ── Live-reload dispenseCountdownMs ───────────────────
                     new_countdown = user_settings.get("dispense_countdown_ms")
                     if isinstance(new_countdown, int) and new_countdown > 0 and new_countdown != DISPENSE_COUNTDOWN_TIME:
                         log(
@@ -471,6 +536,17 @@ def process_B(**kwargs) -> None:
                         )
                         DISPENSE_COUNTDOWN_TIME = new_countdown
                         _save_cached_countdown(new_countdown)
+
+                    # ── Live-reload kgPerDispense ─────────────────────────
+                    new_kg = user_settings.get("kg_per_dispense")
+                    if isinstance(new_kg, (int, float)) and new_kg > 0 and new_kg != KG_PER_DISPENSE:
+                        log(
+                            details=f"{TASK_NAME} - kgPerDispense updated: "
+                                    f"{KG_PER_DISPENSE}kg → {new_kg}kg",
+                            log_type="info",
+                        )
+                        KG_PER_DISPENSE = float(new_kg)
+                        _save_cached_kg_per_dispense(KG_PER_DISPENSE)
 
                     # ── Detect settings change → graceful restart ─────────
                     _current_updated_at = user_settings.get("updated_at", 0)
@@ -608,10 +684,6 @@ def process_B(**kwargs) -> None:
                     settings_restart = True
                     break
 
-                # ── Snapshot feed level before new dispense starts ────────
-                if feed_button_pressed and not dispense_active:
-                    feed_level_before_dispense = current_feed_level
-
                 # ── Motor logic — feed ────────────────────────────────────
                 dispense_active, dispense_countdown_start = _dispense_it(
                     feed_button_state        = feed_button_pressed,
@@ -628,7 +700,7 @@ def process_B(**kwargs) -> None:
                 # from cancelling each other out in one tick.
                 if physical_water_new_press:
                     last_physical_water_press = current_time
-                
+
                 if current_water_physical_button_state or water_app_new_press or physical_water_new_press:
                     log(
                         details=(
@@ -644,7 +716,7 @@ def process_B(**kwargs) -> None:
                         ),
                         log_type="info"
                     )
-                    
+
                 if not _settings_change_pending:
 
                     if water_app_new_press:
@@ -670,13 +742,12 @@ def process_B(**kwargs) -> None:
                         _log_analytics(
                             user_uid,
                             "feed",
-                            max(feed_level_before_dispense - current_feed_level, 0),
+                            KG_PER_DISPENSE,
                             source=pending_feed_source,
                         )
                     except firebase_rtdb.FirebaseWriteError as e:
                         log(details=f"{TASK_NAME} - Analytics write failed: {e}", log_type="warning")
-                    feed_level_before_dispense = 0.0
-                    pending_feed_source        = "keypad"
+                    pending_feed_source = "keypad"
 
                 if prev_refill_active and not refill_active:
                     duration_seconds = int(time.monotonic() - refill_start_monotonic)

@@ -21,7 +21,7 @@ export interface AnalyticsEntry {
 
 export interface DailyAnalytics {
   dayOfWeek            : number;  // 0 = Sun … 6 = Sat
-  feedDispensed        : number;  // sum of volumePercent for feed actions
+  feedDispensed        : number;  // kg dispensed per day: feedDispenseCount × kgPerDispense
   feedDispenseCount    : number;
   waterRefillCount     : number;
   totalRefillDuration  : number;  // sum of durationSeconds for water actions
@@ -30,12 +30,12 @@ export interface DailyAnalytics {
 }
 
 export interface SummaryStats {
-  totalFeedDispensed        : number;
+  totalFeedDispensed        : number;  // total kg dispensed this week
   totalFeedActions          : number;
   totalWaterActions         : number;
   totalRefillDurationSeconds: number;  // sum of all water durationSeconds
   avgRefillDurationPerDay   : number;  // totalRefillDurationSeconds / 7
-  avgFeedPerDay             : number;
+  avgFeedPerDay             : number;  // average kg dispensed per day
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] 
     if (day < 0 || day > 6) continue;
 
     if (entry.type === 'feed') {
-      buckets[day].feedDispensed     += entry.volumePercent    ?? 0;
+      buckets[day].feedDispensed     += entry.volumePercent ?? 0;  // Pi writes kgPerDispense here
       buckets[day].feedDispenseCount += 1;
     } else if (entry.type === 'water') {
       buckets[day].waterRefillCount   += 1;
@@ -131,7 +131,7 @@ class AnalyticsService {
       snapshot.forEach(child => {
         const entry = child.val() as AnalyticsEntry;
         if (entry.type === 'feed') {
-          stats.totalFeedDispensed += entry.volumePercent    ?? 0;
+          stats.totalFeedDispensed += entry.volumePercent ?? 0;  // Pi writes kgPerDispense here
           stats.totalFeedActions   += 1;
         } else if (entry.type === 'water') {
           stats.totalWaterActions          += 1;

@@ -123,9 +123,9 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
         <View style={styles.summaryContainer}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryIcon}>🌾</Text>
-            <Text style={styles.summaryValue}>{summaryStats.totalFeedDispensed.toFixed(0)}%</Text>
-            <Text style={styles.summaryLabel}>Total Feed</Text>
-            <Text style={styles.summarySubtext}>{summaryStats.totalFeedActions} actions</Text>
+            <Text style={styles.summaryValue}>{summaryStats.totalFeedDispensed.toFixed(2)} kg</Text>
+            <Text style={styles.summaryLabel}>Total Feed Dispensed</Text>
+            <Text style={styles.summarySubtext}>{summaryStats.totalFeedActions} dispenses</Text>
           </View>
 
           <View style={styles.summaryCard}>
@@ -155,17 +155,17 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
             <View style={styles.chartCard}>
               <View style={styles.chartHeader}>
                 <Text style={styles.chartTitle}>🌾 Feed Dispensed</Text>
-                <Text style={styles.chartSubtitle}>Volume percentage dispensed per day</Text>
+                <Text style={styles.chartSubtitle}>kg dispensed per day</Text>
               </View>
               {renderBarChart(
                 analytics,
                 (item) => item.feedDispensed,
                 '#FF9500',
-                'Feed Dispensed (%)',
+                'Feed Dispensed (kg)',
               )}
               <View style={styles.chartFooter}>
                 <Text style={styles.chartFooterText}>
-                  Daily avg: {summaryStats.avgFeedPerDay.toFixed(1)}% feed
+                  Daily avg: {summaryStats.avgFeedPerDay.toFixed(2)} kg feed
                 </Text>
               </View>
             </View>
@@ -202,7 +202,7 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
                 {analytics.map((item, index) => (
                   <View key={index} style={styles.tableRow}>
                     <Text style={[styles.tableCell, { flex: 1.2 }]}>{DAYS[item.dayOfWeek]}</Text>
-                    <Text style={styles.tableCell}>{item.feedDispensed.toFixed(0)}%</Text>
+                    <Text style={styles.tableCell}>{item.feedDispensed.toFixed(2)} kg</Text>
                     <Text style={styles.tableCell}>{item.waterRefillCount}</Text>
                     <Text style={styles.tableCell}>{formatDuration(item.totalRefillDuration)}</Text>
                   </View>
