@@ -73,6 +73,7 @@ class SettingsService {
         feed: {
           thresholdPercent:    20,
           dispenseCountdownMs: DEFAULT_DISPENSE_COUNTDOWN_MS,
+          kgPerDispense:       0.5,
         },
         water: {
           thresholdPercent:    20,
@@ -131,6 +132,10 @@ class SettingsService {
         feedSettings.dispenseCountdownMs !== undefined &&
         (feedSettings.dispenseCountdownMs < 5_000 || feedSettings.dispenseCountdownMs > 300_000)
       ) throw new Error('Dispense countdown must be between 5 000 ms and 300 000 ms');
+      if (
+        feedSettings.kgPerDispense !== undefined &&
+        (feedSettings.kgPerDispense < 0.01 || feedSettings.kgPerDispense > 10)
+      ) throw new Error('kg per dispense must be between 0.01 and 10 kg');
 
       await set(ref(database, `settings/${userId}/feed`), feedSettings);
       await set(ref(database, `settings/${userId}/updatedAt`), Date.now());

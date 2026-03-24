@@ -39,6 +39,8 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [dispenseMinutes,     setDispenseMinutes]     = useState('1');
   const [dispenseSeconds,     setDispenseSeconds]     = useState('0');
   const [durationError,       setDurationError]       = useState<string | null>(null);
+  const [kgPerDispense,       setKgPerDispense]       = useState('0.5');
+  const [kgError,             setKgError]             = useState<string | null>(null);
 
   // Water settings — alert threshold only; auto-refill removed
   const [waterThreshold, setWaterThreshold] = useState(20);
@@ -57,6 +59,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         const { minutes, seconds } = splitToMinSec(totalSec);
         setDispenseMinutes(String(minutes));
         setDispenseSeconds(String(seconds));
+        setKgPerDispense(String(settings.feed.kgPerDispense ?? 0.5));
         setWaterThreshold(settings.water.thresholdPercent);
       } else {
         await settingsService.initializeSettings(userId);
@@ -75,6 +78,13 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
     if (error) { setDurationError(error); return; }
     setDurationError(null);
 
+    const kg = parseFloat(kgPerDispense);
+    if (isNaN(kg) || kg < 0.01 || kg > 10) {
+      setKgError('kg per dispense must be between 0.01 and 10 kg.');
+      return;
+    }
+    setKgError(null);
+
     try {
       setSaving(true);
       const userId = auth.currentUser?.uid;
@@ -87,6 +97,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
         feed: {
           thresholdPercent:    feedThreshold,
           dispenseCountdownMs: totalSec * 1_000,
+          kgPerDispense:       kg,
         },
         water: {
           thresholdPercent: waterThreshold,
@@ -164,31 +175,33 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.sliderDescription}>Alert when feed level drops below this percentage</Text>
             </View>
 
+            {/* Kg per Dispense */}
             <View style={styles.inputContainer}>
-              <Text style={styles.sliderLabel}>Dispense Duration</Text>
+              <Text style={styles.sliderLabel}>Feed Calibration</Text>
               <Text style={styles.sliderDescription}>
-                How long the feed motor runs per dispense (5 s – 5 min). Raspi picks up changes live — no reboot needed.
+                kg dispensed per cycle — used to calculate total feed in Analytics.
               </Text>
               <View style={styles.durationRow}>
                 <View style={styles.durationField}>
                   <TextInput
-                    style={[styles.durationInput, durationError ? styles.durationInputError : null]}
-                    value={dispenseMinutes} onChangeText={handleMinutesChange}
-                    keyboardType="number-pad" maxLength={1} selectTextOnFocus
+                    style={[styles.durationInput, { width: 80 }, kgError ? styles.durationInputError : null]}
+                    value={kgPerDispense}
+                    onChangeText={(val) => {
+                      setKgPerDispense(val);
+                      const n = parseFloat(val);
+                      setKgError(
+                        isNaN(n) || n < 0.01 || n > 10
+                          ? 'Must be between 0.01 and 10 kg.'
+                          : null
+                      );
+                    }}
+                    keyboardType="decimal-pad"
+                    selectTextOnFocus
                   />
-                  <Text style={styles.durationUnit}>min</Text>
-                </View>
-                <Text style={styles.durationSeparator}>:</Text>
-                <View style={styles.durationField}>
-                  <TextInput
-                    style={[styles.durationInput, durationError ? styles.durationInputError : null]}
-                    value={dispenseSeconds} onChangeText={handleSecondsChange}
-                    keyboardType="number-pad" maxLength={2} selectTextOnFocus
-                  />
-                  <Text style={styles.durationUnit}>sec</Text>
+                  <Text style={styles.durationUnit}>kg</Text>
                 </View>
               </View>
-              {durationError && <Text style={styles.errorText}>{durationError}</Text>}
+              {kgError && <Text style={styles.errorText}>{kgError}</Text>}
             </View>
           </View>
 

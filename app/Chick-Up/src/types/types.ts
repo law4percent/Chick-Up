@@ -69,6 +69,14 @@ export interface DispenseSettings {
    * Default: 60 000 ms (60 s).
    */
   dispenseCountdownMs: number;
+  /**
+   * Calibrated kg dispensed per single dispense cycle.
+   * Derived from motor run time and feed flow rate.
+   * Used by analytics to compute kg dispensed: dispenseCount × kgPerDispense.
+   * Valid range: 0.01 – 10 kg.
+   * Default: 0.5 kg.
+   */
+  kgPerDispense: number;
 }
 
 export interface WaterSettings {

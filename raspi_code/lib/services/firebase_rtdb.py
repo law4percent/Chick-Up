@@ -181,6 +181,7 @@ class FirebaseRTDB:
                 "water_threshold_warning"   : water_settings.get("thresholdPercent"),
                 "auto_refill_water_enabled" : water_settings.get("autoRefillEnabled"),
                 "dispense_countdown_ms"     : countdown_ms,
+                "kg_per_dispense"           : feed_settings.get("kgPerDispense"),
             }
         }
 
