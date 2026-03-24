@@ -35,12 +35,12 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const [saving,  setSaving]  = useState(false);
 
   // Feed settings
-  const [feedThreshold,       setFeedThreshold]       = useState(20);
-  const [dispenseMinutes,     setDispenseMinutes]     = useState('1');
-  const [dispenseSeconds,     setDispenseSeconds]     = useState('0');
-  const [durationError,       setDurationError]       = useState<string | null>(null);
-  const [kgPerDispense,       setKgPerDispense]       = useState('0.5');
-  const [kgError,             setKgError]             = useState<string | null>(null);
+  const [feedThreshold,   setFeedThreshold]   = useState(20);
+  const [dispenseMinutes, setDispenseMinutes] = useState('1');
+  const [dispenseSeconds, setDispenseSeconds] = useState('0');
+  const [durationError,   setDurationError]   = useState<string | null>(null);
+  const [kgPerDispense,   setKgPerDispense]   = useState('0.5');
+  const [kgError,         setKgError]         = useState<string | null>(null);
 
   // Water settings — alert threshold only; auto-refill removed
   const [waterThreshold, setWaterThreshold] = useState(20);
@@ -161,6 +161,7 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             </View>
 
+            {/* Alert Threshold */}
             <View style={styles.sliderContainer}>
               <View style={styles.sliderHeader}>
                 <Text style={styles.sliderLabel}>Alert Threshold</Text>
@@ -175,7 +176,35 @@ const SettingsScreen: React.FC<Props> = ({ navigation }) => {
               <Text style={styles.sliderDescription}>Alert when feed level drops below this percentage</Text>
             </View>
 
-            {/* Kg per Dispense */}
+            {/* Dispense Duration */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.sliderLabel}>Dispense Duration</Text>
+              <Text style={styles.sliderDescription}>
+                How long the feed motor runs per dispense (5 s – 5 min). Raspi picks up changes live — no reboot needed.
+              </Text>
+              <View style={styles.durationRow}>
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.durationInput, durationError ? styles.durationInputError : null]}
+                    value={dispenseMinutes} onChangeText={handleMinutesChange}
+                    keyboardType="number-pad" maxLength={1} selectTextOnFocus
+                  />
+                  <Text style={styles.durationUnit}>min</Text>
+                </View>
+                <Text style={styles.durationSeparator}>:</Text>
+                <View style={styles.durationField}>
+                  <TextInput
+                    style={[styles.durationInput, durationError ? styles.durationInputError : null]}
+                    value={dispenseSeconds} onChangeText={handleSecondsChange}
+                    keyboardType="number-pad" maxLength={2} selectTextOnFocus
+                  />
+                  <Text style={styles.durationUnit}>sec</Text>
+                </View>
+              </View>
+              {durationError && <Text style={styles.errorText}>{durationError}</Text>}
+            </View>
+
+            {/* Feed Calibration */}
             <View style={styles.inputContainer}>
               <Text style={styles.sliderLabel}>Feed Calibration</Text>
               <Text style={styles.sliderDescription}>
