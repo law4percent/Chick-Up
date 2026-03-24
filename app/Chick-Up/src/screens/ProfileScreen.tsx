@@ -315,7 +315,7 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
         {!isEditing && (
           <TouchableOpacity style={styles.editButton} onPress={handleEdit}>
             <LinearGradient colors={['#FFD54F', '#4CAF50']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.editButtonGradient}>
-              <Text style={styles.editButtonText}>✏️ Edit</Text>
+              <Text style={styles.editButtonText}>Edit</Text>
             </LinearGradient>
           </TouchableOpacity>
         )}
@@ -419,7 +419,6 @@ const ProfileScreen: React.FC<Props> = ({ navigation }) => {
               end={{ x: 1, y: 0 }}
               style={styles.manualButtonGradient}
             >
-              <Text style={styles.manualButtonIcon}>📖</Text>
               <Text style={styles.manualButtonText}>Open User Manual</Text>
             </LinearGradient>
           </TouchableOpacity>
