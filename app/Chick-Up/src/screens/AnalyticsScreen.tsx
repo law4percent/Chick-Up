@@ -1,8 +1,8 @@
 // src/screens/AnalyticsScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, Alert, ActivityIndicator, Dimensions,
+  ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,40 +24,108 @@ function formatDuration(seconds: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+const EMPTY_STATS: SummaryStats = {
+  totalFeedDispensed        : 0,
+  totalFeedActions          : 0,
+  totalWaterActions         : 0,
+  totalRefillDurationSeconds: 0,
+  avgRefillDurationPerDay   : 0,
+  avgFeedPerDay             : 0,
+};
+
 const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
-  const [loading, setLoading] = useState(true);
-  const [analytics, setAnalytics] = useState<DailyAnalytics[]>([]);
-  const [summaryStats, setSummaryStats] = useState<SummaryStats>({
-    totalFeedDispensed        : 0,
-    totalFeedActions          : 0,
-    totalWaterActions         : 0,
-    totalRefillDurationSeconds: 0,
-    avgRefillDurationPerDay   : 0,
-    avgFeedPerDay             : 0,
-  });
+  const [loading,      setLoading]      = useState(true);
+  const [weekLoading,  setWeekLoading]  = useState(false);
+  const [analytics,    setAnalytics]    = useState<DailyAnalytics[]>([]);
+  const [summaryStats, setSummaryStats] = useState<SummaryStats>(EMPTY_STATS);
+  const [weekOffset,   setWeekOffset]   = useState(0);
+  const [weekLabel,    setWeekLabel]    = useState('');
 
-  useEffect(() => {
+  // Keep a ref to the live unsubscribe function so we can clean it up
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+
+  // ── Load data for a given weekOffset ─────────────────────────────────────
+  const loadWeek = useCallback(async (offset: number) => {
     const userId = auth.currentUser?.uid;
-    if (!userId) { Alert.alert('Error', 'User not authenticated'); setLoading(false); return; }
+    if (!userId) { Alert.alert('Error', 'User not authenticated'); return; }
 
-    const unsubscribe = analyticsService.subscribeAnalytics(
-      userId,
-      async (analyticsData) => {
-        setAnalytics(analyticsData);
-        const stats = await analyticsService.getSummaryStats(userId);
-        setSummaryStats(stats);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Analytics subscription error:', error);
-        Alert.alert('Error', 'Failed to load analytics');
+    // Update label immediately so UI feels responsive
+    const range = analyticsService.getWeekRange(offset);
+    setWeekLabel(range.label);
+
+    if (offset === 0) {
+      // Current week → use live subscription
+      setWeekLoading(false);
+
+      // Tear down any existing subscription first
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+
+      const unsubscribe = analyticsService.subscribeAnalytics(
+        userId,
+        (analyticsData, stats) => {
+          setAnalytics(analyticsData);
+          setSummaryStats(stats);
+          setLoading(false);
+        },
+        (error) => {
+          console.error('Analytics subscription error:', error);
+          Alert.alert('Error', 'Failed to load analytics');
+          setLoading(false);
+        },
+      );
+      unsubscribeRef.current = unsubscribe;
+
+    } else {
+      // Past week → one-time fetch, no live listener needed
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+      setWeekLoading(true);
+      try {
+        const result = await analyticsService.getWeekAnalytics(userId, offset);
+        setAnalytics(result.analytics);
+        setSummaryStats(result.stats);
+        setWeekLabel(result.weekRange.label);
+      } catch (error) {
+        console.error('Week analytics fetch error:', error);
+        Alert.alert('Error', 'Failed to load analytics for this week');
+      } finally {
+        setWeekLoading(false);
         setLoading(false);
       }
-    );
-
-    return () => unsubscribe();
+    }
   }, []);
 
+  // ── Initial load ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    loadWeek(0);
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+    };
+  }, [loadWeek]);
+
+  // ── Week navigation handlers ──────────────────────────────────────────────
+  const goToPrevWeek = () => {
+    const next = weekOffset - 1;
+    setWeekOffset(next);
+    loadWeek(next);
+  };
+
+  const goToNextWeek = () => {
+    if (weekOffset >= 0) return;
+    const next = weekOffset + 1;
+    setWeekOffset(next);
+    loadWeek(next);
+  };
+
+  // ── Bar chart renderer ────────────────────────────────────────────────────
   const renderBarChart = (
     data    : DailyAnalytics[],
     getValue: (item: DailyAnalytics) => number,
@@ -91,6 +159,7 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
     );
   };
 
+  // ── Loading state ─────────────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -106,7 +175,8 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <LinearGradient colors={['#FFFEF0', '#FFFEF0']} style={styles.container}>
-      {/* Header */}
+
+      {/* ── Header ── */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.menuButton} onPress={() => navigation.openDrawer()}>
           <Text style={styles.menuIcon}>☰</Text>
@@ -117,98 +187,135 @@ const AnalyticsScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
+      {/* ── Week Navigator ── */}
+      <View style={styles.weekNav}>
+        <TouchableOpacity style={styles.weekNavBtn} onPress={goToPrevWeek}>
+          <Text style={styles.weekNavArrow}>‹‹</Text>
+        </TouchableOpacity>
+        <View style={styles.weekNavCenter}>
+          <Text style={styles.weekNavLabel}>{weekLabel}</Text>
+          {weekOffset === 0 && (
+            <Text style={styles.weekNavCurrent}>Current Week</Text>
+          )}
+        </View>
+        <TouchableOpacity
+          style={[styles.weekNavBtn, weekOffset >= 0 && styles.weekNavBtnDisabled]}
+          onPress={goToNextWeek}
+          disabled={weekOffset >= 0}
+        >
+          <Text style={[styles.weekNavArrow, weekOffset >= 0 && styles.weekNavArrowDisabled]}>
+            ››
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* ── Summary Cards ── */}
-        <View style={styles.summaryContainer}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryIcon}>🌾</Text>
-            <Text style={styles.summaryValue}>{summaryStats.totalFeedDispensed.toFixed(2)} kg</Text>
-            <Text style={styles.summaryLabel}>Total Feed Dispensed</Text>
-            <Text style={styles.summarySubtext}>{summaryStats.totalFeedActions} dispenses</Text>
-          </View>
-
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryIcon}>💧</Text>
-            <Text style={styles.summaryValue}>
-              {formatDuration(summaryStats.totalRefillDurationSeconds)}
-            </Text>
-            <Text style={styles.summaryLabel}>Total Refill Time</Text>
-            <Text style={styles.summarySubtext}>{summaryStats.totalWaterActions} refills</Text>
-          </View>
-        </View>
-
-        {!hasData ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>📊</Text>
-            <Text style={styles.emptyStateTitle}>No Analytics Data Yet</Text>
-            <Text style={styles.emptyStateText}>
-              Start using the water refill and feed dispense buttons on the dashboard to see your analytics here.
-            </Text>
-            <TouchableOpacity style={styles.emptyStateButton} onPress={() => navigation.navigate('Dashboard')}>
-              <Text style={styles.emptyStateButtonText}>Go to Dashboard</Text>
-            </TouchableOpacity>
+        {weekLoading ? (
+          <View style={styles.weekLoadingContainer}>
+            <ActivityIndicator size="small" color="#4CAF50" />
+            <Text style={styles.weekLoadingText}>Loading week...</Text>
           </View>
         ) : (
           <>
-            {/* ── Feed Volume Chart ── */}
-            <View style={styles.chartCard}>
-              <View style={styles.chartHeader}>
-                <Text style={styles.chartTitle}>🌾 Feed Dispensed</Text>
-                <Text style={styles.chartSubtitle}>kg dispensed per day</Text>
+            {/* ── Summary Cards ── */}
+            <View style={styles.summaryContainer}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryIcon}>🌾</Text>
+                <Text style={styles.summaryValue}>{summaryStats.totalFeedDispensed.toFixed(2)} kg</Text>
+                <Text style={styles.summaryLabel}>Total Feed Dispensed</Text>
+                <Text style={styles.summarySubtext}>{summaryStats.totalFeedActions} dispenses</Text>
               </View>
-              {renderBarChart(
-                analytics,
-                (item) => item.feedDispensed,
-                '#FF9500',
-                'Feed Dispensed (kg)',
-              )}
-              <View style={styles.chartFooter}>
-                <Text style={styles.chartFooterText}>
-                  Daily avg: {summaryStats.avgFeedPerDay.toFixed(2)} kg feed
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryIcon}>💧</Text>
+                <Text style={styles.summaryValue}>
+                  {formatDuration(summaryStats.totalRefillDurationSeconds)}
                 </Text>
+                <Text style={styles.summaryLabel}>Total Refill Time</Text>
+                <Text style={styles.summarySubtext}>{summaryStats.totalWaterActions} refills</Text>
               </View>
             </View>
 
-            {/* ── Water Refill Duration Chart ── */}
-            <View style={styles.chartCard}>
-              <View style={styles.chartHeader}>
-                <Text style={styles.chartTitle}>💧 Water Refill Duration</Text>
-                <Text style={styles.chartSubtitle}>Average refill time per day (seconds)</Text>
-              </View>
-              {renderBarChart(
-                analytics,
-                (item) => item.avgDurationSeconds,
-                '#2196F3',
-                'Avg Refill Duration (s)',
-              )}
-              <View style={styles.chartFooter}>
-                <Text style={styles.chartFooterText}>
-                  Daily avg: {formatDuration(Math.round(summaryStats.avgRefillDurationPerDay))} per refill
+            {!hasData ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateIcon}>📊</Text>
+                <Text style={styles.emptyStateTitle}>No Data This Week</Text>
+                <Text style={styles.emptyStateText}>
+                  {weekOffset === 0
+                    ? 'Start using the feed and water buttons on the dashboard to see your analytics here.'
+                    : 'No feed or water activity was recorded for this week.'}
                 </Text>
+                {weekOffset === 0 && (
+                  <TouchableOpacity
+                    style={styles.emptyStateButton}
+                    onPress={() => navigation.navigate('Dashboard')}
+                  >
+                    <Text style={styles.emptyStateButtonText}>Go to Dashboard</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            </View>
-
-            {/* ── Weekly Activity Table ── */}
-            <View style={styles.tableCard}>
-              <Text style={styles.tableTitle}>📋 Weekly Activity</Text>
-              <View style={styles.table}>
-                <View style={styles.tableHeader}>
-                  <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Day</Text>
-                  <Text style={styles.tableHeaderCell}>Feed</Text>
-                  <Text style={styles.tableHeaderCell}>Refills</Text>
-                  <Text style={styles.tableHeaderCell}>Refill Time</Text>
-                </View>
-                {analytics.map((item, index) => (
-                  <View key={index} style={styles.tableRow}>
-                    <Text style={[styles.tableCell, { flex: 1.2 }]}>{DAYS[item.dayOfWeek]}</Text>
-                    <Text style={styles.tableCell}>{item.feedDispensed.toFixed(2)} kg</Text>
-                    <Text style={styles.tableCell}>{item.waterRefillCount}</Text>
-                    <Text style={styles.tableCell}>{formatDuration(item.totalRefillDuration)}</Text>
+            ) : (
+              <>
+                {/* ── Feed Volume Chart ── */}
+                <View style={styles.chartCard}>
+                  <View style={styles.chartHeader}>
+                    <Text style={styles.chartTitle}>🌾 Feed Dispensed</Text>
+                    <Text style={styles.chartSubtitle}>kg dispensed per day</Text>
                   </View>
-                ))}
-              </View>
-            </View>
+                  {renderBarChart(
+                    analytics,
+                    (item) => item.feedDispensed,
+                    '#FF9500',
+                    'Feed Dispensed (kg)',
+                  )}
+                  <View style={styles.chartFooter}>
+                    <Text style={styles.chartFooterText}>
+                      Daily avg: {summaryStats.avgFeedPerDay.toFixed(2)} kg feed
+                    </Text>
+                  </View>
+                </View>
+
+                {/* ── Water Refill Duration Chart ── */}
+                <View style={styles.chartCard}>
+                  <View style={styles.chartHeader}>
+                    <Text style={styles.chartTitle}>💧 Water Refill Duration</Text>
+                    <Text style={styles.chartSubtitle}>Average refill time per day (seconds)</Text>
+                  </View>
+                  {renderBarChart(
+                    analytics,
+                    (item) => item.avgDurationSeconds,
+                    '#2196F3',
+                    'Avg Refill Duration (s)',
+                  )}
+                  <View style={styles.chartFooter}>
+                    <Text style={styles.chartFooterText}>
+                      Daily avg: {formatDuration(Math.round(summaryStats.avgRefillDurationPerDay))} per refill
+                    </Text>
+                  </View>
+                </View>
+
+                {/* ── Weekly Activity Table ── */}
+                <View style={styles.tableCard}>
+                  <Text style={styles.tableTitle}>📋 Weekly Activity</Text>
+                  <View style={styles.table}>
+                    <View style={styles.tableHeader}>
+                      <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Day</Text>
+                      <Text style={styles.tableHeaderCell}>Feed</Text>
+                      <Text style={styles.tableHeaderCell}>Refills</Text>
+                      <Text style={styles.tableHeaderCell}>Refill Time</Text>
+                    </View>
+                    {analytics.map((item, index) => (
+                      <View key={index} style={styles.tableRow}>
+                        <Text style={[styles.tableCell, { flex: 1.2 }]}>{DAYS[item.dayOfWeek]}</Text>
+                        <Text style={styles.tableCell}>{item.feedDispensed.toFixed(2)} kg</Text>
+                        <Text style={styles.tableCell}>{item.waterRefillCount}</Text>
+                        <Text style={styles.tableCell}>{formatDuration(item.totalRefillDuration)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </>
+            )}
           </>
         )}
 
@@ -222,41 +329,75 @@ const styles = StyleSheet.create({
   container:        { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFEF0' },
   loadingText:      { marginTop: 12, fontSize: 16, color: '#666' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 50, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#FFFEF0' },
+
+  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 50, paddingHorizontal: 20, paddingBottom: 12, backgroundColor: '#FFFEF0' },
   menuButton:          { padding: 8 },
   menuIcon:            { fontSize: 28, color: '#333' },
   headerTextContainer: { marginLeft: 12 },
   headerTitle:         { fontSize: 24, fontWeight: 'bold', color: '#2E7D32' },
   headerSubtitle:      { fontSize: 12, color: '#666', marginTop: 2 },
-  content:             { flex: 1, paddingHorizontal: 20 },
-  summaryContainer:    { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+
+  // ── Week Navigator ──────────────────────────────────────────────────────────
+  weekNav: {
+    flexDirection    : 'row',
+    alignItems       : 'center',
+    justifyContent   : 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical  : 10,
+    backgroundColor  : '#FFFFFF',
+    marginHorizontal : 20,
+    borderRadius     : 14,
+    marginBottom     : 16,
+    shadowColor      : '#000',
+    shadowOffset     : { width: 0, height: 1 },
+    shadowOpacity    : 0.08,
+    shadowRadius     : 4,
+    elevation        : 2,
+  },
+  weekNavBtn:          { padding: 8 },
+  weekNavBtnDisabled:  { opacity: 0.3 },
+  weekNavArrow:        { fontSize: 18, fontWeight: 'bold', color: '#2E7D32' },
+  weekNavArrowDisabled:{ color: '#CCC' },
+  weekNavCenter:       { alignItems: 'center', flex: 1 },
+  weekNavLabel:        { fontSize: 14, fontWeight: '600', color: '#333' },
+  weekNavCurrent:      { fontSize: 10, color: '#4CAF50', marginTop: 2 },
+
+  // ── Week loading ────────────────────────────────────────────────────────────
+  weekLoadingContainer: { alignItems: 'center', paddingVertical: 60 },
+  weekLoadingText:      { marginTop: 12, fontSize: 14, color: '#666' },
+
+  content:          { flex: 1, paddingHorizontal: 20 },
+  summaryContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
   summaryCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, width: '48%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
   summaryIcon:    { fontSize: 32, marginBottom: 8 },
   summaryValue:   { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 4 },
   summaryLabel:   { fontSize: 14, color: '#666', marginBottom: 4 },
   summarySubtext: { fontSize: 12, color: '#999' },
-  emptyState: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 40, alignItems: 'center', marginTop: 40, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
-  emptyStateIcon:        { fontSize: 64, marginBottom: 16 },
-  emptyStateTitle:       { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 12 },
-  emptyStateText:        { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
-  emptyStateButton:      { backgroundColor: '#4CAF50', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  emptyStateButtonText:  { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+
+  emptyState: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 40, alignItems: 'center', marginTop: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  emptyStateIcon:       { fontSize: 64, marginBottom: 16 },
+  emptyStateTitle:      { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 12 },
+  emptyStateText:       { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  emptyStateButton:     { backgroundColor: '#4CAF50', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  emptyStateButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
+
   chartCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
   chartHeader:   { marginBottom: 20 },
   chartTitle:    { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 4 },
   chartSubtitle: { fontSize: 12, color: '#666' },
   chartContainer:{ paddingVertical: 10 },
-  chartBars: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: 150, marginBottom: 10 },
-  barGroup:    { alignItems: 'center', flex: 1 },
-  barContainer:{ width: 20, height: 120, justifyContent: 'flex-end' },
-  bar:         { width: '100%', borderTopLeftRadius: 4, borderTopRightRadius: 4, minHeight: 2 },
-  barLabel:    { fontSize: 10, color: '#666', fontWeight: '600', marginTop: 6 },
-  chartLegend: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 10 },
-  legendItem:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendColor: { width: 12, height: 12, borderRadius: 2 },
-  legendText:  { fontSize: 12, color: '#666' },
-  chartFooter: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E0E0E0' },
+  chartBars:     { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: 150, marginBottom: 10 },
+  barGroup:      { alignItems: 'center', flex: 1 },
+  barContainer:  { width: 20, height: 120, justifyContent: 'flex-end' },
+  bar:           { width: '100%', borderTopLeftRadius: 4, borderTopRightRadius: 4, minHeight: 2 },
+  barLabel:      { fontSize: 10, color: '#666', fontWeight: '600', marginTop: 6 },
+  chartLegend:   { flexDirection: 'row', justifyContent: 'center', gap: 20, marginTop: 10 },
+  legendItem:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendColor:   { width: 12, height: 12, borderRadius: 2 },
+  legendText:    { fontSize: 12, color: '#666' },
+  chartFooter:   { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E0E0E0' },
   chartFooterText: { fontSize: 12, color: '#666', textAlign: 'center' },
+
   tableCard:  { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
   tableTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 16 },
   table:      { borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#E0E0E0' },

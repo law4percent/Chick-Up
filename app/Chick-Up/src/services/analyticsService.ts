@@ -38,26 +38,42 @@ export interface SummaryStats {
   avgFeedPerDay             : number;  // average kg dispensed per day
 }
 
+export interface WeekRange {
+  startMs : number;
+  endMs   : number;
+  label   : string;  // e.g. "Mar 22 – Mar 28"
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getCurrentWeekRange(): { startMs: number; endMs: number } {
-  const now       = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Sun, 6 = Sat
+/**
+ * Returns the Sun–Sat week range for a given weekOffset.
+ * weekOffset =  0 → current week
+ * weekOffset = -1 → last week
+ * weekOffset = -2 → two weeks ago
+ */
+function getWeekRange(weekOffset: number = 0): WeekRange {
+  const now         = new Date();
+  const dayOfWeek   = now.getDay(); // 0 = Sun
   const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - dayOfWeek);
+  startOfWeek.setDate(now.getDate() - dayOfWeek + weekOffset * 7);
   startOfWeek.setHours(0, 0, 0, 0);
 
   const endOfWeek = new Date(startOfWeek);
   endOfWeek.setDate(startOfWeek.getDate() + 6);
   endOfWeek.setHours(23, 59, 59, 999);
 
+  const pad    = (n: number) => String(n).padStart(2, '0');
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const startLabel = `${MONTHS[startOfWeek.getMonth()]} ${pad(startOfWeek.getDate())}`;
+  const endLabel   = `${MONTHS[endOfWeek.getMonth()]} ${pad(endOfWeek.getDate())}`;
+
   return {
-    startMs: startOfWeek.getTime(),
-    endMs  : endOfWeek.getTime(),
+    startMs : startOfWeek.getTime(),
+    endMs   : endOfWeek.getTime(),
+    label   : `${startLabel} – ${endLabel}`,
   };
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] {
   const buckets: DailyAnalytics[] = Array.from({ length: 7 }, (_, i) => ({
@@ -78,12 +94,11 @@ function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] 
       buckets[day].feedDispensed     += entry.volumePercent ?? 0;  // Pi writes kgPerDispense here
       buckets[day].feedDispenseCount += 1;
     } else if (entry.type === 'water') {
-      buckets[day].waterRefillCount   += 1;
+      buckets[day].waterRefillCount    += 1;
       buckets[day].totalRefillDuration += entry.durationSeconds ?? 0;
     }
   }
 
-  // Compute avg duration per day
   for (const bucket of buckets) {
     bucket.avgDurationSeconds = bucket.waterRefillCount > 0
       ? Math.round(bucket.totalRefillDuration / bucket.waterRefillCount)
@@ -93,33 +108,62 @@ function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] 
   return buckets;
 }
 
+function computeSummary(entries: AnalyticsEntry[]): SummaryStats {
+  const stats: SummaryStats = {
+    totalFeedDispensed        : 0,
+    totalFeedActions          : 0,
+    totalWaterActions         : 0,
+    totalRefillDurationSeconds: 0,
+    avgRefillDurationPerDay   : 0,
+    avgFeedPerDay             : 0,
+  };
+
+  for (const entry of entries) {
+    if (entry.type === 'feed') {
+      stats.totalFeedDispensed += entry.volumePercent ?? 0;
+      stats.totalFeedActions   += 1;
+    } else if (entry.type === 'water') {
+      stats.totalWaterActions          += 1;
+      stats.totalRefillDurationSeconds += entry.durationSeconds ?? 0;
+    }
+  }
+
+  stats.avgFeedPerDay           = stats.totalFeedDispensed        / 7;
+  stats.avgRefillDurationPerDay = stats.totalRefillDurationSeconds / 7;
+
+  return stats;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AnalyticsService {
 
-  // ── Real-time subscription ──────────────────────────────────────────────────
+  // ── Real-time subscription (current week only) ──────────────────────────────
+  //
+  // Only the current week (weekOffset = 0) needs a live listener since past
+  // weeks are immutable. For past weeks use getWeekAnalytics() instead.
 
   subscribeAnalytics(
     userId   : string,
-    callback : (data: DailyAnalytics[]) => void,
+    callback : (data: DailyAnalytics[], stats: SummaryStats) => void,
     onError? : (error: Error) => void,
   ): () => void {
     const logsRef = query(
       ref(database, `analytics/logs/${userId}`),
       orderByChild('timestamp'),
-      limitToLast(200),
+      limitToLast(500),
     );
 
     onValue(
       logsRef,
       (snapshot) => {
-        const entries: AnalyticsEntry[] = [];
+        const allEntries: AnalyticsEntry[] = [];
         if (snapshot.exists()) {
-          snapshot.forEach(child => { entries.push(child.val() as AnalyticsEntry); });
+          snapshot.forEach(child => { allEntries.push(child.val() as AnalyticsEntry); });
         }
-        const { startMs, endMs } = getCurrentWeekRange();
-        const thisWeek = entries.filter(e => e.timestamp >= startMs && e.timestamp <= endMs);
-        callback(aggregateToDailyAnalytics(thisWeek));
+        const { startMs, endMs } = getWeekRange(0);
+        const thisWeek = allEntries.filter(e => e.timestamp >= startMs && e.timestamp <= endMs);
+        callback(aggregateToDailyAnalytics(thisWeek), computeSummary(thisWeek));
       },
       (error) => { console.error('❌ Analytics subscription error:', error); onError?.(error); },
     );
@@ -127,45 +171,70 @@ class AnalyticsService {
     return () => off(logsRef);
   }
 
-  // ── Summary stats ───────────────────────────────────────────────────────────
+  // ── One-time fetch for any week offset ─────────────────────────────────────
 
-  async getSummaryStats(userId: string): Promise<SummaryStats> {
+  async getWeekAnalytics(
+    userId     : string,
+    weekOffset : number,
+  ): Promise<{ analytics: DailyAnalytics[]; stats: SummaryStats; weekRange: WeekRange }> {
     try {
+      const weekRange = getWeekRange(weekOffset);
+
       const logsRef = query(
         ref(database, `analytics/logs/${userId}`),
         orderByChild('timestamp'),
-        limitToLast(200),
+        limitToLast(500),
       );
       const snapshot = await get(logsRef);
 
-      const stats: SummaryStats = {
-        totalFeedDispensed        : 0,
-        totalFeedActions          : 0,
-        totalWaterActions         : 0,
-        totalRefillDurationSeconds: 0,
-        avgRefillDurationPerDay   : 0,
-        avgFeedPerDay             : 0,
+      const allEntries: AnalyticsEntry[] = [];
+      if (snapshot.exists()) {
+        snapshot.forEach(child => { allEntries.push(child.val() as AnalyticsEntry); });
+      }
+
+      const weekEntries = allEntries.filter(
+        e => e.timestamp >= weekRange.startMs && e.timestamp <= weekRange.endMs
+      );
+
+      return {
+        analytics : aggregateToDailyAnalytics(weekEntries),
+        stats     : computeSummary(weekEntries),
+        weekRange,
       };
+    } catch (error) {
+      console.error('❌ Failed to fetch week analytics:', error);
+      throw error;
+    }
+  }
 
-      if (!snapshot.exists()) return stats;
+  // ── Get week range label only ───────────────────────────────────────────────
 
-      const { startMs, endMs } = getCurrentWeekRange();
+  getWeekRange(weekOffset: number): WeekRange {
+    return getWeekRange(weekOffset);
+  }
+
+  // ── Summary stats (kept for backwards compatibility) ───────────────────────
+
+  async getSummaryStats(userId: string, weekOffset: number = 0): Promise<SummaryStats> {
+    try {
+      const { startMs, endMs } = getWeekRange(weekOffset);
+      const logsRef = query(
+        ref(database, `analytics/logs/${userId}`),
+        orderByChild('timestamp'),
+        limitToLast(500),
+      );
+      const snapshot = await get(logsRef);
+      if (!snapshot.exists()) return computeSummary([]);
+
+      const entries: AnalyticsEntry[] = [];
       snapshot.forEach(child => {
         const entry = child.val() as AnalyticsEntry;
-        if (entry.timestamp < startMs || entry.timestamp > endMs) return;
-        if (entry.type === 'feed') {
-          stats.totalFeedDispensed += entry.volumePercent ?? 0;
-          stats.totalFeedActions   += 1;
-        } else if (entry.type === 'water') {
-          stats.totalWaterActions          += 1;
-          stats.totalRefillDurationSeconds += entry.durationSeconds ?? 0;
+        if (entry.timestamp >= startMs && entry.timestamp <= endMs) {
+          entries.push(entry);
         }
       });
 
-      stats.avgFeedPerDay           = stats.totalFeedDispensed        / 7;
-      stats.avgRefillDurationPerDay = stats.totalRefillDurationSeconds / 7;
-
-      return stats;
+      return computeSummary(entries);
     } catch (error) {
       console.error('❌ Failed to compute summary stats:', error);
       throw error;
@@ -192,7 +261,7 @@ class AnalyticsService {
       action,
       type,
       volumePercent,
-      durationSeconds: 0,   // app-side water commands don't know duration — Pi writes this
+      durationSeconds: 0,
       timestamp,
       date,
       time,
