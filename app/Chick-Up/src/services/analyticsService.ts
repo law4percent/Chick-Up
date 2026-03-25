@@ -40,6 +40,25 @@ export interface SummaryStats {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function getCurrentWeekRange(): { startMs: number; endMs: number } {
+  const now       = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sun, 6 = Sat
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - dayOfWeek);
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  endOfWeek.setHours(23, 59, 59, 999);
+
+  return {
+    startMs: startOfWeek.getTime(),
+    endMs  : endOfWeek.getTime(),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function aggregateToDailyAnalytics(entries: AnalyticsEntry[]): DailyAnalytics[] {
   const buckets: DailyAnalytics[] = Array.from({ length: 7 }, (_, i) => ({
     dayOfWeek          : i,
@@ -98,7 +117,9 @@ class AnalyticsService {
         if (snapshot.exists()) {
           snapshot.forEach(child => { entries.push(child.val() as AnalyticsEntry); });
         }
-        callback(aggregateToDailyAnalytics(entries));
+        const { startMs, endMs } = getCurrentWeekRange();
+        const thisWeek = entries.filter(e => e.timestamp >= startMs && e.timestamp <= endMs);
+        callback(aggregateToDailyAnalytics(thisWeek));
       },
       (error) => { console.error('❌ Analytics subscription error:', error); onError?.(error); },
     );
@@ -128,10 +149,12 @@ class AnalyticsService {
 
       if (!snapshot.exists()) return stats;
 
+      const { startMs, endMs } = getCurrentWeekRange();
       snapshot.forEach(child => {
         const entry = child.val() as AnalyticsEntry;
+        if (entry.timestamp < startMs || entry.timestamp > endMs) return;
         if (entry.type === 'feed') {
-          stats.totalFeedDispensed += entry.volumePercent ?? 0;  // Pi writes kgPerDispense here
+          stats.totalFeedDispensed += entry.volumePercent ?? 0;
           stats.totalFeedActions   += 1;
         } else if (entry.type === 'water') {
           stats.totalWaterActions          += 1;
