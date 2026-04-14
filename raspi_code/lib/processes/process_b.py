@@ -1,9 +1,26 @@
 """
 Path: lib/processes/process_b.py
 Description:
-    Hardware control process — sensors, motors, LCD display.
+    Hardware control process — motors, LCD display, keypad, Firebase.
     Reads Firebase RTDB state and physical keypad, drives feed/water motors,
     updates LCD, and logs analytics back to Firebase.
+
+    Sensor reads (v3 — offloaded to process_c):
+        Feed and water level percentages are no longer read directly in this
+        process. process_c runs the HC-SR04 ultrasonic sensors in a dedicated
+        loop with the median filter enabled and writes the latest values into
+        two shared multiprocessing.Value floats:
+
+            shared_feed_level  : multiprocessing.Value('d')
+            shared_water_level : multiprocessing.Value('d')
+
+        This process reads those values on every tick via:
+            current_feed_level  = shared_feed_level.value
+            current_water_level = shared_water_level.value
+
+        No locks are acquired on the read side — reading a double is atomic
+        on all supported platforms and the occasional torn read of a float
+        (one stale byte) is harmless compared to blocking the tick loop.
 
     Water refill behaviour (v2):
         Refill is now fully manual and toggle-based.
@@ -48,7 +65,6 @@ from lib.services import firebase_rtdb
 from lib.services.firebase_rtdb import FirebaseInitError, FirebaseReadError
 from lib.services.hardware import (
     motor_controller        as motor,
-    ultrasonic_controller   as distance,
     lcd_controller          as lcd,
 )
 from lib.services.hardware.keypad_controller import Keypad4x4, KeypadError
@@ -191,7 +207,10 @@ def _handle_feed_dispense(state: bool) -> None:
 
 def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
     """
-    Read all sensors and keypad state.
+    Read keypad state only.
+
+    Sensor levels are NO LONGER read here — they come from shared memory
+    (shared_feed_level, shared_water_level) written by process_c.
 
     Uses scan_key() (no debounce) — debouncing for the toggle logic is
     handled upstream via the physical button cooldown timer, not here.
@@ -206,12 +225,7 @@ def _read_pins_data(keypad_instance: Keypad4x4) -> dict:
     elif key == "#":
         current_water_physical_button_state = True
 
-    feed_level  = distance.read_left_distance()
-    water_level = distance.read_right_distance()
-
     return {
-        "current_feed_level"                    : _convert_to_percentage(feed_level),
-        "current_water_level"                   : _convert_to_percentage(water_level),
         "current_feed_physical_button_state"    : current_feed_physical_button_state,
         "current_water_physical_button_state"   : current_water_physical_button_state,
         "raw_key"                               : key,
@@ -342,13 +356,16 @@ def _update_lcd_display(
 # ─────────────────────────── PROCESS B ───────────────────────────────────────
 
 def process_B(**kwargs) -> None:
-    args              = kwargs["process_B_args"]
-    TASK_NAME         = args["TASK_NAME"]
-    status_checker    = args["status_checker"]
-    live_status       = args["live_status"]
-    logout_requested  = args["logout_requested"]
-    USER_CREDENTIAL   = args["USER_CREDENTIAL"]
-    LCD_I2C_ADDR      = args.get("LCD_I2C_ADDR", 0x27)
+    args               = kwargs["process_B_args"]
+    TASK_NAME          = args["TASK_NAME"]
+    status_checker     = args["status_checker"]
+    live_status        = args["live_status"]
+    logout_requested   = args["logout_requested"]
+    USER_CREDENTIAL    = args["USER_CREDENTIAL"]
+    LCD_I2C_ADDR       = args.get("LCD_I2C_ADDR", 0x27)
+    # ── Shared memory from process_c ──────────────────────────────────────
+    shared_feed_level  = args["shared_feed_level"]   # multiprocessing.Value('d')
+    shared_water_level = args["shared_water_level"]  # multiprocessing.Value('d')
 
     log(details=f"{TASK_NAME} - Running", log_type="info")
 
@@ -384,7 +401,9 @@ def process_B(**kwargs) -> None:
         status_checker.clear()
         GPIO.cleanup()
         return
-    distance.setup_ultrasonics()
+
+    # NOTE: distance.setup_ultrasonics() is intentionally NOT called here.
+    # Ultrasonic setup and reads are now owned entirely by process_c.
 
     lcd_obj = None
     try:
@@ -481,18 +500,21 @@ def process_B(**kwargs) -> None:
                 current_time = time.time()
                 time.sleep(0.1)
 
-                # ── Read pins ─────────────────────────────────────────────
+                # ── Read keypad ───────────────────────────────────────────
+                # Sensor levels come from shared memory (process_c), not here.
                 try:
                     pins_data = _read_pins_data(keypad_instance)
-                    current_feed_level                  = pins_data["current_feed_level"]
-                    current_water_level                 = pins_data["current_water_level"]
                     current_feed_physical_button_state  = pins_data["current_feed_physical_button_state"]
                     current_water_physical_button_state = pins_data["current_water_physical_button_state"]
                     raw_key                             = pins_data["raw_key"]
                 except Exception as e:
-                    log(details=f"{TASK_NAME} - Sensor read failed: {e}", log_type="error")
+                    log(details=f"{TASK_NAME} - Keypad read failed: {e}", log_type="error")
                     status_checker.clear()
                     break
+
+                # ── Read sensor levels from shared memory (process_c) ─────
+                current_feed_level  = shared_feed_level.value
+                current_water_level = shared_water_level.value
 
                 # ── D-key hold → logout request ───────────────────────────
                 if raw_key == "D":
