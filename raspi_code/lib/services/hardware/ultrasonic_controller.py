@@ -12,9 +12,17 @@ Noise reduction:
     Fix: take SAMPLE_COUNT raw readings per call, discard outliers, return
     the median. Spikes are isolated samples — the median survives them.
 
+    The median filter was previously commented out because it blocked the
+    100ms tick loop in process_b (5 samples × 30ms = ~150ms per sensor,
+    ~300ms total — longer than the entire tick budget).
+
+    Now that sensor reads run in their own dedicated process (process_c),
+    the median filter is safe to re-enable. process_c has no tick budget
+    constraint and can spend as long as the hardware requires.
+
 Logging contract:
     This is a service module — no logging. Returns 0.0 on read failure.
-    Callers (process_b) treat persistent 0.0 as a sensor fault.
+    Callers (process_c) treat persistent 0.0 as a sensor fault.
 """
 
 import time
@@ -74,7 +82,7 @@ def _measure_once(trig: int, echo: int) -> float:
     stop = None
 
     # Wait for ECHO to go HIGH
-    timeout = time.time() + 0.04  # 40ms timeout (~6.8m max distance)
+    timeout = time.time() + ECHO_TIMEOUT
     while GPIO.input(echo) == 0 and time.time() < timeout:
         start = time.time()
 
@@ -82,7 +90,7 @@ def _measure_once(trig: int, echo: int) -> float:
         return 0.0
 
     # Wait for ECHO to go LOW
-    timeout = time.time() + 0.04
+    timeout = time.time() + ECHO_TIMEOUT
     while GPIO.input(echo) == 1 and time.time() < timeout:
         stop = time.time()
 
@@ -131,17 +139,23 @@ def read_left_distance() -> float:
     """
     Read feed level sensor (left — GPIO TRIG 25, ECHO 24).
 
+    Uses the median filter — safe to call now that sensor reads run in their
+    own dedicated process (process_c) with no tick budget constraint.
+
     Returns:
         float: Median distance in cm. 0.0 = sensor fault / no valid reading.
     """
-    return _measure_once(LEFT_TRIG, LEFT_ECHO) # _median_distance(LEFT_TRIG, LEFT_ECHO)
+    return _median_distance(LEFT_TRIG, LEFT_ECHO)
 
 
 def read_right_distance() -> float:
     """
     Read water level sensor (right — GPIO TRIG 7, ECHO 8).
 
+    Uses the median filter — safe to call now that sensor reads run in their
+    own dedicated process (process_c) with no tick budget constraint.
+
     Returns:
         float: Median distance in cm. 0.0 = sensor fault / no valid reading.
     """
-    return _measure_once(RIGHT_TRIG, RIGHT_ECHO) # _median_distance(RIGHT_TRIG, RIGHT_ECHO)
+    return _median_distance(RIGHT_TRIG, RIGHT_ECHO)

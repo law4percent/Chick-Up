@@ -6,7 +6,7 @@ System Flow:
     2. AuthService.authenticate()
        - credentials/user_credentials.txt exists → re-validate → load
        - Missing → cursor-menu: Login (pair) or Shutdown
-    3. Start Process A + Process B
+    3. Start Process A + Process B + Process C
     4. Wait for processes to finish OR for logout_requested Event
        - logout_requested → terminate processes → call auth.logout() → loop to step 2
        - normal exit → clean shutdown
@@ -14,17 +14,30 @@ System Flow:
 Logout flow (while running):
     - User holds D key on keypad for 3 seconds inside Process B
     - Process B sets logout_requested Event and exits its loop
-    - main.py sees the event, terminates both processes
+    - main.py sees the event, terminates all three processes
     - Calls auth.logout() — deletes user_credentials.txt, cleans Firebase
     - Loops back to authenticate() — cursor menu reappears on LCD
+
+Process C — Ultrasonic sensors:
+    process_c runs the HC-SR04 feed and water level sensors in a dedicated
+    loop with the median filter enabled. It writes the latest readings into
+    two shared multiprocessing.Value('d') objects:
+
+        shared_feed_level  — feed level  (%)
+        shared_water_level — water level (%)
+
+    process_b reads these values on every tick without blocking.
+    The Values are created fresh each session (inside the auth loop) so
+    they are always valid when passed to the child processes.
 """
 
 import os
 import signal
 import sys
-from multiprocessing import Process, Event
+from multiprocessing import Process, Event, Value
+from ctypes import c_double
 
-from lib.processes import process_a, process_b
+from lib.processes import process_a, process_b, process_c
 from lib.services.auth import (
     AuthService,
     FirebaseInitError,
@@ -60,9 +73,9 @@ TURN_USERNAME    = os.getenv("TURN_USERNAME")
 TURN_PASSWORD    = os.getenv("TURN_PASSWORD")
 
 
-def _stop_processes(task_A: Process, task_B: Process) -> None:
-    """Terminate both processes and wait for them to exit."""
-    for task in [task_A, task_B]:
+def _stop_processes(*tasks: Process) -> None:
+    """Terminate all processes and wait for them to exit."""
+    for task in tasks:
         if task.is_alive():
             task.terminate()
             task.join(timeout=5)
@@ -161,6 +174,12 @@ def main() -> None:
         live_status.clear()
         logout_requested.clear()
 
+        # ── Shared sensor values — written by process_c, read by process_b ─
+        # Value('d') is a double-precision float backed by shared memory.
+        # Initialized to 0.0; process_c overwrites on its first read cycle.
+        shared_feed_level  = Value(c_double, 0.0)
+        shared_water_level = Value(c_double, 0.0)
+
         # ── Step 3: Start processes ───────────────────────────────────────
         task_A = Process(
             target=process_a.process_A,
@@ -181,36 +200,54 @@ def main() -> None:
         task_B = Process(
             target=process_b.process_B,
             kwargs={"process_B_args": {
-                "TASK_NAME"        : "Process B",
-                "status_checker"   : status_checker,
-                "live_status"      : live_status,
-                "logout_requested" : logout_requested,
-                "USER_CREDENTIAL"  : user_credentials,
-                "LCD_I2C_ADDR"     : 0x27,
+                "TASK_NAME"          : "Process B",
+                "status_checker"     : status_checker,
+                "live_status"        : live_status,
+                "logout_requested"   : logout_requested,
+                "USER_CREDENTIAL"    : user_credentials,
+                "LCD_I2C_ADDR"       : 0x27,
+                # Shared memory — process_b reads, process_c writes
+                "shared_feed_level"  : shared_feed_level,
+                "shared_water_level" : shared_water_level,
+            }}
+        )
+
+        task_C = Process(
+            target=process_c.process_C,
+            kwargs={"process_C_args": {
+                "TASK_NAME"          : "Process C",
+                "status_checker"     : status_checker,
+                # Shared memory — process_c writes, process_b reads
+                "shared_feed_level"  : shared_feed_level,
+                "shared_water_level" : shared_water_level,
             }}
         )
 
         task_A.start()
         task_B.start()
+        task_C.start()
+
+        log(details="Process A, B, C started", log_type="info")
 
         # ── Step 4: Wait — monitor for logout or normal exit ──────────────
         try:
-            while task_A.is_alive() or task_B.is_alive():
+            while task_A.is_alive() or task_B.is_alive() or task_C.is_alive():
                 if logout_requested.is_set():
                     log(details="Logout requested — stopping processes", log_type="info")
                     break
                 task_A.join(timeout=0.5)
                 task_B.join(timeout=0.5)
+                task_C.join(timeout=0.5)
 
         except KeyboardInterrupt:
             # KeyboardInterrupt is now handled by the SIGINT signal handler
             # above, but keep this as a fallback for edge cases.
             log(details="KeyboardInterrupt — stopping", log_type="warning")
-            _stop_processes(task_A, task_B)
+            _stop_processes(task_A, task_B, task_C)
             break
 
         # ── Step 5: Stop processes cleanly ───────────────────────────────
-        _stop_processes(task_A, task_B)
+        _stop_processes(task_A, task_B, task_C)
 
         # ── Step 6: Handle logout vs normal exit ─────────────────────────
         if logout_requested.is_set():
