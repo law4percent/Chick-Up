@@ -1,7 +1,15 @@
-firebase_admin==7.1.0
-# opencv-python==4.12.0.88
-ultralytics==8.3.226
+# Core Math and Hardware
+numpy
+smbus2
+RPi.GPIO
 
-# WebRTC Core
-aiortc==1.6.0
-av==11.0.0
+# WebRTC and Streaming
+av>=10.0.0
+aiortc>=1.5.0
+
+# Computer Vision (Headless for performance on Pi)
+opencv-python-headless
+
+# Cloud and Configuration
+firebase-admin
+python-dotenv
