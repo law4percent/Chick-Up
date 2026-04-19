@@ -31,7 +31,7 @@ import RPi.GPIO as GPIO
 # ─────────────────────────── PIN DEFINITIONS ─────────────────────────────────
 
 LEFT_TRIG  = 25   # Feed sensor — trigger
-LEFT_ECHO  = 24   # Feed sensor — echo
+LEFT_ECHO  = 19   # Feed sensor — echo
 RIGHT_TRIG = 7    # Water sensor — trigger
 RIGHT_ECHO = 8    # Water sensor — echo
 
